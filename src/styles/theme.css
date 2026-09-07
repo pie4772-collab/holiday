@@ -200,7 +200,25 @@
   text-align: right;
 }
 
+/* Web/desktop: one-row table. Phone (≤639px): cards */
+.mobile-only {
+  display: none;
+}
+
+.desktop-only {
+  display: block;
+}
+
 @media (max-width: 639px) {
+  .mobile-only {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .desktop-only {
+    display: none;
+  }
+
   .stripe-metric-value {
     font-size: 24px;
   }

@@ -90,7 +90,7 @@ export function AdminEmployeeRoster() {
 
       <Panel>
         {/* Mobile card list */}
-        <div className="md:hidden mobile-card-list">
+        <div className="mobile-only mobile-card-list">
           {roster?.map((emp) => (
             <div key={emp.id} className={`mobile-card-item ${!emp.isActive ? 'opacity-60' : ''}`}>
               <div className="flex items-start justify-between gap-3">
@@ -150,8 +150,8 @@ export function AdminEmployeeRoster() {
           ))}
         </div>
 
-        {/* Desktop table */}
-        <div className="hidden md:block stripe-table-scroll">
+        {/* Desktop / web: one row per employee */}
+        <div className="desktop-only stripe-table-scroll">
           <table className="stripe-table w-full">
             <thead>
               <tr>
@@ -168,12 +168,12 @@ export function AdminEmployeeRoster() {
             <tbody>
               {roster?.map((emp) => (
                 <tr key={emp.id} className={!emp.isActive ? 'opacity-60' : ''}>
-                  <td className="font-medium">{emp.name}</td>
-                  <td className="font-mono text-[13px] muted">{emp.empNo || '-'}</td>
-                  <td className="muted">{emp.department}</td>
-                  <td className="muted">{emp.position}</td>
-                  <td className="font-mono text-[13px] muted">{formatDate(emp.hireDate)}</td>
-                  <td className="font-mono text-[13px] muted">
+                  <td className="font-medium whitespace-nowrap">{emp.name}</td>
+                  <td className="font-mono text-[13px] muted whitespace-nowrap">{emp.empNo || '-'}</td>
+                  <td className="muted whitespace-nowrap">{emp.department}</td>
+                  <td className="muted whitespace-nowrap">{emp.position}</td>
+                  <td className="font-mono text-[13px] muted whitespace-nowrap">{formatDate(emp.hireDate)}</td>
+                  <td className="font-mono text-[13px] muted whitespace-nowrap">
                     {emp.terminatedDate ? formatDate(emp.terminatedDate) : '-'}
                   </td>
                   <td>

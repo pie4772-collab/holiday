@@ -1,0 +1,220 @@
+/* Stripe Dashboard style utilities */
+
+.stripe-panel {
+  background: var(--color-stripe-surface);
+  border: 1px solid var(--color-stripe-border);
+  border-radius: 8px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.03);
+}
+
+.stripe-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-stripe-border);
+}
+
+.stripe-panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-stripe-text);
+  letter-spacing: -0.01em;
+}
+
+.stripe-panel-desc {
+  font-size: 13px;
+  color: var(--color-stripe-muted);
+  margin-top: 2px;
+}
+
+.stripe-metric-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-stripe-muted);
+}
+
+.stripe-metric-value {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--color-stripe-text);
+  line-height: 1.2;
+}
+
+.stripe-table thead tr {
+  border-bottom: 1px solid var(--color-stripe-border);
+}
+
+.stripe-table thead th {
+  padding: 10px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-stripe-muted);
+  text-align: left;
+  background: #fafbfc;
+}
+
+.stripe-table tbody tr {
+  border-bottom: 1px solid #f0f3f7;
+  transition: background 0.12s ease;
+}
+
+.stripe-table tbody tr:hover {
+  background: #f6f9fc;
+}
+
+.stripe-table tbody td {
+  padding: 12px 16px;
+  font-size: 14px;
+  color: var(--color-stripe-text);
+}
+
+.stripe-table tbody td.muted {
+  color: var(--color-stripe-muted);
+}
+
+.stripe-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-stripe-sidebar-muted);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.stripe-nav-item:hover {
+  background: var(--color-stripe-sidebar-hover);
+  color: #fff;
+}
+
+.stripe-nav-item.active {
+  background: var(--color-stripe-sidebar-hover);
+  color: #fff;
+}
+
+.stripe-input {
+  width: 100%;
+  border: 1px solid var(--color-stripe-border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--color-stripe-text);
+  background: #fff;
+  outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.stripe-input:focus {
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.12);
+}
+
+.stripe-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-stripe-text);
+  margin-bottom: 6px;
+}
+
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 3px;
+}
+
+/* Mobile safe areas (notch, home indicator) */
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Responsive table: horizontal scroll on small screens */
+.stripe-table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.stripe-table-scroll .stripe-table {
+  min-width: 640px;
+}
+
+/* Mobile card list (alternative to tables) */
+.mobile-card-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.mobile-card-item {
+  padding: 14px 16px;
+  border-bottom: 1px solid #f0f3f7;
+  transition: background 0.12s ease;
+}
+
+.mobile-card-item:last-child {
+  border-bottom: none;
+}
+
+.mobile-card-item:active {
+  background: #f6f9fc;
+}
+
+.mobile-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mobile-card-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-stripe-muted);
+  min-width: 56px;
+  flex-shrink: 0;
+}
+
+.mobile-card-value {
+  font-size: 13px;
+  color: var(--color-stripe-text);
+  text-align: right;
+}
+
+@media (max-width: 639px) {
+  .stripe-metric-value {
+    font-size: 24px;
+  }
+
+  .stripe-panel-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 14px 16px;
+  }
+
+  .stripe-table thead th,
+  .stripe-table tbody td {
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+}

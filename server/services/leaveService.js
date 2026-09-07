@@ -1,0 +1,388 @@
+import {
+  calculateLeaveBalance,
+  formatDate,
+  getOneYearAnniversary,
+  getCurrentDisplayYear,
+  getMonthlyAccrualInYear,
+  filterUsagesByYear,
+  FISCAL_YEAR_START_MONTH,
+} from '../../src/utils/leaveCalculations.js';
+import { getDb, parseEmployeeId } from '../db.js';
+
+const AS_OF_DATE = process.env.AS_OF_DATE || '2026-07-10';
+const TODAY = new Date(AS_OF_DATE);
+
+function toApiId(dbId) {
+  return String(dbId);
+}
+
+function mapUsageRow(row) {
+  return {
+    id: String(row.id),
+    employeeId: toApiId(row.employee_id),
+    date: row.usage_date,
+    type: row.usage_type,
+    reason: row.reason,
+    status: row.status,
+  };
+}
+
+function mapAccrualRow(row) {
+  return {
+    id: String(row.id),
+    employeeId: toApiId(row.employee_id),
+    type: row.accrual_type,
+    amount: row.amount,
+    date: row.accrual_date,
+    description: row.description,
+    isManual: Boolean(row.is_manual),
+  };
+}
+
+function getEmployeeRow(id) {
+  const dbId = parseEmployeeId(id);
+  if (!dbId || Number.isNaN(dbId)) return null;
+  return getDb()
+    .prepare(
+      `SELECT e.*, lbs.as_of_date, lbs.display_year, lbs.accrued, lbs.used, lbs.remaining
+       FROM employees e
+       LEFT JOIN leave_balance_snapshots lbs ON lbs.employee_id = e.id
+       WHERE e.id = ? AND e.is_active = 1`
+    )
+    .get(dbId);
+}
+
+function getApprovedUsages(dbId) {
+  return getDb()
+    .prepare(
+      `SELECT * FROM leave_usages
+       WHERE employee_id = ? AND status = 'approved'
+       ORDER BY usage_date DESC`
+    )
+    .all(dbId)
+    .map(mapUsageRow);
+}
+
+function getAllUsages(dbId, year) {
+  const rows = getDb()
+    .prepare(`SELECT * FROM leave_usages WHERE employee_id = ? ORDER BY usage_date DESC`)
+    .all(dbId)
+    .map(mapUsageRow);
+  return year ? filterUsagesByYear(rows, year) : rows;
+}
+
+function getManualAccruals(dbId, year) {
+  const rows = getDb()
+    .prepare(`SELECT * FROM leave_accruals WHERE employee_id = ? AND is_manual = 1`)
+    .all(dbId)
+    .map(mapAccrualRow);
+  return year ? rows.filter((r) => new Date(r.date).getFullYear() === year) : rows;
+}
+
+function getManualAccrualTotal(dbId, year) {
+  return getManualAccruals(dbId, year).reduce((sum, a) => sum + a.amount, 0);
+}
+
+function toEmployeeBase(row) {
+  return {
+    id: toApiId(row.id),
+    empNo: row.emp_no,
+    name: row.name,
+    department: row.department || '사무직',
+    position: row.position || '-',
+    hireDate: row.hire_date,
+    email: row.email || '',
+    notes: row.notes,
+  };
+}
+
+function buildLeaveSummary(row) {
+  const dbId = row.id;
+  const approvedUsages = getApprovedUsages(dbId);
+  const manualTotal = getManualAccrualTotal(dbId, getCurrentDisplayYear(TODAY));
+  const calculated = calculateLeaveBalance(row.hire_date, approvedUsages, TODAY, {
+    manualAccrualTotal: manualTotal,
+  });
+
+  // DB 사용 내역이 없으면 엑셀 스냅샷 기준값 사용
+  if (approvedUsages.length === 0 && row.accrued != null) {
+    const accrued = row.accrued + manualTotal;
+    const used = row.used;
+    const remaining = Math.max(0, Math.round((row.remaining + manualTotal) * 10) / 10);
+
+    return {
+      employeeId: toApiId(dbId),
+      ...calculated,
+      accruedThisYear: accrued,
+      usedDays: used,
+      remaining,
+      totalGranted: accrued,
+      manualAccrualTotal: manualTotal,
+      snapshotAccrued: row.accrued,
+      snapshotUsed: row.used,
+      snapshotRemaining: row.remaining,
+    };
+  }
+
+  return {
+    employeeId: toApiId(dbId),
+    ...calculated,
+    manualAccrualTotal: manualTotal,
+  };
+}
+
+function buildAutoAccrualLogs(employee, balance) {
+  const logs = [];
+  const hireDate = employee.hireDate;
+  const displayYear = balance.displayYear;
+  const monthlyInYear = getMonthlyAccrualInYear(hireDate, displayYear, TODAY);
+  const hire = new Date(hireDate);
+
+  for (let m = 1; m <= monthlyInYear; m++) {
+    let count = 0;
+    for (let i = 1; i <= 11; i++) {
+      const accrualDate = new Date(hire.getFullYear(), hire.getMonth() + i, 1);
+      if (accrualDate.getFullYear() === displayYear) {
+        count++;
+        if (count === m) {
+          logs.push({
+            id: `log-${employee.id}-monthly-${displayYear}-${m}`,
+            employeeId: employee.id,
+            type: 'first_year_monthly',
+            amount: 1,
+            date: formatDate(accrualDate),
+            description: `${displayYear}년 월차 발생`,
+            isManual: false,
+          });
+          break;
+        }
+      }
+    }
+  }
+
+  if (balance.proratedLeave > 0 && getOneYearAnniversary(hireDate).getFullYear() === displayYear) {
+    logs.push({
+      id: `log-${employee.id}-prorated`,
+      employeeId: employee.id,
+      type: 'prorated',
+      amount: balance.proratedLeave,
+      date: formatDate(getOneYearAnniversary(hireDate)),
+      description: `${displayYear}년 비례 연차 (15 × 남은일수/365)`,
+      isManual: false,
+    });
+  }
+
+  if (balance.annualLeave > 0) {
+    logs.push({
+      id: `log-${employee.id}-annual-${displayYear}`,
+      employeeId: employee.id,
+      type: 'annual',
+      amount: balance.annualLeave,
+      date: formatDate(new Date(displayYear, FISCAL_YEAR_START_MONTH, 1)),
+      description: `${displayYear}년 정규 연차 (기본 15일 + 근속 가산)`,
+      isManual: false,
+    });
+  }
+
+  balance.settlements?.forEach((s, i) => {
+    logs.push({
+      id: `log-${employee.id}-settlement-${i}`,
+      employeeId: employee.id,
+      type: 'settlement',
+      amount: -s.settledDays,
+      date: formatDate(s.date),
+      description: `${displayYear}년 ${s.description} · 잔여에서 ${s.settledDays}일 차감`,
+      isManual: false,
+    });
+  });
+
+  return logs;
+}
+
+function buildAccrualLogs(employee, balance) {
+  const auto = buildAutoAccrualLogs(employee, balance);
+  const manual = getManualAccruals(parseEmployeeId(employee.id), balance.displayYear);
+  return [...auto, ...manual].sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+export function getAllEmployees() {
+  const rows = getDb()
+    .prepare(
+      `SELECT e.*, lbs.as_of_date, lbs.display_year, lbs.accrued, lbs.used, lbs.remaining
+       FROM employees e
+       LEFT JOIN leave_balance_snapshots lbs ON lbs.employee_id = e.id
+       WHERE e.is_active = 1
+       ORDER BY e.name`
+    )
+    .all();
+
+  return rows.map((row) => {
+    const base = toEmployeeBase(row);
+    return { ...base, leaveSummary: buildLeaveSummary(row) };
+  });
+}
+
+export function getEmployeeById(id) {
+  const row = getEmployeeRow(id);
+  if (!row) return null;
+
+  const base = toEmployeeBase(row);
+  const leaveSummary = buildLeaveSummary(row);
+  const displayYear = leaveSummary.displayYear;
+
+  return {
+    ...base,
+    leaveSummary,
+    accrualLogs: buildAccrualLogs(base, leaveSummary),
+    usages: getAllUsages(row.id, displayYear),
+  };
+}
+
+export function getCurrentEmployee() {
+  const defaultId = process.env.CURRENT_EMPLOYEE_ID || '1';
+  return getEmployeeById(defaultId);
+}
+
+export function getAdminStats() {
+  const employees = getAllEmployees();
+  const displayYear = getCurrentDisplayYear(TODAY);
+  const thisMonth = TODAY.getMonth();
+  const thisYear = TODAY.getFullYear();
+
+  const monthlyUsage = getDb()
+    .prepare(
+      `SELECT usage_type FROM leave_usages
+       WHERE status = 'approved'
+         AND substr(usage_date, 1, 4) = ?
+         AND CAST(substr(usage_date, 6, 2) AS INTEGER) = ?`
+    )
+    .all(String(thisYear), thisMonth + 1)
+    .reduce((sum, u) => sum + (u.usage_type === 'half' ? 0.5 : 1), 0);
+
+  const avgRemaining =
+    employees.reduce((sum, e) => sum + e.leaveSummary.remaining, 0) / (employees.length || 1);
+
+  return {
+    displayYear,
+    averageRemaining: Math.round(avgRemaining * 10) / 10,
+    monthlyUsage,
+    firstYearEmployeeCount: employees.filter((e) => e.leaveSummary.isFirstYear).length,
+    proratedTargetCount: employees.filter((e) => e.leaveSummary.isProratedTarget).length,
+    totalEmployees: employees.length,
+  };
+}
+
+export function getLeaveHistory(employeeId) {
+  const emp = getEmployeeById(employeeId);
+  return emp?.accrualLogs || [];
+}
+
+export function getLeaveUsages(employeeId) {
+  const row = getEmployeeRow(employeeId);
+  if (!row) return [];
+  const year = getCurrentDisplayYear(TODAY);
+  return getAllUsages(row.id, year);
+}
+
+export function getAdminAccruals(employeeId) {
+  return getLeaveHistory(employeeId);
+}
+
+export function getAdminUsages(employeeId) {
+  const row = getEmployeeRow(employeeId);
+  if (!row) return [];
+  return getAllUsages(row.id, getCurrentDisplayYear(TODAY));
+}
+
+export function submitLeaveRequest(data) {
+  const dbId = parseEmployeeId(data.employeeId);
+  if (!dbId) throw new Error('유효하지 않은 직원 ID입니다.');
+
+  const days = data.type === 'half' ? 0.5 : 1;
+  const result = getDb()
+    .prepare(
+      `INSERT INTO leave_usages (employee_id, usage_date, usage_type, days, reason, status, created_by)
+       VALUES (?, ?, ?, ?, ?, 'pending', 'employee')`
+    )
+    .run(dbId, data.date, data.type, days, data.reason);
+
+  return mapUsageRow(
+    getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(result.lastInsertRowid)
+  );
+}
+
+export function createAccrual(data) {
+  const dbId = parseEmployeeId(data.employeeId);
+  if (!dbId) throw new Error('유효하지 않은 직원 ID입니다.');
+
+  const result = getDb()
+    .prepare(
+      `INSERT INTO leave_accruals (employee_id, accrual_date, accrual_type, amount, description, is_manual, created_by)
+       VALUES (?, ?, ?, ?, ?, 1, 'admin')`
+    )
+    .run(dbId, data.date, data.type, data.amount, data.description);
+
+  return mapAccrualRow(
+    getDb().prepare('SELECT * FROM leave_accruals WHERE id = ?').get(result.lastInsertRowid)
+  );
+}
+
+export function updateAccrual(id, data) {
+  const row = getDb().prepare('SELECT * FROM leave_accruals WHERE id = ? AND is_manual = 1').get(id);
+  if (!row) throw new Error('수동 발생 내역을 찾을 수 없습니다.');
+
+  getDb()
+    .prepare(
+      `UPDATE leave_accruals
+       SET accrual_date = ?, accrual_type = ?, amount = ?, description = ?,
+           updated_at = datetime('now', 'localtime')
+       WHERE id = ?`
+    )
+    .run(data.date, data.type, data.amount, data.description, id);
+
+  return mapAccrualRow(getDb().prepare('SELECT * FROM leave_accruals WHERE id = ?').get(id));
+}
+
+export function deleteAccrual(id) {
+  const result = getDb().prepare('DELETE FROM leave_accruals WHERE id = ? AND is_manual = 1').run(id);
+  if (result.changes === 0) throw new Error('수동 발생 내역을 찾을 수 없습니다.');
+}
+
+export function createUsage(data) {
+  const dbId = parseEmployeeId(data.employeeId);
+  if (!dbId) throw new Error('유효하지 않은 직원 ID입니다.');
+
+  const days = data.type === 'half' ? 0.5 : 1;
+  const result = getDb()
+    .prepare(
+      `INSERT INTO leave_usages (employee_id, usage_date, usage_type, days, reason, status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, 'admin')`
+    )
+    .run(dbId, data.date, data.type, days, data.reason, data.status || 'approved');
+
+  return mapUsageRow(
+    getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(result.lastInsertRowid)
+  );
+}
+
+export function updateUsage(id, data) {
+  const row = getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(id);
+  if (!row) throw new Error('사용 내역을 찾을 수 없습니다.');
+
+  const days = data.type === 'half' ? 0.5 : 1;
+  getDb()
+    .prepare(
+      `UPDATE leave_usages
+       SET usage_date = ?, usage_type = ?, days = ?, reason = ?, status = ?,
+           updated_at = datetime('now', 'localtime')
+       WHERE id = ?`
+    )
+    .run(data.date, data.type, days, data.reason, data.status, id);
+
+  return mapUsageRow(getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(id));
+}
+
+export function deleteUsage(id) {
+  const result = getDb().prepare('DELETE FROM leave_usages WHERE id = ?').run(id);
+  if (result.changes === 0) throw new Error('사용 내역을 찾을 수 없습니다.');
+}

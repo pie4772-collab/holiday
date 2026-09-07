@@ -1,0 +1,198 @@
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import {
+  LayoutDashboard,
+  History,
+  Calendar,
+  FilePlus,
+  Users,
+  BarChart3,
+  Settings,
+  ClipboardList,
+} from 'lucide-react';
+import { useAppStore } from '../store/useAppStore';
+import { useCurrentEmployee } from '../hooks/useLeaveData';
+
+const employeeNav = [
+  { to: '/employee', icon: LayoutDashboard, label: 'Home', end: true },
+  { to: '/employee/history', icon: History, label: '발생 내역' },
+  { to: '/employee/calendar', icon: Calendar, label: '캘린더' },
+  { to: '/employee/request', icon: FilePlus, label: '연차 신청' },
+];
+
+const adminNav = [
+  { to: '/admin', icon: BarChart3, label: 'Home', end: true },
+  { to: '/admin/roster', icon: ClipboardList, label: '사원 명부' },
+  { to: '/admin/employees', icon: Users, label: '직원' },
+  { to: '/admin/leave-manage', icon: Settings, label: '연차 관리' },
+];
+
+function NavItems({ items, onNavigate, className = '' }) {
+  return (
+    <>
+      {items.map(({ to, icon: Icon, label, end }) => (
+        <NavLink
+          key={to}
+          to={to}
+          end={end}
+          onClick={onNavigate}
+          className={({ isActive }) => `stripe-nav-item ${isActive ? 'active' : ''} ${className}`}
+        >
+          <Icon className="h-4 w-4 opacity-80 shrink-0" />
+          {label}
+        </NavLink>
+      ))}
+    </>
+  );
+}
+
+function RoleToggle({ role, setRole, compact = false }) {
+  return (
+    <div className={`flex rounded-md bg-white/5 p-0.5 ${compact ? '' : ''}`}>
+      {['employee', 'admin'].map((r) => (
+        <button
+          key={r}
+          onClick={() => setRole(r)}
+          className={`flex-1 rounded px-2 py-1.5 text-[11px] font-medium transition-all ${
+            role === r
+              ? 'bg-white/15 text-white'
+              : 'text-stripe-sidebar-muted hover:text-white/80'
+          }`}
+        >
+          {r === 'employee' ? '직원' : '관리자'}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function Layout() {
+  const { role, setRole } = useAppStore();
+  const { data: currentEmployee } = useCurrentEmployee();
+  const [shareUrl, setShareUrl] = useState('');
+  const location = useLocation();
+  const navItems = role === 'admin' ? adminNav : employeeNav;
+
+  useEffect(() => {
+    fetch('/health')
+      .then((res) => res.json())
+      .then((data) => setShareUrl(data.shareUrl || ''))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
+
+  return (
+    <div className="min-h-screen bg-stripe-bg">
+      {/* Mobile top bar */}
+      <header className="md:hidden fixed top-0 inset-x-0 z-50 bg-stripe-sidebar border-b border-white/10 safe-top">
+        <div className="flex items-center justify-between px-4 h-14">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-500 text-white text-sm font-bold">
+              H
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-sm font-semibold text-white tracking-tight truncate">Holiday</h1>
+              {currentEmployee && (
+                <p className="text-[11px] text-stripe-sidebar-muted truncate">
+                  {currentEmployee.name}
+                  {role === 'admin' ? ' · 관리자' : ` · ${currentEmployee.department}`}
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="w-[108px] shrink-0 ml-2">
+            <RoleToggle role={role} setRole={setRole} compact />
+          </div>
+        </div>
+        {shareUrl && role === 'admin' && (
+          <p className="px-4 pb-2 text-[10px] text-stripe-sidebar-muted leading-relaxed break-all">
+            공유: <span className="text-white/90">{shareUrl}</span>
+          </p>
+        )}
+      </header>
+
+      {/* Desktop sidebar */}
+      <aside className="hidden md:flex w-[240px] bg-stripe-sidebar flex-col fixed h-full z-40">
+        <div className="px-5 py-5 border-b border-white/10">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary-500 text-white text-sm font-bold">
+              H
+            </div>
+            <div>
+              <h1 className="text-sm font-semibold text-white tracking-tight">Holiday</h1>
+              <p className="text-[11px] text-stripe-sidebar-muted">연차 관리</p>
+            </div>
+          </div>
+        </div>
+
+        <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+          <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-wider text-stripe-sidebar-muted/70">
+            {role === 'admin' ? '관리' : '내 연차'}
+          </p>
+          <NavItems items={navItems} />
+        </nav>
+
+        <div className="p-4 border-t border-white/10">
+          {currentEmployee && (
+            <div className="flex items-center gap-2.5 mb-3 px-1">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white">
+                {currentEmployee.name.charAt(0)}
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-white truncate">{currentEmployee.name}</p>
+                <p className="text-[11px] text-stripe-sidebar-muted">
+                  {role === 'admin' ? '관리자' : currentEmployee.department}
+                </p>
+              </div>
+            </div>
+          )}
+          <RoleToggle role={role} setRole={setRole} />
+          {shareUrl && role === 'admin' && (
+            <p className="mt-3 px-1 text-[10px] text-stripe-sidebar-muted leading-relaxed break-all">
+              공유: <span className="text-white/90">{shareUrl}</span>
+            </p>
+          )}
+        </div>
+      </aside>
+
+      {/* Mobile bottom nav */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-stripe-sidebar border-t border-white/10 safe-bottom">
+        <div className="flex items-stretch justify-around px-1 pt-1 pb-0.5">
+          {navItems.map(({ to, icon: Icon, label, end }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={end}
+              className={({ isActive }) =>
+                `relative flex flex-1 flex-col items-center justify-center gap-0.5 py-2 px-1 min-w-0 rounded-md transition-colors ${
+                  isActive ? 'text-white' : 'text-stripe-sidebar-muted'
+                }`
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  <Icon className={`h-5 w-5 ${isActive ? 'opacity-100' : 'opacity-70'}`} />
+                  <span className="text-[10px] font-medium truncate max-w-full leading-tight">
+                    {label}
+                  </span>
+                  {isActive && (
+                    <span className="absolute bottom-1 h-0.5 w-8 rounded-full bg-primary-500" />
+                  )}
+                </>
+              )}
+            </NavLink>
+          ))}
+        </div>
+      </nav>
+
+      <main className="md:ml-[240px] min-h-screen pt-14 md:pt-0 pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
+        <div className="px-4 py-5 sm:px-6 sm:py-8 max-w-[1080px] mx-auto">
+          <Outlet />
+        </div>
+      </main>
+    </div>
+  );
+}

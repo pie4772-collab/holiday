@@ -1,0 +1,48 @@
+{
+  "name": "holiday",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:server": "node server/index.js",
+    "dev:all": "concurrently \"npm run dev:server\" \"npm run dev\"",
+    "build": "vite build",
+    "prestart": "node scripts/ensure-deps.mjs",
+    "start": "node server/index.js",
+    "prod": "npm run start",
+    "restart": "powershell -ExecutionPolicy Bypass -File scripts/restart-prod.ps1",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "db:import": "py -3 database/import_from_excel.py",
+    "db:query": "py -3 database/query_db.py"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.101.2",
+    "better-sqlite3": "^12.11.1",
+    "cors": "^2.8.6",
+    "date-fns": "^4.4.0",
+    "express": "^5.2.1",
+    "lucide-react": "^1.24.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.1",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "concurrently": "^10.0.3",
+    "oxlint": "^1.71.0",
+    "tailwindcss": "^4.3.2",
+    "vite": "^8.1.1"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true
+  }
+}

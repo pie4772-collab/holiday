@@ -11,6 +11,7 @@ const emptyForm = {
   position: DEFAULT_POSITION,
   email: '',
   notes: '',
+  isAdmin: false,
 };
 
 export function EmployeeFormModal({
@@ -35,6 +36,7 @@ export function EmployeeFormModal({
           position: POSITIONS.includes(initial.position) ? initial.position : DEFAULT_POSITION,
           email: initial.email || '',
           notes: initial.notes || '',
+          isAdmin: Boolean(initial.isAdmin),
         });
       } else {
         setForm(emptyForm);
@@ -165,6 +167,15 @@ export function EmployeeFormModal({
                 className="stripe-input"
               />
             </div>
+            <label className="flex items-center gap-2 text-sm text-stripe-text cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.isAdmin}
+                onChange={(e) => setForm({ ...form, isAdmin: e.target.checked })}
+                className="rounded border-stripe-border"
+              />
+              관리자 권한 부여
+            </label>
             <div>
               <label className="stripe-label">비고</label>
               <textarea

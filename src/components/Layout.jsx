@@ -48,13 +48,16 @@ function NavItems({ items, onNavigate, className = '' }) {
   );
 }
 
-function RoleToggle({ role, setRole, compact = false }) {
+function RoleToggle({ role, setRole, onSwitch, compact = false }) {
   return (
     <div className={`flex rounded-md bg-white/5 p-0.5 ${compact ? '' : ''}`}>
       {['employee', 'admin'].map((r) => (
         <button
           key={r}
-          onClick={() => setRole(r)}
+          onClick={() => {
+            setRole(r);
+            onSwitch?.(r);
+          }}
           className={`flex-1 rounded px-2 py-1.5 text-[11px] font-medium transition-all ${
             role === r
               ? 'bg-white/15 text-white'
@@ -74,7 +77,8 @@ export function Layout() {
   const [shareUrl, setShareUrl] = useState('');
   const location = useLocation();
   const navigate = useNavigate();
-  const navItems = role === 'admin' ? adminNav : employeeNav;
+  const canAdmin = Boolean(currentEmployee?.isAdmin);
+  const navItems = role === 'admin' && canAdmin ? adminNav : employeeNav;
 
   async function handleLogout() {
     try {
@@ -117,7 +121,14 @@ export function Layout() {
             </div>
           </div>
           <div className="w-[108px] shrink-0 ml-2">
-            <RoleToggle role={role} setRole={setRole} compact />
+            {canAdmin && (
+              <RoleToggle
+                role={role}
+                setRole={setRole}
+                compact
+                onSwitch={(next) => navigate(next === 'admin' ? '/admin' : '/employee')}
+              />
+            )}
             <button
               type="button"
               onClick={handleLogout}
@@ -170,7 +181,13 @@ export function Layout() {
               </div>
             </div>
           )}
-          <RoleToggle role={role} setRole={setRole} />
+          {canAdmin && (
+            <RoleToggle
+              role={role}
+              setRole={setRole}
+              onSwitch={(next) => navigate(next === 'admin' ? '/admin' : '/employee')}
+            />
+          )}
           <button
             type="button"
             onClick={handleLogout}

@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Layout } from './components/Layout';
 import { RequireAuth } from './components/RequireAuth';
+import { RequireAdmin } from './components/RequireAdmin';
 import { LoginPage } from './pages/LoginPage';
 import { LeaveRequestModal } from './components/LeaveRequestModal';
 import { EmployeeDashboard } from './pages/employee/EmployeeDashboard';
@@ -52,17 +53,22 @@ function GlobalRequestModal() {
 
 function RoleRedirect() {
   const { role } = useAppStore();
-  return <Navigate to={role === 'admin' ? '/admin' : '/employee'} replace />;
+  const { data: employee } = useCurrentEmployee();
+  if (role === 'admin' && employee?.isAdmin) {
+    return <Navigate to="/admin" replace />;
+  }
+  return <Navigate to="/employee" replace />;
 }
 
 function AppRoutes() {
   const { setRole } = useAppStore();
+  const { data: employee } = useCurrentEmployee();
 
   useEffect(() => {
     const path = window.location.pathname;
-    if (path.startsWith('/admin')) setRole('admin');
+    if (path.startsWith('/admin') && employee?.isAdmin) setRole('admin');
     else if (path.startsWith('/employee')) setRole('employee');
-  }, [setRole]);
+  }, [setRole, employee?.isAdmin]);
 
   return (
     <Routes>
@@ -77,7 +83,7 @@ function AppRoutes() {
           <Route path="request" element={<EmployeeRequest />} />
         </Route>
 
-        <Route path="admin">
+        <Route path="admin" element={<RequireAdmin />}>
           <Route index element={<AdminDashboard />} />
           <Route path="roster" element={<AdminEmployeeRoster />} />
           <Route path="employees" element={<AdminEmployeeList />} />

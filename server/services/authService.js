@@ -35,6 +35,7 @@ export function createSession(user) {
     empNo: user.username,
     name: user.name,
     position: user.position,
+    isAdmin: Boolean(user.is_admin),
     expiresAt: Date.now() + TOKEN_TTL_MS,
   });
   return token;
@@ -99,7 +100,7 @@ export function login(username, password) {
 
   const row = getDb()
     .prepare(
-      `SELECT u.*, e.name, e.position, e.is_active
+      `SELECT u.*, e.name, e.position, e.is_active, e.is_admin
        FROM users u
        JOIN employees e ON e.id = u.employee_id
        WHERE u.username = ?`
@@ -121,6 +122,12 @@ export function login(username, password) {
       empNo: row.username,
       name: row.name,
       position: row.position || '팀원',
+      isAdmin: Boolean(row.is_admin),
     },
   };
+}
+
+export function isEmployeeAdmin(employeeId) {
+  const row = getDb().prepare('SELECT is_admin FROM employees WHERE id = ?').get(Number(employeeId));
+  return Boolean(row?.is_admin);
 }

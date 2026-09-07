@@ -27,6 +27,7 @@ export function useCurrentEmployee() {
   return useQuery({
     queryKey: leaveKeys.currentEmployee,
     queryFn: leaveApi.getCurrentEmployee,
+    enabled: Boolean(typeof localStorage !== 'undefined' && localStorage.getItem('holiday_token')),
   });
 }
 

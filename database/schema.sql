@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS employees (
   email       TEXT,
   notes       TEXT,                           -- 비고
   is_active   INTEGER NOT NULL DEFAULT 1,     -- 재직 여부
+  is_admin    INTEGER NOT NULL DEFAULT 0,     -- 관리자 권한
   terminated_date TEXT,                       -- 퇴사일 (YYYY-MM-DD)
   created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
   updated_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))

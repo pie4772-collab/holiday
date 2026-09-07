@@ -2,7 +2,8 @@ import express from 'express';
 import * as leaveService from '../services/leaveService.js';
 import * as employeeService from '../services/employeeService.js';
 import * as authService from '../services/authService.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { isEmployeeAdmin } from '../services/authService.js';
 
 const router = express.Router();
 
@@ -22,7 +23,10 @@ router.post('/auth/logout', (req, res) => {
 });
 
 router.get('/auth/me', requireAuth, (req, res) => {
-  res.json(req.user);
+  res.json({
+    ...req.user,
+    isAdmin: isEmployeeAdmin(req.user.employeeId),
+  });
 });
 
 router.get('/employees/me', requireAuth, (req, res, next) => {
@@ -35,7 +39,7 @@ router.get('/employees/me', requireAuth, (req, res, next) => {
   }
 });
 
-router.get('/employees', (req, res, next) => {
+router.get('/employees', requireAdmin, (req, res, next) => {
   try {
     res.json(leaveService.getAllEmployees());
   } catch (e) {
@@ -43,7 +47,7 @@ router.get('/employees', (req, res, next) => {
   }
 });
 
-router.get('/employees/:id', (req, res, next) => {
+router.get('/employees/:id', requireAuth, (req, res, next) => {
   try {
     const emp = leaveService.getEmployeeById(req.params.id);
     if (!emp) return res.status(404).json({ message: '직원을 찾을 수 없습니다.' });
@@ -69,7 +73,7 @@ router.get('/employees/:id/leave/usages', (req, res, next) => {
   }
 });
 
-router.get('/admin/stats', (req, res, next) => {
+router.get('/admin/stats', requireAdmin, (req, res, next) => {
   try {
     res.json(leaveService.getAdminStats());
   } catch (e) {
@@ -77,7 +81,7 @@ router.get('/admin/stats', (req, res, next) => {
   }
 });
 
-router.get('/admin/roster', (req, res, next) => {
+router.get('/admin/roster', requireAdmin, (req, res, next) => {
   try {
     const includeInactive = req.query.includeInactive !== '0';
     res.json(employeeService.getEmployeeRoster(includeInactive));
@@ -86,7 +90,7 @@ router.get('/admin/roster', (req, res, next) => {
   }
 });
 
-router.post('/admin/employees', (req, res, next) => {
+router.post('/admin/employees', requireAdmin, (req, res, next) => {
   try {
     const result = employeeService.createEmployee(req.body);
     res.status(201).json(result);
@@ -95,7 +99,7 @@ router.post('/admin/employees', (req, res, next) => {
   }
 });
 
-router.put('/admin/employees/:id', (req, res, next) => {
+router.put('/admin/employees/:id', requireAdmin, (req, res, next) => {
   try {
     const result = employeeService.updateEmployee(req.params.id, req.body);
     res.json(result);
@@ -104,7 +108,7 @@ router.put('/admin/employees/:id', (req, res, next) => {
   }
 });
 
-router.post('/admin/employees/:id/terminate', (req, res, next) => {
+router.post('/admin/employees/:id/terminate', requireAdmin, (req, res, next) => {
   try {
     const result = employeeService.terminateEmployee(req.params.id, req.body.terminatedDate);
     res.json(result);
@@ -113,7 +117,7 @@ router.post('/admin/employees/:id/terminate', (req, res, next) => {
   }
 });
 
-router.post('/admin/employees/:id/reactivate', (req, res, next) => {
+router.post('/admin/employees/:id/reactivate', requireAdmin, (req, res, next) => {
   try {
     const result = employeeService.reactivateEmployee(req.params.id);
     res.json(result);
@@ -122,7 +126,7 @@ router.post('/admin/employees/:id/reactivate', (req, res, next) => {
   }
 });
 
-router.get('/admin/employees/:id/accruals', (req, res, next) => {
+router.get('/admin/employees/:id/accruals', requireAdmin, (req, res, next) => {
   try {
     res.json(leaveService.getAdminAccruals(req.params.id));
   } catch (e) {
@@ -130,7 +134,7 @@ router.get('/admin/employees/:id/accruals', (req, res, next) => {
   }
 });
 
-router.get('/admin/employees/:id/usages', (req, res, next) => {
+router.get('/admin/employees/:id/usages', requireAdmin, (req, res, next) => {
   try {
     res.json(leaveService.getAdminUsages(req.params.id));
   } catch (e) {
@@ -138,7 +142,7 @@ router.get('/admin/employees/:id/usages', (req, res, next) => {
   }
 });
 
-router.post('/leave/requests', (req, res, next) => {
+router.post('/leave/requests', requireAuth, (req, res, next) => {
   try {
     const result = leaveService.submitLeaveRequest(req.body);
     res.status(201).json(result);
@@ -147,7 +151,7 @@ router.post('/leave/requests', (req, res, next) => {
   }
 });
 
-router.post('/admin/accruals', (req, res, next) => {
+router.post('/admin/accruals', requireAdmin, (req, res, next) => {
   try {
     const result = leaveService.createAccrual(req.body);
     res.status(201).json(result);
@@ -156,7 +160,7 @@ router.post('/admin/accruals', (req, res, next) => {
   }
 });
 
-router.put('/admin/accruals/:id', (req, res, next) => {
+router.put('/admin/accruals/:id', requireAdmin, (req, res, next) => {
   try {
     const result = leaveService.updateAccrual(req.params.id, req.body);
     res.json(result);
@@ -165,7 +169,7 @@ router.put('/admin/accruals/:id', (req, res, next) => {
   }
 });
 
-router.delete('/admin/accruals/:id', (req, res, next) => {
+router.delete('/admin/accruals/:id', requireAdmin, (req, res, next) => {
   try {
     leaveService.deleteAccrual(req.params.id);
     res.json({ success: true });
@@ -174,7 +178,7 @@ router.delete('/admin/accruals/:id', (req, res, next) => {
   }
 });
 
-router.post('/admin/usages', (req, res, next) => {
+router.post('/admin/usages', requireAdmin, (req, res, next) => {
   try {
     const result = leaveService.createUsage(req.body);
     res.status(201).json(result);
@@ -183,7 +187,7 @@ router.post('/admin/usages', (req, res, next) => {
   }
 });
 
-router.put('/admin/usages/:id', (req, res, next) => {
+router.put('/admin/usages/:id', requireAdmin, (req, res, next) => {
   try {
     const result = leaveService.updateUsage(req.params.id, req.body);
     res.json(result);
@@ -192,7 +196,7 @@ router.put('/admin/usages/:id', (req, res, next) => {
   }
 });
 
-router.delete('/admin/usages/:id', (req, res, next) => {
+router.delete('/admin/usages/:id', requireAdmin, (req, res, next) => {
   try {
     leaveService.deleteUsage(req.params.id);
     res.json({ success: true });

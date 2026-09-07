@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import initSqlJs from 'sql.js';
+import { INITIAL_ADMIN_NAMES } from '../src/constants/hr.js';
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -115,6 +116,15 @@ function migrate(database) {
        OR position = '-'
        OR position NOT IN ('팀원', '팀장')
   `);
+
+  const latestCols = database.prepare('PRAGMA table_info(employees)').all().map((c) => c.name);
+  if (latestCols.length && !latestCols.includes('is_admin')) {
+    database.exec('ALTER TABLE employees ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0');
+    const placeholders = INITIAL_ADMIN_NAMES.map(() => '?').join(', ');
+    database.prepare(`UPDATE employees SET is_admin = 1 WHERE name IN (${placeholders})`).run(
+      ...INITIAL_ADMIN_NAMES
+    );
+  }
 }
 
 sqlDb.run('PRAGMA foreign_keys = ON');

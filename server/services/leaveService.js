@@ -90,6 +90,7 @@ function toEmployeeBase(row) {
     name: row.name,
     department: row.department || '사무직',
     position: row.position || '팀원',
+    isAdmin: Boolean(row.is_admin),
     hireDate: row.hire_date,
     email: row.email || '',
     notes: row.notes,

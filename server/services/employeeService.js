@@ -26,6 +26,7 @@ function mapEmployeeRow(row) {
     email: row.email || '',
     notes: row.notes || '',
     isActive: Boolean(row.is_active),
+    isAdmin: Boolean(row.is_admin),
     terminatedDate: row.terminated_date || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -61,8 +62,8 @@ export function createEmployee(data) {
 
   const result = db
     .prepare(
-      `INSERT INTO employees (emp_no, name, hire_date, department, position, email, notes, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1)`
+      `INSERT INTO employees (emp_no, name, hire_date, department, position, email, notes, is_active, is_admin)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`
     )
     .run(
       empNo,
@@ -71,7 +72,8 @@ export function createEmployee(data) {
       data.department?.trim() || '사무직',
       normalizePosition(data.position),
       data.email?.trim() || '',
-      data.notes?.trim() || null
+      data.notes?.trim() || null,
+      data.isAdmin ? 1 : 0
     );
 
   const employeeId = result.lastInsertRowid;
@@ -100,7 +102,7 @@ export function updateEmployee(id, data) {
   db.prepare(
     `UPDATE employees
      SET emp_no = ?, name = ?, hire_date = ?, department = ?, position = ?,
-         email = ?, notes = ?, updated_at = datetime('now', 'localtime')
+         email = ?, notes = ?, is_admin = ?, updated_at = datetime('now', 'localtime')
      WHERE id = ?`
   ).run(
     empNo,
@@ -110,6 +112,7 @@ export function updateEmployee(id, data) {
     normalizePosition(data.position ?? row.position),
     data.email?.trim() ?? row.email ?? '',
     data.notes?.trim() ?? row.notes,
+    data.isAdmin === undefined ? (row.is_admin ? 1 : 0) : data.isAdmin ? 1 : 0,
     row.id
   );
 

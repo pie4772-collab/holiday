@@ -98,11 +98,14 @@ export function AdminEmployeeRoster() {
                   <p className="text-sm font-medium text-stripe-text">{emp.name}</p>
                   <p className="text-xs font-mono text-stripe-muted mt-0.5">{emp.empNo || '-'}</p>
                 </div>
-                {emp.isActive ? (
-                  <Badge variant="success">재직</Badge>
-                ) : (
-                  <Badge variant="default">퇴사</Badge>
-                )}
+                <div className="flex items-center gap-1.5">
+                  {emp.isAdmin && <Badge variant="purple">관리자</Badge>}
+                  {emp.isActive ? (
+                    <Badge variant="success">재직</Badge>
+                  ) : (
+                    <Badge variant="default">퇴사</Badge>
+                  )}
+                </div>
               </div>
               <div className="mt-3 space-y-1.5">
                 <div className="flex justify-between text-xs">
@@ -161,6 +164,7 @@ export function AdminEmployeeRoster() {
                 <th>직급</th>
                 <th>입사일</th>
                 <th>퇴사일</th>
+                <th>권한</th>
                 <th>상태</th>
                 <th />
               </tr>
@@ -175,6 +179,9 @@ export function AdminEmployeeRoster() {
                   <td className="font-mono text-[13px] muted whitespace-nowrap">{formatDate(emp.hireDate)}</td>
                   <td className="font-mono text-[13px] muted whitespace-nowrap">
                     {emp.terminatedDate ? formatDate(emp.terminatedDate) : '-'}
+                  </td>
+                  <td>
+                    {emp.isAdmin ? <Badge variant="purple">관리자</Badge> : <span className="muted">-</span>}
                   </td>
                   <td>
                     {emp.isActive ? (

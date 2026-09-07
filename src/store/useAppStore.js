@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 export const useAppStore = create((set) => ({
-  role: 'admin',
+  role: 'employee',
   setRole: (role) => set({ role }),
 
   isRequestModalOpen: false,

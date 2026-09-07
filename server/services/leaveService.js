@@ -89,7 +89,7 @@ function toEmployeeBase(row) {
     empNo: row.emp_no,
     name: row.name,
     department: row.department || '사무직',
-    position: row.position || '-',
+    position: row.position || '팀원',
     hireDate: row.hire_date,
     email: row.email || '',
     notes: row.notes,
@@ -238,9 +238,9 @@ export function getEmployeeById(id) {
   };
 }
 
-export function getCurrentEmployee() {
-  const defaultId = process.env.CURRENT_EMPLOYEE_ID || '1';
-  return getEmployeeById(defaultId);
+export function getCurrentEmployee(employeeId) {
+  const id = employeeId || process.env.CURRENT_EMPLOYEE_ID || '1';
+  return getEmployeeById(id);
 }
 
 export function getAdminStats() {

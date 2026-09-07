@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '../ui/Button';
+import { DEFAULT_POSITION, POSITIONS } from '../../constants/hr';
 
 const emptyForm = {
   empNo: '',
   name: '',
   hireDate: new Date().toISOString().slice(0, 10),
   department: '사무직',
-  position: '-',
+  position: DEFAULT_POSITION,
   email: '',
   notes: '',
 };
@@ -31,7 +32,7 @@ export function EmployeeFormModal({
           name: initial.name || '',
           hireDate: initial.hireDate || '',
           department: initial.department || '사무직',
-          position: initial.position || '-',
+          position: POSITIONS.includes(initial.position) ? initial.position : DEFAULT_POSITION,
           email: initial.email || '',
           notes: initial.notes || '',
         });
@@ -142,12 +143,17 @@ export function EmployeeFormModal({
               </div>
               <div>
                 <label className="stripe-label">직급</label>
-                <input
-                  type="text"
+                <select
                   value={form.position}
                   onChange={(e) => setForm({ ...form, position: e.target.value })}
                   className="stripe-input"
-                />
+                >
+                  {POSITIONS.map((position) => (
+                    <option key={position} value={position}>
+                      {position}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
             <div>

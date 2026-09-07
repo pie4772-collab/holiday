@@ -1,13 +1,33 @@
 import express from 'express';
-import cors from 'cors';
 import * as leaveService from '../services/leaveService.js';
 import * as employeeService from '../services/employeeService.js';
+import * as authService from '../services/authService.js';
+import { requireAuth } from '../middleware/auth.js';
 
 const router = express.Router();
 
-router.get('/employees/me', (req, res, next) => {
+router.post('/auth/login', (req, res, next) => {
   try {
-    const emp = leaveService.getCurrentEmployee();
+    res.json(authService.login(req.body.username, req.body.password));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/auth/logout', (req, res) => {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  authService.destroySession(token);
+  res.json({ success: true });
+});
+
+router.get('/auth/me', requireAuth, (req, res) => {
+  res.json(req.user);
+});
+
+router.get('/employees/me', requireAuth, (req, res, next) => {
+  try {
+    const emp = leaveService.getCurrentEmployee(req.user.employeeId);
     if (!emp) return res.status(404).json({ message: '직원을 찾을 수 없습니다.' });
     res.json(emp);
   } catch (e) {

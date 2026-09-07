@@ -24,6 +24,16 @@ CREATE TABLE IF NOT EXISTS employees (
   updated_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
+CREATE TABLE IF NOT EXISTS users (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_id   INTEGER NOT NULL UNIQUE REFERENCES employees(id) ON DELETE CASCADE,
+  username      TEXT NOT NULL UNIQUE,           -- 사번
+  password_hash TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+
 CREATE INDEX IF NOT EXISTS idx_employees_emp_no ON employees(emp_no);
 CREATE INDEX IF NOT EXISTS idx_employees_hire_date ON employees(hire_date);
 CREATE INDEX IF NOT EXISTS idx_employees_name ON employees(name);

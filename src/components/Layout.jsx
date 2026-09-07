@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import {
   LayoutDashboard,
@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { useCurrentEmployee } from '../hooks/useLeaveData';
+import { setAuthToken } from '../api/client';
+import { leaveApi } from '../api/leaveApi';
 
 const employeeNav = [
   { to: '/employee', icon: LayoutDashboard, label: 'Home', end: true },
@@ -71,7 +73,18 @@ export function Layout() {
   const { data: currentEmployee } = useCurrentEmployee();
   const [shareUrl, setShareUrl] = useState('');
   const location = useLocation();
+  const navigate = useNavigate();
   const navItems = role === 'admin' ? adminNav : employeeNav;
+
+  async function handleLogout() {
+    try {
+      await leaveApi.logout();
+    } catch {
+      // ignore network errors on logout
+    }
+    setAuthToken('');
+    navigate('/login', { replace: true });
+  }
 
   useEffect(() => {
     fetch('/health')
@@ -105,6 +118,13 @@ export function Layout() {
           </div>
           <div className="w-[108px] shrink-0 ml-2">
             <RoleToggle role={role} setRole={setRole} compact />
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="mt-1 w-full text-[10px] text-stripe-sidebar-muted hover:text-white"
+            >
+              로그아웃
+            </button>
           </div>
         </div>
         {shareUrl && role === 'admin' && (
@@ -144,12 +164,20 @@ export function Layout() {
               <div className="min-w-0">
                 <p className="text-sm font-medium text-white truncate">{currentEmployee.name}</p>
                 <p className="text-[11px] text-stripe-sidebar-muted">
-                  {role === 'admin' ? '관리자' : currentEmployee.department}
+                  {currentEmployee.empNo ? `${currentEmployee.empNo} · ` : ''}
+                  {role === 'admin' ? '관리자' : currentEmployee.position || currentEmployee.department}
                 </p>
               </div>
             </div>
           )}
           <RoleToggle role={role} setRole={setRole} />
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="mt-2 w-full text-left px-1 text-[11px] text-stripe-sidebar-muted hover:text-white"
+          >
+            로그아웃
+          </button>
           {shareUrl && role === 'admin' && (
             <p className="mt-3 px-1 text-[10px] text-stripe-sidebar-muted leading-relaxed break-all">
               공유: <span className="text-white/90">{shareUrl}</span>

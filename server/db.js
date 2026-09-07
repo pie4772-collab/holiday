@@ -96,6 +96,25 @@ function migrate(database) {
   if (cols.length && !cols.includes('terminated_date')) {
     database.exec('ALTER TABLE employees ADD COLUMN terminated_date TEXT');
   }
+
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id   INTEGER NOT NULL UNIQUE REFERENCES employees(id) ON DELETE CASCADE,
+      username      TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+  `);
+
+  database.exec(`
+    UPDATE employees
+    SET position = '팀원'
+    WHERE position IS NULL
+       OR trim(position) = ''
+       OR position = '-'
+       OR position NOT IN ('팀원', '팀장')
+  `);
 }
 
 sqlDb.run('PRAGMA foreign_keys = ON');

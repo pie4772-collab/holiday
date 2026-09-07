@@ -1,5 +1,12 @@
 import { getCurrentDisplayYear } from '../../src/utils/leaveCalculations.js';
+import { DEFAULT_POSITION, POSITIONS } from '../../src/constants/hr.js';
 import { getDb, parseEmployeeId } from '../db.js';
+import { ensureUserForEmployee } from './authService.js';
+
+function normalizePosition(value) {
+  const position = String(value || '').trim();
+  return POSITIONS.includes(position) ? position : DEFAULT_POSITION;
+}
 
 const AS_OF_DATE = process.env.AS_OF_DATE || '2026-08-31';
 const DISPLAY_YEAR = getCurrentDisplayYear(new Date(AS_OF_DATE));
@@ -14,7 +21,7 @@ function mapEmployeeRow(row) {
     empNo: row.emp_no || '',
     name: row.name,
     department: row.department || '사무직',
-    position: row.position || '-',
+    position: row.position || DEFAULT_POSITION,
     hireDate: row.hire_date,
     email: row.email || '',
     notes: row.notes || '',
@@ -62,12 +69,13 @@ export function createEmployee(data) {
       name,
       hireDate,
       data.department?.trim() || '사무직',
-      data.position?.trim() || '-',
+      normalizePosition(data.position),
       data.email?.trim() || '',
       data.notes?.trim() || null
     );
 
   const employeeId = result.lastInsertRowid;
+  if (empNo) ensureUserForEmployee(employeeId, empNo);
 
   db.prepare(
     `INSERT INTO leave_balance_snapshots
@@ -99,11 +107,13 @@ export function updateEmployee(id, data) {
     data.name?.trim() || row.name,
     data.hireDate || row.hire_date,
     data.department?.trim() || row.department,
-    data.position?.trim() || row.position,
+    normalizePosition(data.position ?? row.position),
     data.email?.trim() ?? row.email ?? '',
     data.notes?.trim() ?? row.notes,
     row.id
   );
+
+  if (empNo) ensureUserForEmployee(row.id, empNo);
 
   return mapEmployeeRow(db.prepare('SELECT * FROM employees WHERE id = ?').get(row.id));
 }

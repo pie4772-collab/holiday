@@ -192,6 +192,25 @@ export const leaveApi = {
     return apiClient(`/admin/employees/${id}/terminate`, { method: 'POST', body: { terminatedDate } });
   },
 
+  async login(username, password) {
+    if (USE_MOCK) {
+      await delay(200);
+      return {
+        token: 'mock-token',
+        user: { employeeId: '1', empNo: username, name: '데모', position: '팀원' },
+      };
+    }
+    return apiClient('/auth/login', { method: 'POST', body: { username, password } });
+  },
+
+  async logout() {
+    if (USE_MOCK) {
+      await delay(100);
+      return { success: true };
+    }
+    return apiClient('/auth/logout', { method: 'POST' });
+  },
+
   async reactivateEmployee(id) {
     if (USE_MOCK) {
       await delay(400);

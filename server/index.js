@@ -6,9 +6,12 @@ import { fileURLToPath } from 'url';
 import { loadEnvFile } from './loadEnv.js';
 import apiRouter from './routes/api.js';
 import { getDb } from './db.js';
+import { optionalAuth } from './middleware/auth.js';
+import { syncUsersFromEmployees } from './services/authService.js';
 import { getLocalIp, getShareUrl } from './utils/network.js';
 
 loadEnvFile();
+const userCount = syncUsersFromEmployees();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -30,9 +33,11 @@ app.get('/health', (req, res) => {
   const { localIp, shareUrl } = getShareInfo();
   try {
     const count = getDb().prepare('SELECT COUNT(*) AS c FROM employees').get().c;
+    const users = getDb().prepare('SELECT COUNT(*) AS c FROM users').get().c;
     res.json({
       status: 'ok',
       employees: count,
+      users,
       localIp,
       port: Number(PORT),
       shareUrl,
@@ -49,7 +54,7 @@ app.get('/health', (req, res) => {
   }
 });
 
-app.use('/api', apiRouter);
+app.use('/api', optionalAuth, apiRouter);
 
 if (SERVE_STATIC) {
   app.use(express.static(DIST_PATH));
@@ -78,6 +83,7 @@ const server = app.listen(PORT, HOST, () => {
     console.log('Static files not found. Run "npm run build" then "npm start" for single-port serving.');
   }
   console.log(`DB: ${process.env.DB_PATH || path.join(__dirname, '../database/holiday.db')}`);
+  console.log(`Users: ${userCount}`);
   console.log('종료: Ctrl+C');
 });
 

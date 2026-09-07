@@ -31,24 +31,44 @@ const queryClient = new QueryClient({
 });
 
 function GlobalRequestModal() {
-  const { isRequestModalOpen, closeRequestModal, role } = useAppStore();
+  const {
+    isRequestModalOpen,
+    closeRequestModal,
+    requestStartDate,
+    role,
+    setLastRequestMessage,
+  } = useAppStore();
   const { data: employee } = useCurrentEmployee();
   const leaveRequest = useLeaveRequest();
 
   if (role !== 'employee') return null;
 
+  function handleClose() {
+    leaveRequest.reset();
+    closeRequestModal();
+  }
+
   async function handleSubmit(data) {
-    await leaveRequest.mutateAsync(data);
+    const result = await leaveRequest.mutateAsync(data);
+    setLastRequestMessage(
+      result?.message ||
+        (result?.approvalHint
+          ? `연차 신청이 접수되었습니다. ${result.approvalHint}`
+          : '연차 신청이 접수되었습니다. 승인을 기다려주세요.')
+    );
+    leaveRequest.reset();
     closeRequestModal();
   }
 
   return (
     <LeaveRequestModal
       isOpen={isRequestModalOpen}
-      onClose={closeRequestModal}
+      onClose={handleClose}
       onSubmit={handleSubmit}
       isSubmitting={leaveRequest.isPending}
       employeeId={employee?.id}
+      initialDate={requestStartDate}
+      submitError={leaveRequest.isError ? leaveRequest.error?.message || '신청에 실패했습니다. 다시 시도해주세요.' : ''}
     />
   );
 }

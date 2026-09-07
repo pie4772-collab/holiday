@@ -5,8 +5,21 @@ export const useAppStore = create((set) => ({
   setRole: (role) => set({ role }),
 
   isRequestModalOpen: false,
-  openRequestModal: () => set({ isRequestModalOpen: true }),
-  closeRequestModal: () => set({ isRequestModalOpen: false }),
+  requestStartDate: null,
+  lastRequestMessage: '',
+  openRequestModal: (date) =>
+    set({
+      isRequestModalOpen: true,
+      requestStartDate: date || null,
+      lastRequestMessage: '',
+    }),
+  closeRequestModal: () =>
+    set({
+      isRequestModalOpen: false,
+      requestStartDate: null,
+    }),
+  setLastRequestMessage: (message) => set({ lastRequestMessage: message || '' }),
+  clearLastRequestMessage: () => set({ lastRequestMessage: '' }),
 
   selectedEmployeeId: null,
   setSelectedEmployeeId: (id) => set({ selectedEmployeeId: id }),

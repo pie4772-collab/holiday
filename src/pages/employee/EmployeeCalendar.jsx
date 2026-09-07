@@ -1,15 +1,16 @@
+import { CheckCircle } from 'lucide-react';
 import { LeaveCalendar } from '../../components/LeaveCalendar';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Panel, PanelHeader, PanelBody } from '../../components/ui/Panel';
-import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import { LeaveUsageList } from '../../components/LeaveUsageList';
 import { useCurrentEmployee, useLeaveUsages } from '../../hooks/useLeaveData';
 import { useAppStore } from '../../store/useAppStore';
 
 export function EmployeeCalendar() {
-  const { openRequestModal } = useAppStore();
+  const { openRequestModal, lastRequestMessage } = useAppStore();
   const { data: employee, isLoading, isError, refetch } = useCurrentEmployee();
   const { data: usages } = useLeaveUsages(employee?.id);
 
@@ -25,67 +26,49 @@ export function EmployeeCalendar() {
     return <ErrorMessage onRetry={() => refetch()} />;
   }
 
-  const approvedUsages = usages?.filter((u) => u.status === 'approved') || [];
+  const calendarUsages = (usages || []).filter((u) => u.status !== 'rejected');
   const pendingUsages = usages?.filter((u) => u.status === 'pending') || [];
+  const approvedUsages = usages?.filter((u) => u.status === 'approved') || [];
 
   return (
     <div>
       <PageHeader
         title="캘린더"
-        description={`${employee.leaveSummary.displayYear}년 연차 사용 내역`}
+        description={`${employee.leaveSummary.displayYear}년 연차 사용 내역 · 날짜를 누르면 그 날부터 신청할 수 있습니다`}
         actions={
-          <Button size="sm" onClick={openRequestModal}>
+          <Button size="sm" onClick={() => openRequestModal()}>
             연차 신청
           </Button>
         }
       />
 
+      {lastRequestMessage && (
+        <div className="mb-6 flex items-start gap-2 rounded-md border border-[#d7f7c2] bg-[#f6fef9] px-4 py-3 text-sm text-[#09825d] max-w-lg">
+          <CheckCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <span>{lastRequestMessage}</span>
+        </div>
+      )}
+
       <div className="max-w-lg mb-6">
         <LeaveCalendar
-          usages={approvedUsages}
-          onDateClick={() => openRequestModal()}
+          usages={calendarUsages}
+          onDateClick={(dateStr) => openRequestModal(dateStr)}
           displayYear={employee.leaveSummary.displayYear}
         />
       </div>
 
-      {pendingUsages.length > 0 && (
-        <Panel className="max-w-lg mb-6">
-          <PanelHeader title="승인 대기" />
-          <PanelBody noPadding>
-            <div className="divide-y divide-[#f0f3f7]">
-              {pendingUsages.map((usage) => (
-                <div key={usage.id} className="flex items-center justify-between px-5 py-3 text-sm">
-                  <span className="font-mono text-stripe-text">{usage.date}</span>
-                  <Badge variant="warning">{usage.type === 'full' ? '연차' : '반차'}</Badge>
-                  <span className="text-stripe-muted truncate max-w-[160px] text-[13px]">
-                    {usage.reason}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </PanelBody>
-        </Panel>
-      )}
+      <Panel className="max-w-lg mb-6">
+        <PanelHeader title="승인 대기" description={`${pendingUsages.length}건`} />
+        <PanelBody noPadding>
+          <LeaveUsageList usages={pendingUsages} emptyText="승인 대기 중인 신청이 없습니다." />
+        </PanelBody>
+      </Panel>
+
       {approvedUsages.length > 0 && (
         <Panel className="max-w-lg">
           <PanelHeader title="최근 사용 내역" />
           <PanelBody noPadding>
-            <div className="divide-y divide-[#f0f3f7]">
-              {approvedUsages.slice(0, 5).map((usage) => (
-                <div
-                  key={usage.id}
-                  className="flex items-center justify-between px-5 py-3 text-sm"
-                >
-                  <span className="font-mono text-stripe-text">{usage.date}</span>
-                  <Badge variant={usage.type === 'full' ? 'info' : 'warning'}>
-                    {usage.type === 'full' ? '연차' : '반차'}
-                  </Badge>
-                  <span className="text-stripe-muted truncate max-w-[160px] text-[13px]">
-                    {usage.reason}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <LeaveUsageList usages={approvedUsages.slice(0, 8)} />
           </PanelBody>
         </Panel>
       )}

@@ -8,6 +8,7 @@ import {
   FISCAL_YEAR_START_MONTH,
 } from '../utils/leaveCalculations';
 import { parseISO } from 'date-fns';
+import { describeLeaveDates, listLeaveRequestDates } from '../utils/leaveRequestDates';
 
 const TODAY = new Date('2026-07-10');
 const DISPLAY_YEAR = getCurrentDisplayYear(TODAY);
@@ -241,16 +242,28 @@ export function getMockAdminUsages(employeeId) {
 }
 
 export function addMockLeaveRequest(request) {
-  const newUsage = {
-    id: `use-${Date.now()}`,
+  const startDate = request.startDate || request.date;
+  const endDate = request.type === 'half' ? startDate : request.endDate || request.date || startDate;
+  const dates =
+    request.type === 'half'
+      ? [startDate]
+      : listLeaveRequestDates(startDate, endDate);
+  const created = dates.map((date, index) => ({
+    id: `use-${Date.now()}-${index}`,
     employeeId: request.employeeId,
-    date: request.date,
+    date,
     type: request.type,
     reason: request.reason,
     status: 'pending',
+  }));
+  leaveUsages.push(...created);
+  return {
+    ...created[0],
+    dates,
+    items: created,
+    count: created.length,
+    message: `${request.type === 'half' ? '반차 0.5일' : `${created.length}일`} 연차 신청이 접수되었습니다. ${describeLeaveDates(dates)} · 승인을 기다려주세요`,
   };
-  leaveUsages.push(newUsage);
-  return newUsage;
 }
 
 export function createMockAccrual(data) {

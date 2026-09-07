@@ -1,19 +1,17 @@
-import { useState } from 'react';
 import { FilePlus, CheckCircle } from 'lucide-react';
-import { LeaveRequestModal } from '../../components/LeaveRequestModal';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
-import { Panel, PanelBody } from '../../components/ui/Panel';
+import { Panel, PanelHeader, PanelBody } from '../../components/ui/Panel';
 import { Button } from '../../components/ui/Button';
-import { useCurrentEmployee, useLeaveRequest } from '../../hooks/useLeaveData';
+import { LeaveUsageList } from '../../components/LeaveUsageList';
+import { useCurrentEmployee, useLeaveUsages } from '../../hooks/useLeaveData';
 import { useAppStore } from '../../store/useAppStore';
 
 export function EmployeeRequest() {
-  const { isRequestModalOpen, openRequestModal, closeRequestModal } = useAppStore();
+  const { openRequestModal, lastRequestMessage } = useAppStore();
   const { data: employee, isLoading, isError, refetch } = useCurrentEmployee();
-  const leaveRequest = useLeaveRequest();
-  const [successMessage, setSuccessMessage] = useState('');
+  const { data: usages } = useLeaveUsages(employee?.id);
 
   if (isLoading) {
     return (
@@ -27,42 +25,26 @@ export function EmployeeRequest() {
     return <ErrorMessage onRetry={() => refetch()} />;
   }
 
-  async function handleSubmit(data) {
-    try {
-      const result = await leaveRequest.mutateAsync(data);
-      setSuccessMessage(
-        result?.approvalHint
-          ? `연차 신청이 완료되었습니다. ${result.approvalHint}입니다.`
-          : '연차 신청이 완료되었습니다. 승인을 기다려주세요.'
-      );
-      closeRequestModal();
-      setTimeout(() => setSuccessMessage(''), 5000);
-    } catch {
-      // error handled by mutation state
-    }
-  }
+  const pending = usages?.filter((u) => u.status === 'pending') || [];
+  const recent = (usages || [])
+    .filter((u) => u.status !== 'pending')
+    .slice(0, 8);
 
   return (
     <div>
       <PageHeader
         title="연차 신청"
-        description="날짜, 유형, 사유를 입력하여 연차를 신청합니다."
+        description="시작일과 종료일을 선택하면 그 사이 평일을 한 번에 신청합니다."
       />
 
-      {successMessage && (
-        <div className="mb-6 flex items-center gap-2 rounded-md border border-[#d7f7c2] bg-[#f6fef9] px-4 py-3 text-sm text-[#09825d]">
-          <CheckCircle className="h-4 w-4 flex-shrink-0" />
-          {successMessage}
+      {lastRequestMessage && (
+        <div className="mb-6 flex items-start gap-2 rounded-md border border-[#d7f7c2] bg-[#f6fef9] px-4 py-3 text-sm text-[#09825d]">
+          <CheckCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <span>{lastRequestMessage}</span>
         </div>
       )}
 
-      {leaveRequest.isError && (
-        <div className="mb-6 rounded-md border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-sm text-[#df1b41]">
-          신청 중 오류가 발생했습니다. 다시 시도해주세요.
-        </div>
-      )}
-
-      <Panel className="max-w-md">
+      <Panel className="max-w-md mb-6">
         <PanelBody>
           <div className="text-center space-y-4 py-4">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-primary-50">
@@ -77,8 +59,11 @@ export function EmployeeRequest() {
                 </span>
                 <span className="text-stripe-muted/70"> · {employee.leaveSummary.displayYear}년</span>
               </p>
+              <p className="text-[13px] text-stripe-muted mt-2">
+                예: 1일부터 3일까지 → 한 번에 신청됩니다. 승인 전에는 잔여 일수가 줄어들지 않습니다.
+              </p>
             </div>
-            <Button className="w-full" onClick={openRequestModal}>
+            <Button className="w-full" onClick={() => openRequestModal()}>
               신청하기
             </Button>
           </div>
@@ -88,21 +73,30 @@ export function EmployeeRequest() {
               안내
             </p>
             <ul className="space-y-2 text-[13px] text-stripe-muted">
-              <li>연차 1일 · 반차 0.5일 차감</li>
+              <li>연속 연차는 시작일~종료일의 평일만 신청됩니다 (주말 제외)</li>
+              <li>반차는 하루만 신청할 수 있습니다</li>
+              <li>신청 후 아래 ‘내 신청’에서 승인 대기를 확인할 수 있습니다</li>
               <li>팀원 신청은 팀장 승인, 경영전략실은 박지은 승인</li>
-              <li>서울 팀장: 관리/수출/영업 소관 임원 승인 후 대표이사 승인</li>
             </ul>
           </div>
         </PanelBody>
       </Panel>
 
-      <LeaveRequestModal
-        isOpen={isRequestModalOpen}
-        onClose={closeRequestModal}
-        onSubmit={handleSubmit}
-        isSubmitting={leaveRequest.isPending}
-        employeeId={employee.id}
-      />
+      <Panel className="max-w-md mb-6">
+        <PanelHeader title="승인 대기" description={`${pending.length}건`} />
+        <PanelBody noPadding>
+          <LeaveUsageList usages={pending} emptyText="승인 대기 중인 신청이 없습니다." />
+        </PanelBody>
+      </Panel>
+
+      {recent.length > 0 && (
+        <Panel className="max-w-md">
+          <PanelHeader title="최근 처리" description={`${recent.length}건`} />
+          <PanelBody noPadding>
+            <LeaveUsageList usages={recent} />
+          </PanelBody>
+        </Panel>
+      )}
     </div>
   );
 }

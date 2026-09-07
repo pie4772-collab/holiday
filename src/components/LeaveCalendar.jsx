@@ -50,6 +50,9 @@ export function LeaveCalendar({ usages = [], onDateClick, displayYear }) {
     const dayUsages = usageMap[dateStr];
     if (!dayUsages?.length) return null;
 
+    const pending = dayUsages.some((u) => u.status === 'pending');
+    if (pending) return 'bg-[#fef3c7] text-[#b45309] ring-1 ring-[#fbbf24]';
+
     const hasFull = dayUsages.some((u) => u.type === 'full');
     const hasHalf = dayUsages.some((u) => u.type === 'half');
 
@@ -120,7 +123,9 @@ export function LeaveCalendar({ usages = [], onDateClick, displayYear }) {
                 <span className="text-[13px] font-medium">{format(day, 'd')}</span>
                 {usageMap[dateStr] && (
                   <span className="text-[9px] mt-0.5 opacity-90">
-                    {usageMap[dateStr].map((u) => (u.type === 'half' ? '반' : '연')).join('')}
+                    {usageMap[dateStr].some((u) => u.status === 'pending')
+                      ? '대기'
+                      : usageMap[dateStr].map((u) => (u.type === 'half' ? '반' : '연')).join('')}
                   </span>
                 )}
               </button>
@@ -137,6 +142,10 @@ export function LeaveCalendar({ usages = [], onDateClick, displayYear }) {
         <div className="flex items-center gap-2 text-xs text-stripe-muted">
           <span className="h-2.5 w-2.5 rounded-sm bg-[#fbbf24]" />
           반차
+        </div>
+        <div className="flex items-center gap-2 text-xs text-stripe-muted">
+          <span className="h-2.5 w-2.5 rounded-sm bg-[#fef3c7] ring-1 ring-[#fbbf24]" />
+          승인 대기
         </div>
       </div>
     </div>

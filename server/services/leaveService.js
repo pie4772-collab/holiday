@@ -7,6 +7,13 @@ import {
   filterUsagesByYear,
   FISCAL_YEAR_START_MONTH,
 } from '../../src/utils/leaveCalculations.js';
+import {
+  calendarSpanDays,
+  describeLeaveDates,
+  isValidLeaveDate,
+  listLeaveRequestDates,
+  MAX_LEAVE_RANGE_DAYS,
+} from '../../src/utils/leaveRequestDates.js';
 import { getDb, parseEmployeeId } from '../db.js';
 import * as approvalService from './approvalService.js';
 
@@ -302,8 +309,13 @@ export function getLeaveHistory(employeeId) {
 export function getLeaveUsages(employeeId) {
   const row = getEmployeeRow(employeeId);
   if (!row) return [];
-  const year = getCurrentDisplayYear(TODAY);
-  return getAllUsages(row.id, year);
+  const year = String(getCurrentDisplayYear(TODAY));
+  return getAllUsages(row.id).filter(
+    (usage) =>
+      usage.status === 'pending' ||
+      usage.status === 'rejected' ||
+      usage.date?.slice(0, 4) === year
+  );
 }
 
 export function getAdminAccruals(employeeId) {
@@ -316,27 +328,87 @@ export function getAdminUsages(employeeId) {
   return getAllUsages(row.id, getCurrentDisplayYear(TODAY));
 }
 
+function httpError(message, status = 400) {
+  return Object.assign(new Error(message), { status });
+}
+
 export function submitLeaveRequest(data) {
   const dbId = parseEmployeeId(data.employeeId);
-  if (!dbId) throw new Error('유효하지 않은 직원 ID입니다.');
+  if (!dbId) throw httpError('유효하지 않은 직원 ID입니다.');
   const employee = getDb().prepare('SELECT * FROM employees WHERE id = ? AND is_active = 1').get(dbId);
-  if (!employee) throw new Error('직원을 찾을 수 없습니다.');
+  if (!employee) throw httpError('직원을 찾을 수 없습니다.');
 
-  const days = data.type === 'half' ? 0.5 : 1;
-  const firstStep = approvalService.getApprovalChain(employee)[0]?.role || '팀장';
-  const result = getDb()
+  const type = data.type === 'half' ? 'half' : data.type === 'full' ? 'full' : null;
+  if (!type) throw httpError('연차 유형을 선택해주세요.');
+  const reason = String(data.reason || '').trim();
+  if (!reason) throw httpError('연차 사유를 입력해주세요.');
+
+  const startDate = data.startDate || data.date;
+  const endDate = type === 'half' ? startDate : data.endDate || data.date || startDate;
+  if (!isValidLeaveDate(startDate) || !isValidLeaveDate(endDate)) {
+    throw httpError('날짜를 확인해주세요.');
+  }
+  if (type === 'full' && endDate < startDate) {
+    throw httpError('종료일은 시작일 이후여야 합니다.');
+  }
+  if (type === 'full' && calendarSpanDays(startDate, endDate) > MAX_LEAVE_RANGE_DAYS) {
+    throw httpError(`한 번에 최대 ${MAX_LEAVE_RANGE_DAYS}일까지 신청할 수 있습니다.`);
+  }
+
+  const dates = listLeaveRequestDates(startDate, endDate, { skipWeekends: type === 'full' });
+  if (!dates.length) {
+    throw httpError(
+      type === 'full' ? '선택한 기간에 신청할 평일이 없습니다. 주말은 제외됩니다.' : '반차는 사용할 날짜를 선택해주세요.'
+    );
+  }
+  if (type === 'half' && dates.length !== 1) {
+    throw httpError('반차는 하루만 신청할 수 있습니다.');
+  }
+
+  const placeholders = dates.map(() => '?').join(', ');
+  const conflicts = getDb()
     .prepare(
-      `INSERT INTO leave_usages (employee_id, usage_date, usage_type, days, reason, status, created_by, approval_step)
-       VALUES (?, ?, ?, ?, ?, 'pending', 'employee', ?)`
+      `SELECT usage_date, status FROM leave_usages
+       WHERE employee_id = ?
+         AND usage_date IN (${placeholders})
+         AND status IN ('pending', 'approved')
+       ORDER BY usage_date`
     )
-    .run(dbId, data.date, data.type, days, data.reason, firstStep);
+    .all(dbId, ...dates);
 
-  const usage = mapUsageRow(
-    getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(result.lastInsertRowid)
+  if (conflicts.length) {
+    const first = conflicts[0];
+    const label = first.status === 'pending' ? '승인 대기 중' : '이미 승인됨';
+    throw httpError(`${first.usage_date}은(는) ${label}인 연차가 있어 신청할 수 없습니다.`);
+  }
+
+  const daysPerDate = type === 'half' ? 0.5 : 1;
+  const firstStep = approvalService.getApprovalChain(employee)[0]?.role || '팀장';
+  const insert = getDb().prepare(
+    `INSERT INTO leave_usages (employee_id, usage_date, usage_type, days, reason, status, created_by, approval_step)
+     VALUES (?, ?, ?, ?, ?, 'pending', 'employee', ?)`
   );
+
+  const items = dates.map((date) => {
+    const result = insert.run(dbId, date, type, daysPerDate, reason, firstStep);
+    return mapUsageRow(
+      getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(result.lastInsertRowid)
+    );
+  });
+
+  const approvalHint = approvalService.approvalHintFor(employee);
+  const dateLabel = describeLeaveDates(dates);
+  const countLabel = type === 'half' ? '반차 0.5일' : `${dates.length}일`;
+
   return {
-    ...usage,
-    approvalHint: approvalService.approvalHintFor(employee),
+    ...items[0],
+    dates,
+    items,
+    count: items.length,
+    approvalHint,
+    message: `${countLabel} 연차 신청이 접수되었습니다. ${dateLabel}${
+      approvalHint ? ` · ${approvalHint}` : ' · 승인을 기다려주세요'
+    }`,
   };
 }
 

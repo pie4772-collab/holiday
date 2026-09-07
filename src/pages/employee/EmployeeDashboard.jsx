@@ -5,11 +5,17 @@ import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Panel, PanelHeader, PanelBody } from '../../components/ui/Panel';
 import { Badge } from '../../components/ui/Badge';
-import { useCurrentEmployee } from '../../hooks/useLeaveData';
+import { CheckCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useCurrentEmployee, useLeaveUsages } from '../../hooks/useLeaveData';
 import { formatDate } from '../../utils/leaveCalculations';
+import { LeaveUsageList } from '../../components/LeaveUsageList';
+import { useAppStore } from '../../store/useAppStore';
 
 export function EmployeeDashboard() {
+  const { lastRequestMessage } = useAppStore();
   const { data: employee, isLoading, isError, refetch } = useCurrentEmployee();
+  const { data: usages } = useLeaveUsages(employee?.id);
 
   if (isLoading) {
     return (
@@ -26,9 +32,17 @@ export function EmployeeDashboard() {
   const { leaveSummary } = employee;
   const settlement = leaveSummary.firstYearMonthlySettlement;
   const year = leaveSummary.displayYear;
+  const pendingUsages = usages?.filter((u) => u.status === 'pending') || [];
 
   return (
     <div>
+      {lastRequestMessage && (
+        <div className="mb-6 flex items-start gap-2 rounded-md border border-[#d7f7c2] bg-[#f6fef9] px-4 py-3 text-sm text-[#09825d]">
+          <CheckCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <span>{lastRequestMessage}</span>
+        </div>
+      )}
+
       <PageHeader
         title={`안녕하세요, ${employee.name}님`}
         description={`${employee.department} · 입사일 ${formatDate(employee.hireDate)}`}
@@ -87,6 +101,23 @@ export function EmployeeDashboard() {
           subtitle={`${year}년 올해 사용`}
         />
       </div>
+
+      {pendingUsages.length > 0 && (
+        <Panel className="mb-8">
+          <PanelHeader
+            title="승인 대기 중인 신청"
+            description={`${pendingUsages.length}건 · 승인되면 잔여 연차에서 차감됩니다`}
+            actions={
+              <Link to="/employee/request" className="text-sm text-primary-600 hover:text-primary-700">
+                신청 내역
+              </Link>
+            }
+          />
+          <PanelBody noPadding>
+            <LeaveUsageList usages={pendingUsages} />
+          </PanelBody>
+        </Panel>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <Timeline hireDate={employee.hireDate} leaveSummary={leaveSummary} />

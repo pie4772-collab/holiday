@@ -50,3 +50,21 @@ export function useReactivateEmployee() {
     onSuccess: () => invalidateRoster(queryClient),
   });
 }
+
+export function useApprovalLines() {
+  return useQuery({
+    queryKey: ['admin', 'approval-lines'],
+    queryFn: leaveApi.getApprovalLines,
+  });
+}
+
+export function useSaveApprovalLines() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: leaveApi.saveApprovalLines,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'approval-lines'] });
+      queryClient.invalidateQueries({ queryKey: leaveKeys.currentEmployee });
+    },
+  });
+}

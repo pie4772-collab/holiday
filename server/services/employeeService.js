@@ -20,8 +20,12 @@ function mapEmployeeRow(row) {
     id: toApiId(row.id),
     empNo: row.emp_no || '',
     name: row.name,
-    department: row.department || '사무직',
+    workplace: row.workplace || '',
+    department: row.department || '',
+    jobType: row.job_type || '사무직',
     position: row.position || DEFAULT_POSITION,
+    concurrentDept: row.concurrent_dept || '',
+    concurrentPosition: row.concurrent_position || '',
     hireDate: row.hire_date,
     email: row.email || '',
     notes: row.notes || '',
@@ -62,15 +66,21 @@ export function createEmployee(data) {
 
   const result = db
     .prepare(
-      `INSERT INTO employees (emp_no, name, hire_date, department, position, email, notes, is_active, is_admin)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`
+      `INSERT INTO employees (
+         emp_no, name, hire_date, workplace, department, job_type, position,
+         concurrent_dept, concurrent_position, email, notes, is_active, is_admin
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
     )
     .run(
       empNo,
       name,
       hireDate,
-      data.department?.trim() || '사무직',
+      data.workplace?.trim() || null,
+      data.department?.trim() || null,
+      data.jobType?.trim() || '사무직',
       normalizePosition(data.position),
+      data.concurrentDept?.trim() || null,
+      data.concurrentPosition?.trim() || null,
       data.email?.trim() || '',
       data.notes?.trim() || null,
       data.isAdmin ? 1 : 0
@@ -101,15 +111,20 @@ export function updateEmployee(id, data) {
 
   db.prepare(
     `UPDATE employees
-     SET emp_no = ?, name = ?, hire_date = ?, department = ?, position = ?,
+     SET emp_no = ?, name = ?, hire_date = ?, workplace = ?, department = ?, job_type = ?,
+         position = ?, concurrent_dept = ?, concurrent_position = ?,
          email = ?, notes = ?, is_admin = ?, updated_at = datetime('now', 'localtime')
      WHERE id = ?`
   ).run(
     empNo,
     data.name?.trim() || row.name,
     data.hireDate || row.hire_date,
-    data.department?.trim() || row.department,
+    data.workplace?.trim() ?? row.workplace,
+    data.department?.trim() ?? row.department,
+    data.jobType?.trim() ?? row.job_type ?? '사무직',
     normalizePosition(data.position ?? row.position),
+    data.concurrentDept?.trim() ?? row.concurrent_dept,
+    data.concurrentPosition?.trim() ?? row.concurrent_position,
     data.email?.trim() ?? row.email ?? '',
     data.notes?.trim() ?? row.notes,
     data.isAdmin === undefined ? (row.is_admin ? 1 : 0) : data.isAdmin ? 1 : 0,

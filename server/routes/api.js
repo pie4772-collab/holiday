@@ -4,6 +4,7 @@ import * as employeeService from '../services/employeeService.js';
 import * as authService from '../services/authService.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { isEmployeeAdmin } from '../services/authService.js';
+import * as approvalService from '../services/approvalService.js';
 
 const router = express.Router();
 
@@ -26,6 +27,7 @@ router.get('/auth/me', requireAuth, (req, res) => {
   res.json({
     ...req.user,
     isAdmin: isEmployeeAdmin(req.user.employeeId),
+    canApprove: approvalService.canApproveRequests(req.user.employeeId),
   });
 });
 
@@ -73,9 +75,17 @@ router.get('/employees/:id/leave/usages', (req, res, next) => {
   }
 });
 
-router.get('/admin/stats', requireAdmin, (req, res, next) => {
+router.get('/admin/approval-lines', requireAdmin, (req, res, next) => {
   try {
-    res.json(leaveService.getAdminStats());
+    res.json(approvalService.listApprovalLines());
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.put('/admin/approval-lines', requireAdmin, (req, res, next) => {
+  try {
+    res.json(approvalService.saveApprovalLines(req.body));
   } catch (e) {
     next(e);
   }
@@ -144,8 +154,37 @@ router.get('/admin/employees/:id/usages', requireAdmin, (req, res, next) => {
 
 router.post('/leave/requests', requireAuth, (req, res, next) => {
   try {
-    const result = leaveService.submitLeaveRequest(req.body);
+    const result = leaveService.submitLeaveRequest({
+      ...req.body,
+      employeeId: req.user.employeeId,
+    });
     res.status(201).json(result);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/leave/approvals', requireAuth, (req, res, next) => {
+  try {
+    res.json(leaveService.getPendingApprovals(req.user.employeeId));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/leave/usages/:id/approve', requireAuth, (req, res, next) => {
+  try {
+    res.json(leaveService.decideLeaveRequest(req.params.id, req.user.employeeId, 'approve'));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/leave/usages/:id/reject', requireAuth, (req, res, next) => {
+  try {
+    res.json(
+      leaveService.decideLeaveRequest(req.params.id, req.user.employeeId, 'reject', req.body?.reason)
+    );
   } catch (e) {
     next(e);
   }

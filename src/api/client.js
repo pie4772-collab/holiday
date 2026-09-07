@@ -30,6 +30,12 @@ export async function apiClient(endpoint, options = {}) {
   const response = await fetch(`${API_BASE}${endpoint}`, config);
 
   if (!response.ok) {
+    if (response.status === 401 && !String(endpoint).startsWith('/auth/login')) {
+      setAuthToken('');
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.location.assign('/login');
+      }
+    }
     const error = await response.json().catch(() => ({ message: '요청 실패' }));
     throw new Error(error.message || `HTTP ${response.status}`);
   }

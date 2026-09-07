@@ -109,9 +109,23 @@ export function AdminEmployeeRoster() {
               </div>
               <div className="mt-3 space-y-1.5">
                 <div className="flex justify-between text-xs">
-                  <span className="text-stripe-muted">부서 · 직급</span>
-                  <span className="text-stripe-text">{emp.department} · {emp.position}</span>
+                  <span className="text-stripe-muted">사업장 · 부서</span>
+                  <span className="text-stripe-text">
+                    {[emp.workplace, emp.department].filter(Boolean).join(' · ') || '-'}
+                  </span>
                 </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-stripe-muted">직급</span>
+                  <span className="text-stripe-text">{emp.position || '-'}</span>
+                </div>
+                {(emp.concurrentDept || emp.concurrentPosition) && (
+                  <div className="flex justify-between text-xs">
+                    <span className="text-stripe-muted">겸직</span>
+                    <span className="text-stripe-text">
+                      {[emp.concurrentDept, emp.concurrentPosition].filter(Boolean).join(' · ')}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between text-xs">
                   <span className="text-stripe-muted">입사일</span>
                   <span className="font-mono text-stripe-text">{formatDate(emp.hireDate)}</span>
@@ -160,8 +174,10 @@ export function AdminEmployeeRoster() {
               <tr>
                 <th>이름</th>
                 <th>사번</th>
+                <th>사업장</th>
                 <th>부서</th>
                 <th>직급</th>
+                <th>겸직</th>
                 <th>입사일</th>
                 <th>퇴사일</th>
                 <th>권한</th>
@@ -174,8 +190,14 @@ export function AdminEmployeeRoster() {
                 <tr key={emp.id} className={!emp.isActive ? 'opacity-60' : ''}>
                   <td className="font-medium whitespace-nowrap">{emp.name}</td>
                   <td className="font-mono text-[13px] muted whitespace-nowrap">{emp.empNo || '-'}</td>
-                  <td className="muted whitespace-nowrap">{emp.department}</td>
-                  <td className="muted whitespace-nowrap">{emp.position}</td>
+                  <td className="muted whitespace-nowrap">{emp.workplace || '-'}</td>
+                  <td className="muted whitespace-nowrap">{emp.department || '-'}</td>
+                  <td className="muted whitespace-nowrap">{emp.position || '-'}</td>
+                  <td className="muted whitespace-nowrap">
+                    {emp.concurrentDept || emp.concurrentPosition
+                      ? [emp.concurrentDept, emp.concurrentPosition].filter(Boolean).join(' · ')
+                      : '-'}
+                  </td>
                   <td className="font-mono text-[13px] muted whitespace-nowrap">{formatDate(emp.hireDate)}</td>
                   <td className="font-mono text-[13px] muted whitespace-nowrap">
                     {emp.terminatedDate ? formatDate(emp.terminatedDate) : '-'}

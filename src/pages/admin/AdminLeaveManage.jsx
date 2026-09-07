@@ -221,8 +221,16 @@ export function AdminLeaveManage() {
                     </td>
                     <td className="muted text-[13px]">{item.reason}</td>
                     <td className="text-center">
-                      <Badge variant={item.status === 'approved' ? 'success' : 'default'}>
-                        {item.status === 'approved' ? '승인' : '대기'}
+                      <Badge
+                        variant={
+                          item.status === 'approved'
+                            ? 'success'
+                            : item.status === 'rejected'
+                              ? 'default'
+                              : 'warning'
+                        }
+                      >
+                        {item.status === 'approved' ? '승인' : item.status === 'rejected' ? '반려' : '대기'}
                       </Badge>
                     </td>
                     <td>

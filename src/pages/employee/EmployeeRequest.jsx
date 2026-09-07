@@ -29,8 +29,12 @@ export function EmployeeRequest() {
 
   async function handleSubmit(data) {
     try {
-      await leaveRequest.mutateAsync(data);
-      setSuccessMessage('연차 신청이 완료되었습니다. 관리자 승인을 기다려주세요.');
+      const result = await leaveRequest.mutateAsync(data);
+      setSuccessMessage(
+        result?.approvalHint
+          ? `연차 신청이 완료되었습니다. ${result.approvalHint}입니다.`
+          : '연차 신청이 완료되었습니다. 승인을 기다려주세요.'
+      );
       closeRequestModal();
       setTimeout(() => setSuccessMessage(''), 5000);
     } catch {
@@ -85,8 +89,8 @@ export function EmployeeRequest() {
             </p>
             <ul className="space-y-2 text-[13px] text-stripe-muted">
               <li>연차 1일 · 반차 0.5일 차감</li>
-              <li>신청 후 관리자 승인 필요</li>
-              <li>첫해 직원은 월차에서 차감</li>
+              <li>팀원 신청은 팀장 승인, 경영전략실은 박지은 승인</li>
+              <li>서울 팀장: 관리/수출/영업 소관 임원 승인 후 대표이사 승인</li>
             </ul>
           </div>
         </PanelBody>

@@ -47,6 +47,7 @@ export function AdminLeaveManageList() {
                   )}
                 </p>
                 <p className="text-xs text-stripe-muted mt-0.5">
+                  {emp.workplace ? `${emp.workplace} · ` : ''}
                   {emp.department} · 입사 {formatDate(emp.hireDate)}
                 </p>
               </div>

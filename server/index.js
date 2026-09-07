@@ -5,7 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { loadEnvFile } from './loadEnv.js';
 import apiRouter from './routes/api.js';
-import { getDb } from './db.js';
+import { getDb, getDbPath } from './db.js';
 import { optionalAuth } from './middleware/auth.js';
 import { syncUsersFromEmployees } from './services/authService.js';
 import { getLocalIp, getShareUrl } from './utils/network.js';
@@ -82,7 +82,7 @@ const server = app.listen(PORT, HOST, () => {
   } else {
     console.log('Static files not found. Run "npm run build" then "npm start" for single-port serving.');
   }
-  console.log(`DB: ${process.env.DB_PATH || path.join(__dirname, '../database/holiday.db')}`);
+  console.log(`DB: ${getDbPath()}`);
   console.log(`Users: ${userCount}`);
   console.log('종료: Ctrl+C');
 });

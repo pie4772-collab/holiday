@@ -14,8 +14,17 @@ CREATE TABLE IF NOT EXISTS employees (
   emp_no      TEXT UNIQUE,                    -- 사번
   name        TEXT NOT NULL,                  -- 성명
   hire_date   TEXT NOT NULL,                  -- 입사일 (YYYY-MM-DD)
-  department  TEXT,                           -- 부서 (엑셀 미포함, 추후 보완)
-  position    TEXT,                           -- 직급 (엑셀 미포함, 추후 보완)
+  workplace   TEXT,                           -- 사업장
+  workplace_code TEXT,                        -- 사업장코드 (화면 비표시)
+  department  TEXT,                           -- 부서
+  department_code TEXT,                       -- 부서코드 (화면 비표시)
+  job_type    TEXT,                           -- 직종
+  position    TEXT,                           -- 직급
+  position_code TEXT,                         -- 직급코드 (화면 비표시)
+  concurrent_dept TEXT,                       -- 겸직부서
+  concurrent_dept_code TEXT,                  -- 겸직부서코드 (화면 비표시)
+  concurrent_position TEXT,                   -- 겸직직급
+  concurrent_position_code TEXT,              -- 겸직직급코드 (화면 비표시)
   email       TEXT,
   notes       TEXT,                           -- 비고
   is_active   INTEGER NOT NULL DEFAULT 1,     -- 재직 여부
@@ -24,6 +33,32 @@ CREATE TABLE IF NOT EXISTS employees (
   created_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
   updated_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
+
+CREATE TABLE IF NOT EXISTS app_meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS approval_seats (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  seat_key      TEXT NOT NULL UNIQUE,
+  title         TEXT NOT NULL,
+  step_role     TEXT NOT NULL,
+  employee_id   INTEGER REFERENCES employees(id) ON DELETE SET NULL,
+  sort_order    INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS approval_seat_scopes (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  seat_id          INTEGER NOT NULL REFERENCES approval_seats(id) ON DELETE CASCADE,
+  workplace_code   TEXT,
+  department_code  TEXT NOT NULL,
+  department_name  TEXT,
+  UNIQUE(seat_id, department_code)
+);
+
 
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,6 +95,10 @@ CREATE TABLE IF NOT EXISTS leave_usages (
   days            REAL NOT NULL,              -- 차감 일수 (1 or 0.5)
   reason          TEXT,
   status          TEXT NOT NULL DEFAULT 'approved' CHECK (status IN ('approved', 'pending', 'rejected')),
+  approved_by     INTEGER,
+  approved_at     TEXT,
+  reject_reason   TEXT,
+  approval_step   TEXT,
   created_by      TEXT DEFAULT 'system',
   created_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
   updated_at      TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))

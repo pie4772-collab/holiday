@@ -16,6 +16,8 @@ import { AdminEmployeeRoster } from './pages/admin/AdminEmployeeRoster';
 import { AdminEmployeeDetail } from './pages/admin/AdminEmployeeDetail';
 import { AdminLeaveManageList } from './pages/admin/AdminLeaveManageList';
 import { AdminLeaveManage } from './pages/admin/AdminLeaveManage';
+import { EmployeeApprovals } from './pages/employee/EmployeeApprovals';
+import { AdminApprovalLines } from './pages/admin/AdminApprovalLines';
 import { useAppStore } from './store/useAppStore';
 import { useCurrentEmployee, useLeaveRequest } from './hooks/useLeaveData';
 
@@ -81,11 +83,14 @@ function AppRoutes() {
           <Route path="history" element={<EmployeeLeaveHistory />} />
           <Route path="calendar" element={<EmployeeCalendar />} />
           <Route path="request" element={<EmployeeRequest />} />
+          <Route path="approvals" element={<EmployeeApprovals />} />
         </Route>
 
         <Route path="admin" element={<RequireAdmin />}>
           <Route index element={<AdminDashboard />} />
+          <Route path="approvals" element={<EmployeeApprovals />} />
           <Route path="roster" element={<AdminEmployeeRoster />} />
+          <Route path="approval-lines" element={<AdminApprovalLines />} />
           <Route path="employees" element={<AdminEmployeeList />} />
           <Route path="employees/:id" element={<AdminEmployeeDetail />} />
           <Route path="leave-manage" element={<AdminLeaveManageList />} />

@@ -98,6 +98,30 @@ export const leaveApi = {
     return apiClient('/leave/requests', { method: 'POST', body: data });
   },
 
+  async getPendingApprovals() {
+    if (USE_MOCK) {
+      await delay();
+      return [];
+    }
+    return apiClient('/leave/approvals');
+  },
+
+  async approveLeaveRequest(id) {
+    if (USE_MOCK) {
+      await delay(300);
+      return { id, status: 'approved' };
+    }
+    return apiClient(`/leave/usages/${id}/approve`, { method: 'POST' });
+  },
+
+  async rejectLeaveRequest(id, reason) {
+    if (USE_MOCK) {
+      await delay(300);
+      return { id, status: 'rejected' };
+    }
+    return apiClient(`/leave/usages/${id}/reject`, { method: 'POST', body: { reason } });
+  },
+
   async createAccrual(data) {
     if (USE_MOCK) {
       await delay(400);
@@ -192,6 +216,14 @@ export const leaveApi = {
     return apiClient(`/admin/employees/${id}/terminate`, { method: 'POST', body: { terminatedDate } });
   },
 
+  async me() {
+    if (USE_MOCK) {
+      await delay(100);
+      return { employeeId: '1', empNo: 'demo', name: '데모', position: '팀원', isAdmin: true };
+    }
+    return apiClient('/auth/me');
+  },
+
   async login(username, password) {
     if (USE_MOCK) {
       await delay(200);
@@ -209,6 +241,22 @@ export const leaveApi = {
       return { success: true };
     }
     return apiClient('/auth/logout', { method: 'POST' });
+  },
+
+  async getApprovalLines() {
+    if (USE_MOCK) {
+      await delay();
+      return { seats: [], departments: [] };
+    }
+    return apiClient('/admin/approval-lines');
+  },
+
+  async saveApprovalLines(data) {
+    if (USE_MOCK) {
+      await delay(300);
+      return data;
+    }
+    return apiClient('/admin/approval-lines', { method: 'PUT', body: data });
   },
 
   async reactivateEmployee(id) {

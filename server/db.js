@@ -3,11 +3,28 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import initSqlJs from 'sql.js';
-import { INITIAL_ADMIN_NAMES } from '../src/constants/hr.js';
+import { INITIAL_ADMIN_NAMES, STRATEGY_APPROVER_EMP_NO, SEOUL_WORKPLACE_CODE, STRATEGY_DEPT_CODE, APPROVAL_SEAT_DEFAULTS } from '../src/constants/hr.js';
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../database/holiday.db');
+const BUNDLED_DB_PATH = path.join(__dirname, '../database/holiday.db');
+const USER_DATA_DIR = process.env.USER_DATA_DIR
+  || (fs.existsSync('/app/user_data') || fs.existsSync('/app') ? '/app/user_data' : null);
+
+function resolveDbPath() {
+  if (process.env.DB_PATH) return process.env.DB_PATH;
+  if (USER_DATA_DIR) {
+    fs.mkdirSync(USER_DATA_DIR, { recursive: true });
+    const persistent = path.join(USER_DATA_DIR, 'holiday.db');
+    if (!fs.existsSync(persistent) && fs.existsSync(BUNDLED_DB_PATH)) {
+      fs.copyFileSync(BUNDLED_DB_PATH, persistent);
+    }
+    return persistent;
+  }
+  return BUNDLED_DB_PATH;
+}
+
+const DB_PATH = resolveDbPath();
 
 const wasmPath = path.join(path.dirname(require.resolve('sql.js')), 'sql-wasm.wasm');
 const SQL = await initSqlJs({
@@ -92,8 +109,294 @@ class Db {
 
 const db = new Db();
 
+function tableColumns(database, table) {
+  return database.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+}
+
+function addColumn(database, table, definition) {
+  const [name] = definition.split(/\s+/);
+  const cols = tableColumns(database, table);
+  if (cols.length && !cols.includes(name)) {
+    database.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+  }
+}
+
+function migrateApprovalMappingsTable(database) {
+  const ddl = database.prepare(
+    `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'approval_mappings'`
+  ).get();
+  const needsRebuild = Boolean(ddl?.sql?.includes('CHECK'));
+  database.exec('DROP TABLE IF EXISTS approval_mappings_new');
+  database.exec(`
+    CREATE TABLE approval_mappings_new (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id      INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+      role             TEXT NOT NULL,
+      workplace_code   TEXT,
+      department_code  TEXT,
+      created_at       TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+  `);
+  if (ddl && needsRebuild) {
+    database.exec(
+      `INSERT INTO approval_mappings_new (id, employee_id, role, workplace_code, department_code, created_at)
+       SELECT id, employee_id, role, workplace_code, department_code, created_at FROM approval_mappings`
+    );
+    database.exec('DROP TABLE approval_mappings');
+    database.exec('ALTER TABLE approval_mappings_new RENAME TO approval_mappings');
+  } else if (!ddl) {
+    database.exec('ALTER TABLE approval_mappings_new RENAME TO approval_mappings');
+  } else {
+    database.exec('DROP TABLE approval_mappings_new');
+  }
+}
+
+function seedApprovalRules(database) {
+  const seeded = database.prepare(`SELECT value FROM app_meta WHERE key = 'approval_rules_v2'`).get();
+  if (seeded?.value) return;
+
+  const park = database
+    .prepare(`SELECT id FROM employees WHERE emp_no = ? OR name = '박지은'`)
+    .get(STRATEGY_APPROVER_EMP_NO);
+  if (park) {
+    const existing = database
+      .prepare(
+        `SELECT id FROM approval_mappings
+         WHERE employee_id = ? AND role = '담당' AND workplace_code = ? AND department_code = ?`
+      )
+      .get(park.id, SEOUL_WORKPLACE_CODE, STRATEGY_DEPT_CODE);
+    if (!existing) {
+      database
+        .prepare(
+          `INSERT INTO approval_mappings (employee_id, role, workplace_code, department_code)
+           VALUES (?, '담당', ?, ?)`
+        )
+        .run(park.id, SEOUL_WORKPLACE_CODE, STRATEGY_DEPT_CODE);
+    }
+    const execMap = database
+      .prepare(
+        `SELECT id FROM approval_mappings
+         WHERE employee_id = ? AND role = '임원' AND workplace_code = ? AND department_code = ?`
+      )
+      .get(park.id, SEOUL_WORKPLACE_CODE, STRATEGY_DEPT_CODE);
+    if (!execMap) {
+      database
+        .prepare(
+          `INSERT INTO approval_mappings (employee_id, role, workplace_code, department_code)
+           VALUES (?, '임원', ?, ?)`
+        )
+        .run(park.id, SEOUL_WORKPLACE_CODE, STRATEGY_DEPT_CODE);
+    }
+  }
+
+  database.prepare(`INSERT OR REPLACE INTO app_meta (key, value) VALUES ('approval_rules_v2', '1')`).run();
+}
+
+function migrateApprovalSeats(database) {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS approval_seats (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      seat_key      TEXT NOT NULL UNIQUE,
+      title         TEXT NOT NULL,
+      step_role     TEXT NOT NULL,
+      employee_id   INTEGER REFERENCES employees(id) ON DELETE SET NULL,
+      sort_order    INTEGER NOT NULL DEFAULT 0,
+      created_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+  `);
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS approval_seat_scopes (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      seat_id          INTEGER NOT NULL REFERENCES approval_seats(id) ON DELETE CASCADE,
+      workplace_code   TEXT,
+      department_code  TEXT NOT NULL,
+      department_name  TEXT,
+      UNIQUE(seat_id, department_code)
+    );
+  `);
+}
+
+function lookupDept(database, departmentName) {
+  return database
+    .prepare(
+      `SELECT department_code, workplace_code, department
+       FROM employees
+       WHERE department = ? AND (workplace = '서울' OR workplace_code = ?)
+       LIMIT 1`
+    )
+    .get(departmentName, SEOUL_WORKPLACE_CODE);
+}
+
+function seedApprovalSeats(database) {
+  const seeded = database.prepare(`SELECT value FROM app_meta WHERE key = 'approval_seats_v1'`).get();
+  if (seeded?.value) return;
+
+  for (const def of APPROVAL_SEAT_DEFAULTS) {
+    let employeeId = null;
+    if (def.employeeEmpNo) {
+      const emp = database
+        .prepare(`SELECT id FROM employees WHERE emp_no = ? OR name = '박지은'`)
+        .get(def.employeeEmpNo);
+      employeeId = emp?.id || null;
+    }
+    const existing = database.prepare('SELECT id FROM approval_seats WHERE seat_key = ?').get(def.seatKey);
+    let seatId = existing?.id;
+    if (!seatId) {
+      const result = database
+        .prepare(
+          `INSERT INTO approval_seats (seat_key, title, step_role, employee_id, sort_order)
+           VALUES (?, ?, ?, ?, ?)`
+        )
+        .run(def.seatKey, def.title, def.stepRole, employeeId, def.sortOrder);
+      seatId = result.lastInsertRowid;
+    }
+
+    for (const deptName of def.departments || []) {
+      const found = lookupDept(database, deptName);
+      const departmentCode = found?.department_code || (deptName === '경영전략실' ? STRATEGY_DEPT_CODE : null);
+      if (!departmentCode) continue;
+      const workplaceCode = found?.workplace_code || SEOUL_WORKPLACE_CODE;
+      const already = database
+        .prepare('SELECT id FROM approval_seat_scopes WHERE seat_id = ? AND department_code = ?')
+        .get(seatId, String(departmentCode));
+      if (already) continue;
+      database
+        .prepare(
+          `INSERT INTO approval_seat_scopes (seat_id, workplace_code, department_code, department_name)
+           VALUES (?, ?, ?, ?)`
+        )
+        .run(seatId, String(workplaceCode), String(departmentCode), deptName);
+    }
+  }
+
+  database.prepare(`INSERT OR REPLACE INTO app_meta (key, value) VALUES ('approval_seats_v1', '1')`).run();
+}
+
+function toText(value) {
+  if (value == null || value === '') return null;
+  return String(value).trim();
+}
+
+function importRosterSeed(database) {
+  const seeded = database.prepare(`SELECT value FROM app_meta WHERE key = 'roster_org_imported'`).get();
+  if (seeded?.value) return;
+
+  const seedPath = [
+    path.join(__dirname, '../database/roster_seed.json'),
+    path.join(__dirname, '../scripts/roster-import.json'),
+  ].find((p) => fs.existsSync(p));
+  if (!seedPath) return;
+
+  const rows = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
+  const asOfDate = process.env.AS_OF_DATE || '2026-08-31';
+  const displayYear = Number(String(asOfDate).slice(0, 4)) || 2026;
+
+  for (const row of rows) {
+    const empNo = toText(row['사번']);
+    if (!empNo) continue;
+    const name = toText(row['이름']);
+    const hireDate = toText(row['입사일']);
+    const isAdmin = row['권한'] === '관리자' ? 1 : 0;
+    const isActive = row['상태'] === '퇴사' ? 0 : 1;
+    const payload = [
+      empNo,
+      name,
+      hireDate,
+      toText(row['사업장']),
+      toText(row['사업장코드']),
+      toText(row['부서']),
+      toText(row['부서코드']),
+      toText(row['직종']) || '사무직',
+      toText(row['직급']) || '팀원',
+      toText(row['직급코드']),
+      toText(row['겸직부서']),
+      toText(row['겸직부서코드']),
+      toText(row['겸직직급']),
+      toText(row['겸직직급코드']),
+      toText(row['퇴사일']),
+      isActive,
+      isAdmin,
+    ];
+
+    const existing = database.prepare('SELECT id FROM employees WHERE emp_no = ?').get(empNo);
+    if (existing) {
+      database
+        .prepare(
+          `UPDATE employees
+           SET name = ?, hire_date = ?, workplace = ?, workplace_code = ?,
+               department = ?, department_code = ?, job_type = ?,
+               position = ?, position_code = ?,
+               concurrent_dept = ?, concurrent_dept_code = ?,
+               concurrent_position = ?, concurrent_position_code = ?,
+               terminated_date = ?, is_active = ?, is_admin = ?,
+               updated_at = datetime('now', 'localtime')
+           WHERE id = ?`
+        )
+        .run(
+          name,
+          hireDate,
+          payload[3],
+          payload[4],
+          payload[5],
+          payload[6],
+          payload[7],
+          payload[8],
+          payload[9],
+          payload[10],
+          payload[11],
+          payload[12],
+          payload[13],
+          payload[14],
+          isActive,
+          isAdmin,
+          existing.id
+        );
+    } else {
+      const result = database
+        .prepare(
+          `INSERT INTO employees (
+             emp_no, name, hire_date, workplace, workplace_code, department, department_code,
+             job_type, position, position_code, concurrent_dept, concurrent_dept_code,
+             concurrent_position, concurrent_position_code, terminated_date, is_active, is_admin
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          empNo,
+          name,
+          hireDate,
+          payload[3],
+          payload[4],
+          payload[5],
+          payload[6],
+          payload[7],
+          payload[8],
+          payload[9],
+          payload[10],
+          payload[11],
+          payload[12],
+          payload[13],
+          payload[14],
+          isActive,
+          isAdmin
+        );
+      database
+        .prepare(
+          `INSERT INTO leave_balance_snapshots
+             (employee_id, as_of_date, display_year, accrued, used, remaining, source_file)
+           VALUES (?, ?, ?, 0, 0, 0, 'roster_seed')`
+        )
+        .run(result.lastInsertRowid, asOfDate, displayYear);
+    }
+  }
+
+  database
+    .prepare(`INSERT OR REPLACE INTO app_meta (key, value) VALUES ('roster_org_imported', ?)`)
+    .run(path.basename(seedPath));
+}
+
 function migrate(database) {
-  const cols = database.prepare('PRAGMA table_info(employees)').all().map((c) => c.name);
+  const cols = tableColumns(database, 'employees');
   if (cols.length && !cols.includes('terminated_date')) {
     database.exec('ALTER TABLE employees ADD COLUMN terminated_date TEXT');
   }
@@ -109,22 +412,55 @@ function migrate(database) {
   `);
 
   database.exec(`
+    CREATE TABLE IF NOT EXISTS app_meta (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
+
+  migrateApprovalMappingsTable(database);
+  migrateApprovalSeats(database);
+
+  addColumn(database, 'employees', 'is_admin INTEGER NOT NULL DEFAULT 0');
+  addColumn(database, 'employees', 'workplace TEXT');
+  addColumn(database, 'employees', 'workplace_code TEXT');
+  addColumn(database, 'employees', 'department_code TEXT');
+  addColumn(database, 'employees', 'job_type TEXT');
+  addColumn(database, 'employees', 'position_code TEXT');
+  addColumn(database, 'employees', 'concurrent_dept TEXT');
+  addColumn(database, 'employees', 'concurrent_dept_code TEXT');
+  addColumn(database, 'employees', 'concurrent_position TEXT');
+  addColumn(database, 'employees', 'concurrent_position_code TEXT');
+  addColumn(database, 'leave_usages', 'approved_by INTEGER');
+  addColumn(database, 'leave_usages', 'approved_at TEXT');
+  addColumn(database, 'leave_usages', 'reject_reason TEXT');
+  addColumn(database, 'leave_usages', 'approval_step TEXT');
+
+  const adminCols = tableColumns(database, 'employees');
+  const adminSeeded = database.prepare(`SELECT value FROM app_meta WHERE key = 'initial_admins_seeded'`).get();
+  if (!adminSeeded && adminCols.includes('is_admin')) {
+    const already = database.prepare('SELECT COUNT(*) AS c FROM employees WHERE is_admin = 1').get();
+    if (!already?.c) {
+      const placeholders = INITIAL_ADMIN_NAMES.map(() => '?').join(', ');
+      database.prepare(`UPDATE employees SET is_admin = 1 WHERE name IN (${placeholders})`).run(
+        ...INITIAL_ADMIN_NAMES
+      );
+    }
+    database.prepare(`INSERT OR REPLACE INTO app_meta (key, value) VALUES ('initial_admins_seeded', '1')`).run();
+  }
+
+  database.exec(`
     UPDATE employees
     SET position = '팀원'
     WHERE position IS NULL
        OR trim(position) = ''
        OR position = '-'
-       OR position NOT IN ('팀원', '팀장')
+       OR position NOT IN ('팀원', '팀장', '공장장', '임원', '대표이사')
   `);
 
-  const latestCols = database.prepare('PRAGMA table_info(employees)').all().map((c) => c.name);
-  if (latestCols.length && !latestCols.includes('is_admin')) {
-    database.exec('ALTER TABLE employees ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0');
-    const placeholders = INITIAL_ADMIN_NAMES.map(() => '?').join(', ');
-    database.prepare(`UPDATE employees SET is_admin = 1 WHERE name IN (${placeholders})`).run(
-      ...INITIAL_ADMIN_NAMES
-    );
-  }
+  importRosterSeed(database);
+  seedApprovalRules(database);
+  seedApprovalSeats(database);
 }
 
 sqlDb.run('PRAGMA foreign_keys = ON');
@@ -132,6 +468,10 @@ migrate(db);
 
 export function getDb() {
   return db;
+}
+
+export function getDbPath() {
+  return DB_PATH;
 }
 
 export function parseEmployeeId(id) {

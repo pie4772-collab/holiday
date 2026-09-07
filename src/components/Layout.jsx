@@ -9,6 +9,8 @@ import {
   BarChart3,
   Settings,
   ClipboardList,
+  ClipboardCheck,
+  GitBranch,
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { useCurrentEmployee } from '../hooks/useLeaveData';
@@ -24,8 +26,10 @@ const employeeNav = [
 
 const adminNav = [
   { to: '/admin', icon: BarChart3, label: 'Home', end: true },
+  { to: '/admin/approvals', icon: ClipboardCheck, label: '연차 승인' },
   { to: '/admin/roster', icon: ClipboardList, label: '사원 명부' },
   { to: '/admin/employees', icon: Users, label: '직원' },
+  { to: '/admin/approval-lines', icon: GitBranch, label: '결재 라인' },
   { to: '/admin/leave-manage', icon: Settings, label: '연차 관리' },
 ];
 
@@ -78,7 +82,11 @@ export function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
   const canAdmin = Boolean(currentEmployee?.isAdmin);
-  const navItems = role === 'admin' && canAdmin ? adminNav : employeeNav;
+  const canApprove = Boolean(currentEmployee?.canApprove);
+  const employeeItems = canApprove
+    ? [...employeeNav, { to: '/employee/approvals', icon: ClipboardCheck, label: '연차 승인' }]
+    : employeeNav;
+  const navItems = role === 'admin' && canAdmin ? adminNav : employeeItems;
 
   async function handleLogout() {
     try {

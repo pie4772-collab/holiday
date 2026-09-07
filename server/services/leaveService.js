@@ -8,6 +8,7 @@ import {
   FISCAL_YEAR_START_MONTH,
 } from '../../src/utils/leaveCalculations.js';
 import { getDb, parseEmployeeId } from '../db.js';
+import * as approvalService from './approvalService.js';
 
 const AS_OF_DATE = process.env.AS_OF_DATE || '2026-07-10';
 const TODAY = new Date(AS_OF_DATE);
@@ -20,10 +21,20 @@ function mapUsageRow(row) {
   return {
     id: String(row.id),
     employeeId: toApiId(row.employee_id),
+    employeeName: row.employee_name || undefined,
+    empNo: row.emp_no || undefined,
+    workplace: row.workplace || undefined,
+    department: row.department || undefined,
+    position: row.position || undefined,
     date: row.usage_date,
     type: row.usage_type,
     reason: row.reason,
     status: row.status,
+    approvalStep: row.approval_step || null,
+    approvalHint: row.approval_hint || undefined,
+    approvedBy: row.approved_by ? String(row.approved_by) : null,
+    approvedAt: row.approved_at || null,
+    rejectReason: row.reject_reason || null,
   };
 }
 
@@ -88,8 +99,12 @@ function toEmployeeBase(row) {
     id: toApiId(row.id),
     empNo: row.emp_no,
     name: row.name,
-    department: row.department || '사무직',
+    workplace: row.workplace || '',
+    department: row.department || '',
+    jobType: row.job_type || '사무직',
     position: row.position || '팀원',
+    concurrentDept: row.concurrent_dept || '',
+    concurrentPosition: row.concurrent_position || '',
     isAdmin: Boolean(row.is_admin),
     hireDate: row.hire_date,
     email: row.email || '',
@@ -241,7 +256,13 @@ export function getEmployeeById(id) {
 
 export function getCurrentEmployee(employeeId) {
   const id = employeeId || process.env.CURRENT_EMPLOYEE_ID || '1';
-  return getEmployeeById(id);
+  const emp = getEmployeeById(id);
+  if (!emp) return null;
+  return {
+    ...emp,
+    canApprove: approvalService.canApproveRequests(id),
+    approvalHint: approvalService.approvalHintFor({ position: emp.position }),
+  };
 }
 
 export function getAdminStats() {
@@ -298,18 +319,94 @@ export function getAdminUsages(employeeId) {
 export function submitLeaveRequest(data) {
   const dbId = parseEmployeeId(data.employeeId);
   if (!dbId) throw new Error('유효하지 않은 직원 ID입니다.');
+  const employee = getDb().prepare('SELECT * FROM employees WHERE id = ? AND is_active = 1').get(dbId);
+  if (!employee) throw new Error('직원을 찾을 수 없습니다.');
 
   const days = data.type === 'half' ? 0.5 : 1;
+  const firstStep = approvalService.getApprovalChain(employee)[0]?.role || '팀장';
   const result = getDb()
     .prepare(
-      `INSERT INTO leave_usages (employee_id, usage_date, usage_type, days, reason, status, created_by)
-       VALUES (?, ?, ?, ?, ?, 'pending', 'employee')`
+      `INSERT INTO leave_usages (employee_id, usage_date, usage_type, days, reason, status, created_by, approval_step)
+       VALUES (?, ?, ?, ?, ?, 'pending', 'employee', ?)`
     )
-    .run(dbId, data.date, data.type, days, data.reason);
+    .run(dbId, data.date, data.type, days, data.reason, firstStep);
 
-  return mapUsageRow(
+  const usage = mapUsageRow(
     getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(result.lastInsertRowid)
   );
+  return {
+    ...usage,
+    approvalHint: approvalService.approvalHintFor(employee),
+  };
+}
+
+export function getPendingApprovals(approverId) {
+  return approvalService.listPendingApprovals(approverId).map((row) => {
+    const mapped = mapUsageRow(row);
+    return {
+      ...mapped,
+      approvalHint: approvalService.approvalHintFor(
+        {
+          position: row.position,
+          workplace: row.workplace,
+          workplace_code: row.workplace_code,
+          department_code: row.department_code,
+        },
+        row.approval_step
+      ),
+    };
+  });
+}
+
+export function decideLeaveRequest(usageId, approverId, action, rejectReason) {
+  const approverDbId = parseEmployeeId(approverId);
+  const row = getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(Number(usageId));
+  if (!row) throw Object.assign(new Error('신청 내역을 찾을 수 없습니다.'), { status: 404 });
+  if (row.status !== 'pending') throw Object.assign(new Error('이미 처리된 신청입니다.'), { status: 400 });
+  if (!approvalService.canApproveUsage(approverDbId, row)) {
+    throw Object.assign(new Error('이 신청을 승인할 권한이 없습니다.'), { status: 403 });
+  }
+
+  if (action === 'reject') {
+    getDb()
+      .prepare(
+        `UPDATE leave_usages
+         SET status = 'rejected', approved_by = ?, approved_at = datetime('now', 'localtime'),
+             reject_reason = ?, updated_at = datetime('now', 'localtime')
+         WHERE id = ?`
+      )
+      .run(approverDbId, rejectReason || '', row.id);
+  } else {
+    const requester = getDb().prepare('SELECT * FROM employees WHERE id = ?').get(row.employee_id);
+    const nextStep = approvalService.nextApprovalStep(requester, row.approval_step);
+    if (nextStep) {
+      getDb()
+        .prepare(
+          `UPDATE leave_usages
+           SET approval_step = ?, approved_by = ?, approved_at = datetime('now', 'localtime'),
+               updated_at = datetime('now', 'localtime')
+           WHERE id = ?`
+        )
+        .run(nextStep, approverDbId, row.id);
+    } else {
+      getDb()
+        .prepare(
+          `UPDATE leave_usages
+           SET status = 'approved', approved_by = ?, approved_at = datetime('now', 'localtime'),
+               reject_reason = NULL, updated_at = datetime('now', 'localtime')
+           WHERE id = ?`
+        )
+        .run(approverDbId, row.id);
+    }
+  }
+
+  const updated = getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(row.id);
+  const requester = getDb().prepare('SELECT * FROM employees WHERE id = ?').get(row.employee_id);
+  return {
+    ...mapUsageRow(updated),
+    approvalHint:
+      updated.status === 'pending' ? approvalService.approvalHintFor(requester, updated.approval_step) : null,
+  };
 }
 
 export function createAccrual(data) {

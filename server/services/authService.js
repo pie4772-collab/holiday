@@ -1,9 +1,9 @@
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { getDb } from '../db.js';
 import { DEFAULT_PASSWORD } from '../../src/constants/hr.js';
 
-const sessions = new Map();
 const TOKEN_TTL_MS = 1000 * 60 * 60 * 12;
+const SESSION_SECRET = process.env.SESSION_SECRET || 'holiday-internal-session-v1';
 
 function hashPassword(password) {
   const salt = randomBytes(16).toString('hex');
@@ -20,38 +20,42 @@ function verifyPassword(password, stored) {
   return timingSafeEqual(prev, next);
 }
 
-function purgeExpiredSessions() {
-  const now = Date.now();
-  for (const [token, session] of sessions) {
-    if (session.expiresAt <= now) sessions.delete(token);
-  }
+function signPayload(payload) {
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const sig = createHmac('sha256', SESSION_SECRET).update(body).digest('base64url');
+  return `${body}.${sig}`;
 }
 
 export function createSession(user) {
-  purgeExpiredSessions();
-  const token = randomBytes(32).toString('hex');
-  sessions.set(token, {
+  return signPayload({
     employeeId: String(user.employee_id),
     empNo: user.username,
     name: user.name,
     position: user.position,
     isAdmin: Boolean(user.is_admin),
-    expiresAt: Date.now() + TOKEN_TTL_MS,
+    exp: Date.now() + TOKEN_TTL_MS,
   });
-  return token;
 }
 
 export function getSession(token) {
-  if (!token) return null;
-  purgeExpiredSessions();
-  const session = sessions.get(token);
-  if (!session) return null;
-  session.expiresAt = Date.now() + TOKEN_TTL_MS;
-  return session;
+  if (!token || !token.includes('.')) return null;
+  const [body, sig] = token.split('.');
+  if (!body || !sig) return null;
+  const expected = createHmac('sha256', SESSION_SECRET).update(body).digest('base64url');
+  const actual = Buffer.from(sig);
+  const valid = Buffer.from(expected);
+  if (actual.length !== valid.length || !timingSafeEqual(actual, valid)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+    if (!payload?.employeeId || Number(payload.exp) <= Date.now()) return null;
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
-export function destroySession(token) {
-  if (token) sessions.delete(token);
+export function destroySession() {
+  // Tokens are signed and stateless; logout is handled on the client.
 }
 
 export function ensureUserForEmployee(employeeId, empNo) {

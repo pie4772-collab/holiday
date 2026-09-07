@@ -7,8 +7,12 @@ const emptyForm = {
   empNo: '',
   name: '',
   hireDate: new Date().toISOString().slice(0, 10),
-  department: '사무직',
+  workplace: '',
+  department: '',
+  jobType: '사무직',
   position: DEFAULT_POSITION,
+  concurrentDept: '',
+  concurrentPosition: '',
   email: '',
   notes: '',
   isAdmin: false,
@@ -32,8 +36,14 @@ export function EmployeeFormModal({
           empNo: initial.empNo || '',
           name: initial.name || '',
           hireDate: initial.hireDate || '',
-          department: initial.department || '사무직',
+          workplace: initial.workplace || '',
+          department: initial.department || '',
+          jobType: initial.jobType || '사무직',
           position: POSITIONS.includes(initial.position) ? initial.position : DEFAULT_POSITION,
+          concurrentDept: initial.concurrentDept || '',
+          concurrentPosition: POSITIONS.includes(initial.concurrentPosition)
+            ? initial.concurrentPosition
+            : '',
           email: initial.email || '',
           notes: initial.notes || '',
           isAdmin: Boolean(initial.isAdmin),
@@ -135,6 +145,26 @@ export function EmployeeFormModal({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
+                <label className="stripe-label">사업장</label>
+                <input
+                  type="text"
+                  value={form.workplace}
+                  onChange={(e) => setForm({ ...form, workplace: e.target.value })}
+                  className="stripe-input"
+                />
+              </div>
+              <div>
+                <label className="stripe-label">직종</label>
+                <input
+                  type="text"
+                  value={form.jobType}
+                  onChange={(e) => setForm({ ...form, jobType: e.target.value })}
+                  className="stripe-input"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
                 <label className="stripe-label">부서</label>
                 <input
                   type="text"
@@ -150,6 +180,32 @@ export function EmployeeFormModal({
                   onChange={(e) => setForm({ ...form, position: e.target.value })}
                   className="stripe-input"
                 >
+                  {POSITIONS.map((position) => (
+                    <option key={position} value={position}>
+                      {position}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="stripe-label">겸직부서</label>
+                <input
+                  type="text"
+                  value={form.concurrentDept}
+                  onChange={(e) => setForm({ ...form, concurrentDept: e.target.value })}
+                  className="stripe-input"
+                />
+              </div>
+              <div>
+                <label className="stripe-label">겸직직급</label>
+                <select
+                  value={form.concurrentPosition}
+                  onChange={(e) => setForm({ ...form, concurrentPosition: e.target.value })}
+                  className="stripe-input"
+                >
+                  <option value="">없음</option>
                   {POSITIONS.map((position) => (
                     <option key={position} value={position}>
                       {position}

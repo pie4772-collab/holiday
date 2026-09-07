@@ -26,6 +26,7 @@ export function EmployeeCalendar() {
   }
 
   const approvedUsages = usages?.filter((u) => u.status === 'approved') || [];
+  const pendingUsages = usages?.filter((u) => u.status === 'pending') || [];
 
   return (
     <div>
@@ -47,6 +48,24 @@ export function EmployeeCalendar() {
         />
       </div>
 
+      {pendingUsages.length > 0 && (
+        <Panel className="max-w-lg mb-6">
+          <PanelHeader title="승인 대기" />
+          <PanelBody noPadding>
+            <div className="divide-y divide-[#f0f3f7]">
+              {pendingUsages.map((usage) => (
+                <div key={usage.id} className="flex items-center justify-between px-5 py-3 text-sm">
+                  <span className="font-mono text-stripe-text">{usage.date}</span>
+                  <Badge variant="warning">{usage.type === 'full' ? '연차' : '반차'}</Badge>
+                  <span className="text-stripe-muted truncate max-w-[160px] text-[13px]">
+                    {usage.reason}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </PanelBody>
+        </Panel>
+      )}
       {approvedUsages.length > 0 && (
         <Panel className="max-w-lg">
           <PanelHeader title="최근 사용 내역" />

@@ -1,9 +1,10 @@
-import { useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { getAuthToken, setAuthToken } from '../api/client';
 import { leaveApi } from '../api/leaveApi';
 import { useAppStore } from '../store/useAppStore';
+import { LoadingSpinner } from '../components/LoadingSpinner';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -12,9 +13,34 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [checking, setChecking] = useState(() => Boolean(getAuthToken()));
 
-  if (getAuthToken()) {
-    return <Navigate to="/" replace />;
+  useEffect(() => {
+    if (!getAuthToken()) {
+      setChecking(false);
+      return undefined;
+    }
+    let cancelled = false;
+    leaveApi
+      .me()
+      .then(() => {
+        if (!cancelled) navigate('/', { replace: true });
+      })
+      .catch(() => {
+        setAuthToken('');
+        if (!cancelled) setChecking(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
+  if (checking) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
   }
 
   async function handleSubmit(e) {

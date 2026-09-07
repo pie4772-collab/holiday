@@ -35,7 +35,7 @@ export function AdminEmployeeDetail() {
     <div>
       <PageHeader
         title={employee.name}
-        description={`${employee.department} · ${employee.position}${employee.empNo ? ` · 사번 ${employee.empNo}` : ''}`}
+        description={`${employee.department}${employee.position ? ` · ${employee.position}` : ''}${employee.empNo ? ` · 사번 ${employee.empNo}` : ''}${employee.workplace ? ` · ${employee.workplace}` : ''}`}
         backTo="/admin/employees"
         backLabel="직원 목록"
         actions={
@@ -134,8 +134,16 @@ export function AdminEmployeeDetail() {
                       <Badge variant={usage.type === 'full' ? 'info' : 'warning'}>
                         {formatLeaveType(usage.type)}
                       </Badge>
-                      <Badge variant={usage.status === 'approved' ? 'success' : 'default'}>
-                        {usage.status === 'approved' ? '승인' : '대기'}
+                      <Badge
+                        variant={
+                          usage.status === 'approved'
+                            ? 'success'
+                            : usage.status === 'rejected'
+                              ? 'default'
+                              : 'warning'
+                        }
+                      >
+                        {usage.status === 'approved' ? '승인' : usage.status === 'rejected' ? '반려' : '대기'}
                       </Badge>
                     </div>
                   </div>

@@ -41,6 +41,7 @@ export function AdminEmployeeList() {
                   <p className="text-sm font-medium text-stripe-text">{emp.name}</p>
                   <p className="text-xs text-stripe-muted mt-0.5">
                     {emp.empNo && <span className="font-mono mr-1.5">{emp.empNo}</span>}
+                    {emp.workplace ? `${emp.workplace} · ` : ''}
                     {emp.department}
                   </p>
                   <p className="text-xs text-stripe-muted mt-0.5">
@@ -92,6 +93,7 @@ export function AdminEmployeeList() {
               <tr>
                 <th>이름</th>
                 <th>사번</th>
+                <th>사업장</th>
                 <th>부서</th>
                 <th>입사일</th>
                 <th>상태</th>
@@ -105,7 +107,8 @@ export function AdminEmployeeList() {
                 <tr key={emp.id}>
                   <td className="font-medium">{emp.name}</td>
                   <td className="font-mono text-[13px] muted">{emp.empNo || '-'}</td>
-                  <td className="muted">{emp.department}</td>
+                  <td className="muted">{emp.workplace || '-'}</td>
+                  <td className="muted">{emp.department || '-'}</td>
                   <td className="font-mono text-[13px] muted">{formatDate(emp.hireDate)}</td>
                   <td>
                     {emp.leaveSummary.isFirstYear ? (

@@ -8,6 +8,7 @@ export const leaveKeys = {
   adminStats: ['admin', 'stats'],
   leaveHistory: (id) => ['leave', 'history', id],
   leaveUsages: (id) => ['leave', 'usages', id],
+  pendingApprovals: ['leave', 'approvals'],
   adminAccruals: (id) => ['admin', 'accruals', id],
   adminUsages: (id) => ['admin', 'usages', id],
 };
@@ -20,6 +21,7 @@ function invalidateEmployeeData(queryClient, employeeId) {
   queryClient.invalidateQueries({ queryKey: leaveKeys.adminUsages(employeeId) });
   queryClient.invalidateQueries({ queryKey: leaveKeys.employees });
   queryClient.invalidateQueries({ queryKey: leaveKeys.adminStats });
+  queryClient.invalidateQueries({ queryKey: leaveKeys.pendingApprovals });
   queryClient.invalidateQueries({ queryKey: leaveKeys.currentEmployee });
 }
 
@@ -66,6 +68,29 @@ export function useLeaveUsages(employeeId) {
     queryKey: leaveKeys.leaveUsages(employeeId),
     queryFn: () => leaveApi.getLeaveUsages(employeeId),
     enabled: !!employeeId,
+  });
+}
+
+export function usePendingApprovals(enabled = true) {
+  return useQuery({
+    queryKey: leaveKeys.pendingApprovals,
+    queryFn: leaveApi.getPendingApprovals,
+    enabled,
+  });
+}
+
+export function useDecideLeaveRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, action, reason }) =>
+      action === 'reject' ? leaveApi.rejectLeaveRequest(id, reason) : leaveApi.approveLeaveRequest(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: leaveKeys.pendingApprovals });
+      queryClient.invalidateQueries({ queryKey: leaveKeys.employees });
+      queryClient.invalidateQueries({ queryKey: leaveKeys.adminStats });
+      queryClient.invalidateQueries({ queryKey: ['leave'] });
+      queryClient.invalidateQueries({ queryKey: leaveKeys.currentEmployee });
+    },
   });
 }
 

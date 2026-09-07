@@ -8,8 +8,9 @@ const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../database/holiday.db');
 
+const wasmPath = path.join(path.dirname(require.resolve('sql.js')), 'sql-wasm.wasm');
 const SQL = await initSqlJs({
-  locateFile: (file) => path.join(path.dirname(require.resolve('sql.js')), file),
+  wasmBinary: fs.readFileSync(wasmPath),
 });
 
 function openDatabase() {

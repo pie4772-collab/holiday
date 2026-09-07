@@ -27,6 +27,8 @@ dist-ssr
 *.sw?
 
 # Deploy artifacts
+*.tar.gz
+*.tgz
 deploy-*
 deploy-staging/
 deploy-staging/**

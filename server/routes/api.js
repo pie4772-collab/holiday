@@ -49,6 +49,14 @@ router.get('/employees', requireAdmin, (req, res, next) => {
   }
 });
 
+router.get('/admin/stats', requireAdmin, (req, res, next) => {
+  try {
+    res.json(leaveService.getAdminStats());
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get('/employees/:id', requireAuth, (req, res, next) => {
   try {
     const emp = leaveService.getEmployeeById(req.params.id);

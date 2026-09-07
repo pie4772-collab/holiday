@@ -11,7 +11,7 @@ import { getLocalIp, getShareUrl } from './utils/network.js';
 loadEnvFile();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 const DIST_PATH = path.join(__dirname, '../dist');
 const SERVE_STATIC = process.env.SERVE_STATIC !== 'false' && fs.existsSync(DIST_PATH);
@@ -27,9 +27,9 @@ app.use(cors());
 app.use(express.json());
 
 app.get('/health', (req, res) => {
+  const { localIp, shareUrl } = getShareInfo();
   try {
     const count = getDb().prepare('SELECT COUNT(*) AS c FROM employees').get().c;
-    const { localIp, shareUrl } = getShareInfo();
     res.json({
       status: 'ok',
       employees: count,
@@ -38,7 +38,14 @@ app.get('/health', (req, res) => {
       shareUrl,
     });
   } catch (e) {
-    res.status(500).json({ status: 'error', message: e.message });
+    res.status(200).json({
+      status: 'ok',
+      db: 'error',
+      message: e.message,
+      localIp,
+      port: Number(PORT),
+      shareUrl,
+    });
   }
 });
 

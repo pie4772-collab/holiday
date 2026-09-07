@@ -1,26 +1,106 @@
-import Database from 'better-sqlite3';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import fs from 'node:fs';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import initSqlJs from 'sql.js';
 
+const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../database/holiday.db');
 
-let db;
+const SQL = await initSqlJs({
+  locateFile: (file) => path.join(path.dirname(require.resolve('sql.js')), file),
+});
 
-function migrate(dbInstance) {
-  const cols = dbInstance.prepare("PRAGMA table_info(employees)").all().map((c) => c.name);
-  if (!cols.includes('terminated_date')) {
-    dbInstance.exec('ALTER TABLE employees ADD COLUMN terminated_date TEXT');
+function openDatabase() {
+  if (fs.existsSync(DB_PATH)) {
+    return new SQL.Database(fs.readFileSync(DB_PATH));
+  }
+  const db = new SQL.Database();
+  const schemaPath = path.join(__dirname, '../database/schema.sql');
+  if (fs.existsSync(schemaPath)) {
+    db.exec(fs.readFileSync(schemaPath, 'utf8'));
+  }
+  return db;
+}
+
+const sqlDb = openDatabase();
+
+function persist() {
+  const dir = path.dirname(DB_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(DB_PATH, Buffer.from(sqlDb.export()));
+}
+
+function toParams(args) {
+  return args.map((value) => (value === undefined ? null : value));
+}
+
+class Statement {
+  constructor(sql) {
+    this.sql = sql;
+  }
+
+  get(...args) {
+    const stmt = sqlDb.prepare(this.sql);
+    const params = toParams(args);
+    if (params.length) stmt.bind(params);
+    const row = stmt.step() ? stmt.getAsObject() : undefined;
+    stmt.free();
+    return row;
+  }
+
+  all(...args) {
+    const stmt = sqlDb.prepare(this.sql);
+    const params = toParams(args);
+    if (params.length) stmt.bind(params);
+    const rows = [];
+    while (stmt.step()) rows.push(stmt.getAsObject());
+    stmt.free();
+    return rows;
+  }
+
+  run(...args) {
+    const params = toParams(args);
+    if (params.length) sqlDb.run(this.sql, params);
+    else sqlDb.run(this.sql);
+    const idResult = sqlDb.exec('SELECT last_insert_rowid() AS id');
+    const lastInsertRowid = idResult[0]?.values?.[0]?.[0] ?? 0;
+    const changes = sqlDb.getRowsModified();
+    persist();
+    return { lastInsertRowid, changes };
   }
 }
 
-export function getDb() {
-  if (!db) {
-    db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-    migrate(db);
+class Db {
+  prepare(sql) {
+    return new Statement(sql);
   }
+
+  exec(sql) {
+    sqlDb.exec(sql);
+    persist();
+    return this;
+  }
+
+  pragma(source) {
+    sqlDb.run(`PRAGMA ${source}`);
+  }
+}
+
+const db = new Db();
+
+function migrate(database) {
+  const cols = database.prepare('PRAGMA table_info(employees)').all().map((c) => c.name);
+  if (cols.length && !cols.includes('terminated_date')) {
+    database.exec('ALTER TABLE employees ADD COLUMN terminated_date TEXT');
+  }
+}
+
+sqlDb.run('PRAGMA foreign_keys = ON');
+migrate(db);
+
+export function getDb() {
   return db;
 }
 

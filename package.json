@@ -10,8 +10,7 @@
     "dev": "vite",
     "dev:server": "node server/index.js",
     "dev:all": "concurrently \"npm run dev:server\" \"npm run dev\"",
-    "build": "vite build",
-    "prestart": "node scripts/ensure-deps.mjs",
+    "build": "node scripts/build.mjs",
     "start": "node server/index.js",
     "prod": "npm run start",
     "restart": "powershell -ExecutionPolicy Bypass -File scripts/restart-prod.ps1",
@@ -22,7 +21,6 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.2",
-    "better-sqlite3": "^12.11.1",
     "cors": "^2.8.6",
     "date-fns": "^4.4.0",
     "express": "^5.2.1",
@@ -30,6 +28,7 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router-dom": "^7.18.1",
+    "sql.js": "^1.14.2",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
@@ -41,8 +40,5 @@
     "oxlint": "^1.71.0",
     "tailwindcss": "^4.3.2",
     "vite": "^8.1.1"
-  },
-  "allowScripts": {
-    "better-sqlite3@12.11.1": true
   }
 }

@@ -378,9 +378,10 @@ export function calculateLeaveBalance(hireDate, usages = [], asOfDate = new Date
     firstYearMonthlySettlement: {
       totalMonths: phase === 'first_year_monthly'
         ? getMonthlyAccrualInYear(hireDate, year, asOf)
-        : firstYearMonthly,
+        : calculateFirstYearMonthlyLeave(hireDate, oneYear),
       totalDays: firstYearMonthly,
-      settled: firstYearSettled && oneYear.getFullYear() === year,
+      settled: firstYearSettled,
+      settledThisYear: firstYearSettled && oneYear.getFullYear() === year,
       settledDate: firstYearSettled ? formatDate(oneYear) : null,
       settledDays: settlementInYear?.settledDays ?? 0,
       basis: 'anniversary',

@@ -8,6 +8,13 @@ export function Timeline({ hireDate, leaveSummary }) {
   const oneYearDate = hireDate ? formatDate(getOneYearAnniversary(hireDate)) : null;
   const year = leaveSummary?.displayYear ?? new Date().getFullYear();
   const settledDeduction = leaveSummary?.settledDeduction ?? 0;
+  const phase = leaveSummary?.phase
+    || (leaveSummary?.isFirstYear ? 'first_year_monthly' : leaveSummary?.isProratedTarget ? 'prorated' : 'annual');
+
+  const firstYearStatus = phase === 'first_year_monthly' ? 'current' : 'completed';
+  const settlementStatus = phase === 'first_year_monthly' ? 'upcoming' : 'completed';
+  const proratedStatus = phase === 'prorated' ? 'current' : phase === 'annual' ? 'completed' : 'upcoming';
+  const annualStatus = phase === 'annual' ? 'current' : 'upcoming';
 
   const steps = [
     {
@@ -21,17 +28,21 @@ export function Timeline({ hireDate, leaveSummary }) {
       key: 'first_year',
       title: '첫해 월차 발생',
       date: hireDate ? `${formatDate(hireDate)} ~` : '-',
-      description: `매월 1개씩 발생 (최대 11개) · 현재 ${settlement?.totalMonths || 0}개`,
-      status: settlement?.settled ? 'completed' : 'current',
+      description: firstYearStatus === 'current'
+        ? `매월 1개씩 발생 (최대 11개) · 현재 ${settlement?.totalMonths || 0}개`
+        : '매월 1개씩 발생 (최대 11개) · 첫해 월차 기간 종료',
+      status: firstYearStatus,
     },
     {
       key: 'settlement',
       title: '첫해 월차 정산 (일사일)',
       date: settlement?.settledDate || oneYearDate || '입사 1주년',
-      description: settlement?.settled
-        ? `정산 ${settlement.settledDays}일 · 잔여에서 차감`
+      description: settlementStatus === 'completed'
+        ? settlement?.settledThisYear
+          ? `정산 ${settlement.settledDays}일 · 잔여에서 차감`
+          : '일사일(입사 1주년) 정산 완료'
         : '일사일(입사 1주년)에 월차 일괄 정산·잔여 차감',
-      status: settlement?.settled ? 'completed' : 'upcoming',
+      status: settlementStatus,
     },
     {
       key: 'prorated',
@@ -39,13 +50,10 @@ export function Timeline({ hireDate, leaveSummary }) {
       date: oneYearDate || '-',
       description: leaveSummary?.proratedLeave
         ? `15 × (남은일수/365) = ${leaveSummary.proratedLeave}일`
-        : '1년 도달 후 다음 회계연도까지 비례 발생',
-      status:
-        leaveSummary?.proratedLeave > 0
-          ? 'completed'
-          : leaveSummary?.phase === 'prorated'
-            ? 'current'
-            : 'upcoming',
+        : proratedStatus === 'completed'
+          ? '1년 도달 후 다음 회계연도까지 비례 발생 · 기간 종료'
+          : '1년 도달 후 다음 회계연도까지 비례 발생',
+      status: proratedStatus,
     },
     {
       key: 'annual',
@@ -54,12 +62,7 @@ export function Timeline({ hireDate, leaveSummary }) {
       description: leaveSummary?.annualLeave
         ? `${year}년 ${leaveSummary.annualLeave}일 · 정산 ${settledDeduction}일 차감`
         : `${year}년 회계기준일(1/1) 발생·정산`,
-      status:
-        leaveSummary?.phase === 'annual'
-          ? 'current'
-          : leaveSummary?.annualLeave > 0
-            ? 'completed'
-            : 'upcoming',
+      status: annualStatus,
     },
   ];
 

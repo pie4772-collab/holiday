@@ -59,11 +59,21 @@ export function EmployeeDashboard() {
         />
         <LeaveSummaryCard
           title="월차 정산"
-          value={settlement.settled ? settlement.settledDays : settlement.totalMonths}
+          value={
+            leaveSummary.phase === 'first_year_monthly'
+              ? settlement.totalMonths
+              : settlement.settledThisYear
+                ? settlement.settledDays
+                : 0
+          }
           subtitle={
-            settlement.settled
-              ? `${settlement.settledDate} 일사일 · ${settlement.settledDays}일 차감`
-              : `현재 ${settlement.totalMonths}개월차 (최대 11)`
+            leaveSummary.phase === 'first_year_monthly'
+              ? `현재 ${settlement.totalMonths}개월차 (최대 11)`
+              : settlement.settledThisYear
+                ? `${settlement.settledDate} 일사일 · ${settlement.settledDays}일 차감`
+                : settlement.settledDate
+                  ? `${settlement.settledDate} 일사일 정산 완료`
+                  : '일사일(입사 1주년) 정산'
           }
         />
         <LeaveSummaryCard

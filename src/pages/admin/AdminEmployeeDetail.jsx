@@ -90,11 +90,21 @@ export function AdminEmployeeDetail() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <LeaveSummaryCard
           title="월차 정산"
-          value={settlement.settledDays || settlement.totalDays}
+          value={
+            leaveSummary.phase === 'first_year_monthly'
+              ? settlement.totalMonths
+              : settlement.settledThisYear
+                ? settlement.settledDays
+                : settlement.totalMonths
+          }
           subtitle={
-            settlement.settled
-              ? `${settlement.settledDate} · ${settlement.settledDays}일 차감`
-              : `진행 중 (${settlement.totalMonths}/11)`
+            leaveSummary.phase === 'first_year_monthly'
+              ? `진행 중 (${settlement.totalMonths}/11)`
+              : settlement.settledThisYear
+                ? `${settlement.settledDate} · ${settlement.settledDays}일 차감`
+                : settlement.settledDate
+                  ? `${settlement.settledDate} 일사일 정산 완료`
+                  : '일사일 정산'
           }
         />
         <LeaveSummaryCard

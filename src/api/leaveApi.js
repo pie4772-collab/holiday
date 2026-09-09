@@ -280,8 +280,8 @@ export const leaveApi = {
     return apiClient('/admin/mail-settings', { method: 'PUT', body: data });
   },
 
-  async testMailSettings(to) {
-    return apiClient('/admin/mail-settings/test', { method: 'POST', body: { to } });
+  async testMailSettings(data) {
+    return apiClient('/admin/mail-settings/test', { method: 'POST', body: data });
   },
 
   async reactivateEmployee(id) {

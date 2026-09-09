@@ -76,7 +76,7 @@ router.put('/admin/mail-settings', requireAdmin, (req, res, next) => {
 
 router.post('/admin/mail-settings/test', requireAdmin, (req, res, next) => {
   mailService
-    .sendTestMail(req.body?.to)
+    .sendTestMail(req.body?.to, req.body || {})
     .then((result) => res.json(result))
     .catch(next);
 });

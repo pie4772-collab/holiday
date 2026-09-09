@@ -88,6 +88,6 @@ export function useSaveMailSettings() {
 
 export function useTestMailSettings() {
   return useMutation({
-    mutationFn: (to) => leaveApi.testMailSettings(to),
+    mutationFn: (payload) => leaveApi.testMailSettings(payload),
   });
 }

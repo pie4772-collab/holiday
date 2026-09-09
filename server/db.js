@@ -468,15 +468,27 @@ function migrate(database) {
     );
   `);
 
-  const mailRow = database.prepare('SELECT id FROM mail_settings WHERE id = 1').get();
+  const mailRow = database.prepare('SELECT id, smtp_host, username, from_name, from_email FROM mail_settings WHERE id = 1').get();
   if (!mailRow) {
     database
       .prepare(
         `INSERT INTO mail_settings (
-           id, enabled, imap_host, imap_port, imap_secure,
-           smtp_host, smtp_port, smtp_secure, from_name, app_url
-         ) VALUES (1, 0, 'gw.kbigrp.com', 993, 'ssl', 'gw.kbigrp.com', 465, 'ssl',
-                   'Holiday 연차관리', 'https://pie8405-holiday.mycafe24.ai')`
+           id, enabled, smtp_host, smtp_port, smtp_secure, username, from_name, from_email, app_url
+         ) VALUES (1, 0, 'smtp.mailplug.co.kr', 465, 'ssl', 'salary@dysp.co.kr',
+                   'KBI동양철관주식회사', 'salary@dysp.co.kr', 'https://pie8405-holiday.mycafe24.ai')`
+      )
+      .run();
+  } else if (!mailRow.smtp_host || mailRow.smtp_host === 'gw.kbigrp.com') {
+    database
+      .prepare(
+        `UPDATE mail_settings
+         SET smtp_host = 'smtp.mailplug.co.kr',
+             smtp_port = 465,
+             smtp_secure = 'ssl',
+             username = CASE WHEN username IS NULL OR trim(username) = '' THEN 'salary@dysp.co.kr' ELSE username END,
+             from_name = CASE WHEN from_name IS NULL OR from_name IN ('', 'Holiday 연차관리') THEN 'KBI동양철관주식회사' ELSE from_name END,
+             from_email = CASE WHEN from_email IS NULL OR trim(from_email) = '' THEN 'salary@dysp.co.kr' ELSE from_email END
+         WHERE id = 1`
       )
       .run();
   }

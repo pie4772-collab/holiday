@@ -20,7 +20,7 @@ import { leaveApi } from '../api/leaveApi';
 
 const employeeNav = [
   { to: '/employee', icon: LayoutDashboard, label: 'Home', end: true },
-  { to: '/employee/history', icon: History, label: '발생 내역' },
+  { to: '/employee/history', icon: History, label: '연차 사용현황' },
   { to: '/employee/calendar', icon: Calendar, label: '캘린더' },
   { to: '/employee/request', icon: FilePlus, label: '연차 신청' },
 ];

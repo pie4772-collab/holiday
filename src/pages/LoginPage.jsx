@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { getAuthToken, setAuthToken } from '../api/client';
 import { leaveApi } from '../api/leaveApi';
@@ -8,12 +8,22 @@ import { LoadingSpinner } from '../components/LoadingSpinner';
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const setRole = useAppStore((s) => s.setRole);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [checking, setChecking] = useState(() => Boolean(getAuthToken()));
+  const nextPath = (() => {
+    const queryNext = new URLSearchParams(location.search).get('next');
+    const from = location.state?.from;
+    const candidate = queryNext || from || '/employee';
+    if (!candidate.startsWith('/') || candidate.startsWith('//') || candidate.includes('\\')) {
+      return '/employee';
+    }
+    return candidate;
+  })();
 
   useEffect(() => {
     if (!getAuthToken()) {
@@ -24,7 +34,7 @@ export function LoginPage() {
     leaveApi
       .me()
       .then(() => {
-        if (!cancelled) navigate('/', { replace: true });
+        if (!cancelled) navigate(nextPath, { replace: true });
       })
       .catch(() => {
         setAuthToken('');
@@ -33,7 +43,7 @@ export function LoginPage() {
     return () => {
       cancelled = true;
     };
-  }, [navigate]);
+  }, [navigate, nextPath]);
 
   if (checking) {
     return (
@@ -50,8 +60,8 @@ export function LoginPage() {
     try {
       const result = await leaveApi.login(username, password);
       setAuthToken(result.token);
-      setRole('employee');
-      navigate('/employee', { replace: true });
+      setRole(nextPath.startsWith('/admin') ? 'admin' : 'employee');
+      navigate(nextPath, { replace: true });
     } catch (err) {
       setError(err.message || '로그인에 실패했습니다.');
     } finally {

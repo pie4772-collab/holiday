@@ -118,6 +118,23 @@ CREATE TABLE IF NOT EXISTS leave_month_reports (
   UNIQUE(year, month)
 );
 
+CREATE TABLE IF NOT EXISTS mail_settings (
+  id           INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled      INTEGER NOT NULL DEFAULT 0,
+  imap_host    TEXT,
+  imap_port    INTEGER,
+  imap_secure  TEXT,
+  smtp_host    TEXT,
+  smtp_port    INTEGER,
+  smtp_secure  TEXT,
+  username     TEXT,
+  password     TEXT,
+  from_name    TEXT,
+  from_email   TEXT,
+  app_url      TEXT,
+  updated_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
 CREATE TABLE IF NOT EXISTS leave_accruals (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   employee_id     INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,

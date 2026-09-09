@@ -5,6 +5,7 @@ import * as authService from '../services/authService.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { isEmployeeAdmin } from '../services/authService.js';
 import * as approvalService from '../services/approvalService.js';
+import * as mailService from '../services/mailService.js';
 
 const router = express.Router();
 
@@ -55,6 +56,29 @@ router.get('/admin/stats', requireAdmin, (req, res, next) => {
   } catch (e) {
     next(e);
   }
+});
+
+router.get('/admin/mail-settings', requireAdmin, (req, res, next) => {
+  try {
+    res.json(mailService.getMailSettings());
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.put('/admin/mail-settings', requireAdmin, (req, res, next) => {
+  try {
+    res.json(mailService.saveMailSettings(req.body));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/mail-settings/test', requireAdmin, (req, res, next) => {
+  mailService
+    .sendTestMail(req.body?.to)
+    .then((result) => res.json(result))
+    .catch(next);
 });
 
 router.get('/admin/leave-reports', requireAdmin, (req, res, next) => {

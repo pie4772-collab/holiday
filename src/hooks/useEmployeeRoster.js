@@ -68,3 +68,26 @@ export function useSaveApprovalLines() {
     },
   });
 }
+
+export function useMailSettings() {
+  return useQuery({
+    queryKey: ['admin', 'mail-settings'],
+    queryFn: leaveApi.getMailSettings,
+  });
+}
+
+export function useSaveMailSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: leaveApi.saveMailSettings,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'mail-settings'] });
+    },
+  });
+}
+
+export function useTestMailSettings() {
+  return useMutation({
+    mutationFn: (to) => leaveApi.testMailSettings(to),
+  });
+}

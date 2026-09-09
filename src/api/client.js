@@ -33,7 +33,7 @@ export async function apiClient(endpoint, options = {}) {
     if (response.status === 401 && !String(endpoint).startsWith('/auth/login')) {
       setAuthToken('');
       if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-        window.location.assign('/login');
+        window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname)}`);
       }
     }
     const error = await response.json().catch(() => ({ message: '요청 실패' }));

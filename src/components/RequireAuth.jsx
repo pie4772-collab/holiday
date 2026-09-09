@@ -39,7 +39,7 @@ export function RequireAuth({ children }) {
   }
 
   if (status === 'anon') {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    return <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />;
   }
 
   return children;

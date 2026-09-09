@@ -272,6 +272,18 @@ export const leaveApi = {
     return apiClient('/admin/approval-lines', { method: 'PUT', body: data });
   },
 
+  async getMailSettings() {
+    return apiClient('/admin/mail-settings');
+  },
+
+  async saveMailSettings(data) {
+    return apiClient('/admin/mail-settings', { method: 'PUT', body: data });
+  },
+
+  async testMailSettings(to) {
+    return apiClient('/admin/mail-settings/test', { method: 'POST', body: { to } });
+  },
+
   async reactivateEmployee(id) {
     if (USE_MOCK) {
       await delay(400);

@@ -449,6 +449,38 @@ function migrate(database) {
     );
   `);
 
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS mail_settings (
+      id           INTEGER PRIMARY KEY CHECK (id = 1),
+      enabled      INTEGER NOT NULL DEFAULT 0,
+      imap_host    TEXT,
+      imap_port    INTEGER,
+      imap_secure  TEXT,
+      smtp_host    TEXT,
+      smtp_port    INTEGER,
+      smtp_secure  TEXT,
+      username     TEXT,
+      password     TEXT,
+      from_name    TEXT,
+      from_email   TEXT,
+      app_url      TEXT,
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+  `);
+
+  const mailRow = database.prepare('SELECT id FROM mail_settings WHERE id = 1').get();
+  if (!mailRow) {
+    database
+      .prepare(
+        `INSERT INTO mail_settings (
+           id, enabled, imap_host, imap_port, imap_secure,
+           smtp_host, smtp_port, smtp_secure, from_name, app_url
+         ) VALUES (1, 0, 'gw.kbigrp.com', 993, 'ssl', 'gw.kbigrp.com', 465, 'ssl',
+                   'Holiday 연차관리', 'https://pie8405-holiday.mycafe24.ai')`
+      )
+      .run();
+  }
+
   const adminCols = tableColumns(database, 'employees');
   const adminSeeded = database.prepare(`SELECT value FROM app_meta WHERE key = 'initial_admins_seeded'`).get();
   if (!adminSeeded && adminCols.includes('is_admin')) {

@@ -143,6 +143,30 @@ export function approvalHintFor(employee, usageStep) {
   return '관리자 승인 대기';
 }
 
+export function listLineApprovers(requester, usageStep) {
+  const step = currentApprovalStep(requester, usageStep);
+  const rows = getDb().prepare('SELECT * FROM employees WHERE is_active = 1').all();
+  return rows.filter((approver) => {
+    if (Number(approver.id) === Number(requester.id)) return false;
+    if (step === '담당') return isSeatHolder(approver, findSeatForDepartment('담당', requester));
+    if (step === '팀장') return isTeamLeaderFor(approver, requester);
+    if (step === '임원') return isSeatHolder(approver, findSeatForDepartment('임원', requester));
+    if (step === '대표이사') {
+      const ceo = getSeatByKey('ceo');
+      return isSeatHolder(approver, ceo) || approver.position === '대표이사';
+    }
+    if (step === '공장장') return isFactoryOrExecFor(approver, requester, EXECUTIVE_POSITIONS);
+    if (step === '관리자') return Boolean(approver.is_admin);
+    return false;
+  });
+}
+
+export function listAdminEmployees() {
+  return getDb()
+    .prepare('SELECT * FROM employees WHERE is_active = 1 AND is_admin = 1 ORDER BY name')
+    .all();
+}
+
 export function canApproveRequests(employeeId) {
   const emp = getEmployee(employeeId);
   if (!emp || !emp.is_active) return false;

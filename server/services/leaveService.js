@@ -20,6 +20,7 @@ import {
 } from '../../src/utils/leaveRequestDates.js';
 import { getDb, parseEmployeeId } from '../db.js';
 import * as approvalService from './approvalService.js';
+import * as mailService from './mailService.js';
 
 const AS_OF_DATE = process.env.AS_OF_DATE || '2026-07-10';
 const TODAY = new Date(AS_OF_DATE);
@@ -601,6 +602,10 @@ export function submitLeaveRequest(data) {
   const dateLabel = describeLeaveDates(dates);
   const countLabel = type === 'half' ? '반차 0.5일' : `${dates.length}일`;
 
+  mailService.notifyLeaveSubmitted(employee, items, approvalHint).catch((error) => {
+    console.error('[mail] notifyLeaveSubmitted:', error.message);
+  });
+
   return {
     ...items[0],
     dates,
@@ -675,10 +680,27 @@ export function decideLeaveRequest(usageId, approverId, action, rejectReason) {
 
   const updated = getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(row.id);
   const requester = getDb().prepare('SELECT * FROM employees WHERE id = ?').get(row.employee_id);
+  const mapped = mapUsageRow(updated);
+  const approvalHint =
+    updated.status === 'pending' ? approvalService.approvalHintFor(requester, updated.approval_step) : null;
+
+  if (updated.status === 'rejected') {
+    mailService.notifyLeaveFinal(requester, mapped, 'reject', updated.reject_reason).catch((error) => {
+      console.error('[mail] notifyLeaveFinal:', error.message);
+    });
+  } else if (updated.status === 'approved') {
+    mailService.notifyLeaveFinal(requester, mapped, 'approve').catch((error) => {
+      console.error('[mail] notifyLeaveFinal:', error.message);
+    });
+  } else if (updated.status === 'pending') {
+    mailService.notifyLeaveAdvanced(requester, mapped, approvalHint).catch((error) => {
+      console.error('[mail] notifyLeaveAdvanced:', error.message);
+    });
+  }
+
   return {
-    ...mapUsageRow(updated),
-    approvalHint:
-      updated.status === 'pending' ? approvalService.approvalHintFor(requester, updated.approval_step) : null,
+    ...mapped,
+    approvalHint,
   };
 }
 

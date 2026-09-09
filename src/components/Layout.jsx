@@ -11,6 +11,7 @@ import {
   ClipboardList,
   ClipboardCheck,
   GitBranch,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
 import { useCurrentEmployee } from '../hooks/useLeaveData';
@@ -31,6 +32,7 @@ const adminNav = [
   { to: '/admin/employees', icon: Users, label: '직원' },
   { to: '/admin/approval-lines', icon: GitBranch, label: '결재 라인' },
   { to: '/admin/leave-manage', icon: Settings, label: '연차 관리' },
+  { to: '/admin/leave-reports', icon: FileSpreadsheet, label: '연차 보고서' },
 ];
 
 function NavItems({ items, onNavigate, className = '' }) {

@@ -5,6 +5,10 @@ import {
   getCurrentDisplayYear,
   getMonthlyAccrualInYear,
   filterUsagesByYear,
+  filterConsumedUsages,
+  filterScheduledUsages,
+  sumUsageDays,
+  getReportMonthRange,
   FISCAL_YEAR_START_MONTH,
 } from '../../src/utils/leaveCalculations.js';
 import {
@@ -19,6 +23,16 @@ import * as approvalService from './approvalService.js';
 
 const AS_OF_DATE = process.env.AS_OF_DATE || '2026-07-10';
 const TODAY = new Date(AS_OF_DATE);
+
+function getConsumptionAsOf() {
+  const now = new Date();
+  return now.getTime() > TODAY.getTime() ? now : TODAY;
+}
+
+function hasImportedSnapshot(row) {
+  if (row.accrued == null && row.used == null && row.remaining == null) return false;
+  return Number(row.accrued) !== 0 || Number(row.used) !== 0 || Number(row.remaining) !== 0;
+}
 
 function toApiId(dbId) {
   return String(dbId);
@@ -35,6 +49,7 @@ function mapUsageRow(row) {
     position: row.position || undefined,
     date: row.usage_date,
     type: row.usage_type,
+    days: row.days,
     reason: row.reason,
     status: row.status,
     approvalStep: row.approval_step || null,
@@ -119,19 +134,25 @@ function toEmployeeBase(row) {
   };
 }
 
-function buildLeaveSummary(row) {
+function buildLeaveSummary(row, options = {}) {
   const dbId = row.id;
+  const asOf = options.asOfDate || TODAY;
+  const consumptionAsOf = options.consumptionAsOf || getConsumptionAsOf();
   const approvedUsages = getApprovedUsages(dbId);
-  const manualTotal = getManualAccrualTotal(dbId, getCurrentDisplayYear(TODAY));
-  const calculated = calculateLeaveBalance(row.hire_date, approvedUsages, TODAY, {
+  const manualTotal = getManualAccrualTotal(dbId, getCurrentDisplayYear(asOf));
+  const calculated = calculateLeaveBalance(row.hire_date, approvedUsages, asOf, {
     manualAccrualTotal: manualTotal,
+    consumptionAsOf,
   });
 
-  // DB 사용 내역이 없으면 엑셀 스냅샷 기준값 사용
-  if (approvedUsages.length === 0 && row.accrued != null) {
+  if (hasImportedSnapshot(row)) {
+    const snapshotAsOf = row.as_of_date;
+    const newUsages = approvedUsages.filter((usage) => !snapshotAsOf || usage.date > snapshotAsOf);
+    const extraUsed = sumUsageDays(filterConsumedUsages(newUsages, consumptionAsOf));
+    const scheduledDays = sumUsageDays(filterScheduledUsages(newUsages, consumptionAsOf));
     const accrued = row.accrued + manualTotal;
-    const used = row.used;
-    const remaining = Math.max(0, Math.round((row.remaining + manualTotal) * 10) / 10);
+    const used = Math.round(((row.used || 0) + extraUsed) * 10) / 10;
+    const remaining = Math.max(0, Math.round((row.remaining + manualTotal - extraUsed) * 10) / 10);
 
     return {
       employeeId: toApiId(dbId),
@@ -139,6 +160,7 @@ function buildLeaveSummary(row) {
       accruedThisYear: accrued,
       usedDays: used,
       remaining,
+      scheduledDays,
       totalGranted: accrued,
       manualAccrualTotal: manualTotal,
       snapshotAccrued: row.accrued,
@@ -278,14 +300,16 @@ export function getAdminStats() {
   const thisMonth = TODAY.getMonth();
   const thisYear = TODAY.getFullYear();
 
+  const consumedBefore = formatDate(getConsumptionAsOf());
   const monthlyUsage = getDb()
     .prepare(
       `SELECT usage_type FROM leave_usages
        WHERE status = 'approved'
+         AND usage_date < ?
          AND substr(usage_date, 1, 4) = ?
          AND CAST(substr(usage_date, 6, 2) AS INTEGER) = ?`
     )
-    .all(String(thisYear), thisMonth + 1)
+    .all(consumedBefore, String(thisYear), thisMonth + 1)
     .reduce((sum, u) => sum + (u.usage_type === 'half' ? 0.5 : 1), 0);
 
   const avgRemaining =
@@ -299,6 +323,183 @@ export function getAdminStats() {
     proratedTargetCount: employees.filter((e) => e.leaveSummary.isProratedTarget).length,
     totalEmployees: employees.length,
   };
+}
+
+function round1(value) {
+  return Math.round((Number(value) || 0) * 10) / 10;
+}
+
+function getSavedMonthReport(year, month) {
+  return getDb()
+    .prepare('SELECT * FROM leave_month_reports WHERE year = ? AND month = ?')
+    .get(year, month);
+}
+
+export function getMonthlyLeaveReport(year, month) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!Number.isInteger(y) || y < 2000 || y > 2100 || !Number.isInteger(m) || m < 1 || m > 12) {
+    throw Object.assign(new Error('연월을 확인해주세요.'), { status: 400 });
+  }
+
+  const range = getReportMonthRange(y, m);
+  const rows = getDb()
+    .prepare(
+      `SELECT e.*, lbs.as_of_date, lbs.display_year, lbs.accrued, lbs.used, lbs.remaining
+       FROM employees e
+       LEFT JOIN leave_balance_snapshots lbs ON lbs.employee_id = e.id
+       WHERE e.hire_date <= ?
+         AND (
+           (e.is_active = 1 AND (e.terminated_date IS NULL OR e.terminated_date > ?))
+           OR (e.terminated_date IS NOT NULL AND e.terminated_date >= ? AND e.terminated_date <= ?)
+         )
+       ORDER BY e.workplace, e.name`
+    )
+    .all(range.monthEnd, range.monthEnd, range.monthStart, range.monthEnd);
+
+  const employees = rows.map((row) => {
+    const base = toEmployeeBase(row);
+    const summary = buildLeaveSummary(row, {
+      asOfDate: range.asOf,
+      consumptionAsOf: range.consumptionAsOf,
+    });
+    const approved = getApprovedUsages(row.id);
+    const usedInMonth = sumUsageDays(
+      approved.filter((usage) => usage.date >= range.monthStart && usage.date <= range.monthEnd)
+    );
+    const pendingInMonth = sumUsageDays(
+      getAllUsages(row.id).filter(
+        (usage) =>
+          usage.status === 'pending' &&
+          usage.date >= range.monthStart &&
+          usage.date <= range.monthEnd
+      )
+    );
+    const terminatedInMonth = Boolean(
+      row.terminated_date && row.terminated_date >= range.monthStart && row.terminated_date <= range.monthEnd
+    );
+
+    return {
+      id: base.id,
+      empNo: base.empNo || '',
+      name: base.name,
+      workplace: base.workplace || '미지정',
+      workplaceCode: row.workplace_code || '',
+      department: base.department,
+      position: base.position,
+      hireDate: base.hireDate,
+      terminatedDate: row.terminated_date || null,
+      status: terminatedInMonth ? '당월 퇴사' : '재직',
+      accrued: summary.accruedThisYear,
+      usedToDate: summary.usedDays,
+      usedInMonth,
+      remaining: summary.remaining,
+      pendingInMonth,
+      scheduledDays: summary.scheduledDays || 0,
+    };
+  });
+
+  const workplaceMap = new Map();
+  for (const emp of employees) {
+    if (!workplaceMap.has(emp.workplace)) {
+      workplaceMap.set(emp.workplace, {
+        workplace: emp.workplace,
+        workplaceCode: emp.workplaceCode,
+        employeeCount: 0,
+        accrued: 0,
+        usedInMonth: 0,
+        remaining: 0,
+        pendingInMonth: 0,
+        employees: [],
+      });
+    }
+    const group = workplaceMap.get(emp.workplace);
+    group.employeeCount += 1;
+    group.accrued += emp.accrued;
+    group.usedInMonth += emp.usedInMonth;
+    group.remaining += emp.remaining;
+    group.pendingInMonth += emp.pendingInMonth;
+    group.employees.push(emp);
+  }
+
+  const workplaces = [...workplaceMap.values()].map((group) => ({
+    ...group,
+    accrued: round1(group.accrued),
+    usedInMonth: round1(group.usedInMonth),
+    remaining: round1(group.remaining),
+    pendingInMonth: round1(group.pendingInMonth),
+  }));
+
+  const totals = workplaces.reduce(
+    (acc, group) => ({
+      employeeCount: acc.employeeCount + group.employeeCount,
+      accrued: round1(acc.accrued + group.accrued),
+      usedInMonth: round1(acc.usedInMonth + group.usedInMonth),
+      remaining: round1(acc.remaining + group.remaining),
+      pendingInMonth: round1(acc.pendingInMonth + group.pendingInMonth),
+    }),
+    { employeeCount: 0, accrued: 0, usedInMonth: 0, remaining: 0, pendingInMonth: 0 }
+  );
+
+  const saved = getSavedMonthReport(y, m);
+
+  return {
+    year: y,
+    month: m,
+    monthStart: range.monthStart,
+    asOfDate: range.monthEnd,
+    consumptionAsOf: range.nextMonthStart,
+    standard: 'IFRS IAS 19',
+    note: '월말 미사용 연차(잔여)는 단기종업원급여 부채 산정 기초입니다. 금액은 일급을 곱해 회계에서 계산합니다.',
+    totals,
+    workplaces,
+    saved: saved
+      ? {
+          generatedAt: saved.generated_at,
+          generatedBy: saved.generated_by ? String(saved.generated_by) : null,
+        }
+      : null,
+  };
+}
+
+export function saveMonthlyLeaveReport(year, month, generatedBy) {
+  const report = getMonthlyLeaveReport(year, month);
+  getDb()
+    .prepare(
+      `INSERT INTO leave_month_reports (year, month, as_of_date, generated_by, payload, generated_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'))
+       ON CONFLICT(year, month) DO UPDATE SET
+         as_of_date = excluded.as_of_date,
+         generated_by = excluded.generated_by,
+         payload = excluded.payload,
+         generated_at = excluded.generated_at`
+    )
+    .run(report.year, report.month, report.asOfDate, generatedBy || null, JSON.stringify(report));
+
+  return {
+    ...report,
+    saved: {
+      generatedAt: getSavedMonthReport(report.year, report.month)?.generated_at,
+      generatedBy: generatedBy ? String(generatedBy) : null,
+    },
+  };
+}
+
+export function getSavedMonthlyLeaveReport(year, month) {
+  const saved = getSavedMonthReport(Number(year), Number(month));
+  if (!saved) return null;
+  try {
+    const payload = JSON.parse(saved.payload);
+    return {
+      ...payload,
+      saved: {
+        generatedAt: saved.generated_at,
+        generatedBy: saved.generated_by ? String(saved.generated_by) : null,
+      },
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function getLeaveHistory(employeeId) {

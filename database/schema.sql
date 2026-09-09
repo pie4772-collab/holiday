@@ -107,6 +107,17 @@ CREATE TABLE IF NOT EXISTS leave_usages (
 CREATE INDEX IF NOT EXISTS idx_leave_usages_employee ON leave_usages(employee_id);
 CREATE INDEX IF NOT EXISTS idx_leave_usages_date ON leave_usages(usage_date);
 
+CREATE TABLE IF NOT EXISTS leave_month_reports (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  year          INTEGER NOT NULL,
+  month         INTEGER NOT NULL,
+  as_of_date    TEXT NOT NULL,
+  generated_by  INTEGER,
+  payload       TEXT NOT NULL,
+  generated_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+  UNIQUE(year, month)
+);
+
 CREATE TABLE IF NOT EXISTS leave_accruals (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   employee_id     INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,

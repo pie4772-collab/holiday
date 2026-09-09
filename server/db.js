@@ -436,6 +436,19 @@ function migrate(database) {
   addColumn(database, 'leave_usages', 'reject_reason TEXT');
   addColumn(database, 'leave_usages', 'approval_step TEXT');
 
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS leave_month_reports (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      year          INTEGER NOT NULL,
+      month         INTEGER NOT NULL,
+      as_of_date    TEXT NOT NULL,
+      generated_by  INTEGER,
+      payload       TEXT NOT NULL,
+      generated_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      UNIQUE(year, month)
+    );
+  `);
+
   const adminCols = tableColumns(database, 'employees');
   const adminSeeded = database.prepare(`SELECT value FROM app_meta WHERE key = 'initial_admins_seeded'`).get();
   if (!adminSeeded && adminCols.includes('is_admin')) {

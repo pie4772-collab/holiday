@@ -57,6 +57,29 @@ router.get('/admin/stats', requireAdmin, (req, res, next) => {
   }
 });
 
+router.get('/admin/leave-reports', requireAdmin, (req, res, next) => {
+  try {
+    const savedOnly = req.query.saved === '1';
+    const report = savedOnly
+      ? leaveService.getSavedMonthlyLeaveReport(req.query.year, req.query.month)
+      : leaveService.getMonthlyLeaveReport(req.query.year, req.query.month);
+    if (!report) return res.status(404).json({ message: '저장된 월말 보고서가 없습니다.' });
+    res.json(report);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/leave-reports', requireAdmin, (req, res, next) => {
+  try {
+    res.status(201).json(
+      leaveService.saveMonthlyLeaveReport(req.body.year, req.body.month, req.user.employeeId)
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get('/employees/:id', requireAuth, (req, res, next) => {
   try {
     const emp = leaveService.getEmployeeById(req.params.id);

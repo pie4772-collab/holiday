@@ -58,6 +58,19 @@ export const leaveApi = {
     return apiClient('/admin/stats');
   },
 
+  async getLeaveReport(year, month, { saved = false } = {}) {
+    const q = new URLSearchParams({
+      year: String(year),
+      month: String(month),
+      ...(saved ? { saved: '1' } : {}),
+    });
+    return apiClient(`/admin/leave-reports?${q}`);
+  },
+
+  async saveLeaveReport(year, month) {
+    return apiClient('/admin/leave-reports', { method: 'POST', body: { year, month } });
+  },
+
   async getLeaveHistory(employeeId) {
     if (USE_MOCK) {
       await delay();

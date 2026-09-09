@@ -8,6 +8,7 @@ import {
   format,
   parseISO,
   endOfYear,
+  endOfMonth,
 } from 'date-fns';
 
 /** 회계연도 시작일 (1월 1일) */
@@ -161,7 +162,39 @@ function parseHireDate(hireDate) {
 }
 
 function sumUsedDays(usages) {
-  return usages.reduce((sum, u) => sum + (u.type === 'half' ? 0.5 : 1), 0);
+  return usages.reduce((sum, u) => {
+    if (typeof u.days === 'number') return sum + u.days;
+    return sum + (u.type === 'half' ? 0.5 : 1);
+  }, 0);
+}
+
+export function parseUsageDate(date) {
+  return startOfDay(typeof date === 'string' ? parseISO(date) : date);
+}
+
+/** 사용일이 기준일보다 이전인지 (당일은 아직 차감하지 않음) */
+export function hasUsageDatePassed(usageDate, asOfDate = new Date()) {
+  if (!usageDate) return false;
+  return isBefore(parseUsageDate(usageDate), startOfDay(asOfDate));
+}
+
+/** 승인됐고 사용일이 지난 연차만 잔여 차감 대상 */
+export function filterConsumedUsages(usages = [], asOfDate = new Date()) {
+  return usages.filter((usage) => {
+    if (usage.status && usage.status !== 'approved') return false;
+    return hasUsageDatePassed(usage.date, asOfDate);
+  });
+}
+
+export function filterScheduledUsages(usages = [], asOfDate = new Date()) {
+  return usages.filter((usage) => {
+    if (usage.status && usage.status !== 'approved') return false;
+    return !hasUsageDatePassed(usage.date, asOfDate);
+  });
+}
+
+export function sumUsageDays(usages = []) {
+  return Math.round(sumUsedDays(usages) * 10) / 10;
 }
 
 /** 올해(달력연도) 시작·종료 */
@@ -175,6 +208,22 @@ export function getCalendarYearEnd(year) {
 
 export function getCurrentDisplayYear(asOfDate = new Date()) {
   return startOfDay(asOfDate).getFullYear();
+}
+
+/** 월말 보고서 구간: 잔여는 다음 달 1일 0시 기준(말일 사용분 포함) */
+export function getReportMonthRange(year, month) {
+  const start = startOfDay(new Date(year, month - 1, 1));
+  const end = startOfDay(endOfMonth(start));
+  const nextStart = startOfDay(new Date(year, month, 1));
+  return {
+    year,
+    month,
+    monthStart: formatDate(start),
+    monthEnd: formatDate(end),
+    nextMonthStart: formatDate(nextStart),
+    asOf: end,
+    consumptionAsOf: nextStart,
+  };
 }
 
 /** 올해 사용 연차만 집계 */
@@ -314,14 +363,16 @@ export function getSettlementEvents(hireDate, asOfDate = new Date()) {
  * 잔여 = 올해 발생 - 올해 사용 - 올해 정산 차감
  */
 export function calculateLeaveBalance(hireDate, usages = [], asOfDate = new Date(), options = {}) {
-  const { manualAccrualTotal = 0 } = options;
+  const { manualAccrualTotal = 0, consumptionAsOf = asOfDate } = options;
   const asOf = startOfDay(asOfDate);
   const year = getCurrentDisplayYear(asOf);
   const oneYear = getOneYearAnniversary(hireDate);
   const phase = getLeavePhase(hireDate, asOf);
 
-  const yearUsages = filterUsagesByYear(usages, year);
+  const consumedUsages = filterConsumedUsages(usages, consumptionAsOf);
+  const yearUsages = filterUsagesByYear(consumedUsages, year);
   const usedDays = sumUsedDays(yearUsages);
+  const scheduledDays = sumUsedDays(filterUsagesByYear(filterScheduledUsages(usages, consumptionAsOf), year));
 
   let accruedThisYear = 0;
   let firstYearMonthly = 0;
@@ -372,6 +423,7 @@ export function calculateLeaveBalance(hireDate, usages = [], asOfDate = new Date
     proratedLeave,
     annualLeave,
     usedDays,
+    scheduledDays: Math.round(scheduledDays * 10) / 10,
     totalGranted: Math.round(totalAccrued * 10) / 10,
     settledDeduction,
     settlements: yearSettlements,

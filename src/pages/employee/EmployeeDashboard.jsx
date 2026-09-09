@@ -57,7 +57,11 @@ export function EmployeeDashboard() {
         <LeaveSummaryCard
           title="잔여 연차"
           value={leaveSummary.remaining}
-          subtitle={`${year}년 · 발생 ${leaveSummary.totalGranted} − 사용 ${leaveSummary.usedDays} − 정산 ${leaveSummary.settledDeduction}`}
+          subtitle={
+            leaveSummary.scheduledDays
+              ? `사용일 지난 뒤 차감 · 승인 예정 ${leaveSummary.scheduledDays}일`
+              : `${year}년 · 발생 ${leaveSummary.totalGranted} − 사용 ${leaveSummary.usedDays} − 정산 ${leaveSummary.settledDeduction}`
+          }
           highlight
         />
         <LeaveSummaryCard
@@ -106,7 +110,7 @@ export function EmployeeDashboard() {
         <Panel className="mb-8">
           <PanelHeader
             title="승인 대기 중인 신청"
-            description={`${pendingUsages.length}건 · 승인되면 잔여 연차에서 차감됩니다`}
+            description={`${pendingUsages.length}건 · 사용일이 지난 뒤에 잔여에서 차감됩니다`}
             actions={
               <Link to="/employee/request" className="text-sm text-primary-600 hover:text-primary-700">
                 신청 내역

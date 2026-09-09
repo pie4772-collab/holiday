@@ -18,6 +18,7 @@ import { AdminLeaveManageList } from './pages/admin/AdminLeaveManageList';
 import { AdminLeaveManage } from './pages/admin/AdminLeaveManage';
 import { EmployeeApprovals } from './pages/employee/EmployeeApprovals';
 import { AdminApprovalLines } from './pages/admin/AdminApprovalLines';
+import { AdminLeaveReport } from './pages/admin/AdminLeaveReport';
 import { useAppStore } from './store/useAppStore';
 import { useCurrentEmployee, useLeaveRequest } from './hooks/useLeaveData';
 
@@ -115,6 +116,7 @@ function AppRoutes() {
           <Route path="employees/:id" element={<AdminEmployeeDetail />} />
           <Route path="leave-manage" element={<AdminLeaveManageList />} />
           <Route path="leave-manage/:id" element={<AdminLeaveManage />} />
+          <Route path="leave-reports" element={<AdminLeaveReport />} />
         </Route>
 
         <Route path="*" element={<RoleRedirect />} />

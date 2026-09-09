@@ -60,7 +60,7 @@ export function EmployeeRequest() {
                 <span className="text-stripe-muted/70"> · {employee.leaveSummary.displayYear}년</span>
               </p>
               <p className="text-[13px] text-stripe-muted mt-2">
-                예: 1일부터 3일까지 → 한 번에 신청됩니다. 승인 전에는 잔여 일수가 줄어들지 않습니다.
+                예: 1일부터 3일까지 → 한 번에 신청됩니다. 잔여는 사용일이 지난 뒤에 차감됩니다.
               </p>
             </div>
             <Button className="w-full" onClick={() => openRequestModal()}>
@@ -75,7 +75,7 @@ export function EmployeeRequest() {
             <ul className="space-y-2 text-[13px] text-stripe-muted">
               <li>연속 연차는 시작일~종료일의 평일만 신청됩니다 (주말 제외)</li>
               <li>반차는 하루만 신청할 수 있습니다</li>
-              <li>신청 후 아래 ‘내 신청’에서 승인 대기를 확인할 수 있습니다</li>
+              <li>신청·승인 직후에는 잔여가 줄지 않고, 사용일이 지난 뒤에 차감됩니다</li>
               <li>팀원 신청은 팀장 승인, 경영전략실은 박지은 승인</li>
             </ul>
           </div>

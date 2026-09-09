@@ -11,6 +11,7 @@ export const leaveKeys = {
   pendingApprovals: ['leave', 'approvals'],
   adminAccruals: (id) => ['admin', 'accruals', id],
   adminUsages: (id) => ['admin', 'usages', id],
+  leaveReport: (year, month, saved) => ['admin', 'leave-report', year, month, saved],
 };
 
 function invalidateEmployeeData(queryClient, employeeId) {
@@ -52,6 +53,29 @@ export function useAdminStats() {
   return useQuery({
     queryKey: leaveKeys.adminStats,
     queryFn: leaveApi.getAdminStats,
+  });
+}
+
+export function useLeaveReport(year, month, saved = false) {
+  return useQuery({
+    queryKey: leaveKeys.leaveReport(year, month, saved),
+    queryFn: () => leaveApi.getLeaveReport(year, month, { saved }),
+    enabled: Boolean(year && month),
+  });
+}
+
+export function useSaveLeaveReport() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ year, month }) => leaveApi.saveLeaveReport(year, month),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: leaveKeys.leaveReport(variables.year, variables.month, false),
+      });
+      queryClient.invalidateQueries({
+        queryKey: leaveKeys.leaveReport(variables.year, variables.month, true),
+      });
+    },
   });
 }
 

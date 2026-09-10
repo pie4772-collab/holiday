@@ -74,10 +74,10 @@ export function LoginPage() {
       <div className="w-full max-w-sm stripe-panel p-6">
         <div className="flex items-center gap-2.5 mb-6">
           <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary-500 text-white text-sm font-bold">
-            H
+            동
           </div>
           <div>
-            <h1 className="text-base font-semibold text-stripe-text">Holiday</h1>
+            <h1 className="text-base font-semibold text-stripe-text">동양철관 연차관리</h1>
             <p className="text-xs text-stripe-muted">사번으로 로그인</p>
           </div>
         </div>

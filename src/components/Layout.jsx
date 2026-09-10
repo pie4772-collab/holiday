@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import {
   LayoutDashboard,
@@ -91,6 +91,7 @@ export function Layout() {
     ? [...employeeNav, { to: '/employee/approvals', icon: ClipboardCheck, label: '연차 승인' }]
     : employeeNav;
   const navItems = role === 'admin' && canAdmin ? adminNav : employeeItems;
+  const homePath = role === 'admin' && canAdmin ? '/admin' : '/employee';
 
   async function handleLogout() {
     try {
@@ -118,12 +119,12 @@ export function Layout() {
       {/* Mobile top bar */}
       <header className="md:hidden fixed top-0 inset-x-0 z-50 bg-stripe-sidebar border-b border-white/10 safe-top">
         <div className="flex items-center justify-between px-4 h-14">
-          <div className="flex items-center gap-2.5 min-w-0">
+          <Link to={homePath} className="flex items-center gap-2.5 min-w-0 hover:opacity-90">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-500 text-white text-sm font-bold">
-              H
+              동
             </div>
             <div className="min-w-0">
-              <h1 className="text-sm font-semibold text-white tracking-tight truncate">Holiday</h1>
+              <h1 className="text-sm font-semibold text-white tracking-tight truncate">동양철관 연차관리</h1>
               {currentEmployee && (
                 <p className="text-[11px] text-stripe-sidebar-muted truncate">
                   {currentEmployee.name}
@@ -131,7 +132,7 @@ export function Layout() {
                 </p>
               )}
             </div>
-          </div>
+          </Link>
           <div className="w-[108px] shrink-0 ml-2">
             {canAdmin && (
               <RoleToggle
@@ -160,15 +161,15 @@ export function Layout() {
       {/* Desktop sidebar */}
       <aside className="hidden md:flex w-[240px] bg-stripe-sidebar flex-col fixed h-full z-40">
         <div className="px-5 py-5 border-b border-white/10">
-          <div className="flex items-center gap-2.5">
+          <Link to={homePath} className="flex items-center gap-2.5 hover:opacity-90">
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary-500 text-white text-sm font-bold">
-              H
+              동
             </div>
             <div>
-              <h1 className="text-sm font-semibold text-white tracking-tight">Holiday</h1>
-              <p className="text-[11px] text-stripe-sidebar-muted">연차 관리</p>
+              <h1 className="text-sm font-semibold text-white tracking-tight">동양철관</h1>
+              <p className="text-[11px] text-stripe-sidebar-muted">연차관리</p>
             </div>
-          </div>
+          </Link>
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">

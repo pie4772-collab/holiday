@@ -7,12 +7,12 @@ import { Panel, PanelHeader, PanelBody } from '../../components/ui/Panel';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { LeaveSummaryCard } from '../../components/LeaveSummaryCard';
+import { OrdinaryWageCsvActions } from '../../components/OrdinaryWageCsvActions';
 import {
   useLeaveEventSettlement,
   useSaveLeaveEventSettlement,
   useUpdateOrdinaryWage,
 } from '../../hooks/useLeaveData';
-
 function csvCell(value) {
   const text = value == null ? '' : String(value);
   if (/[",\r\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
@@ -96,6 +96,7 @@ export function AdminLeaveEventSettlement() {
   const [eventType, setEventType] = useState('all');
   const [draftWages, setDraftWages] = useState({});
   const [message, setMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   const { data: settlement, isLoading, isError, refetch } = useLeaveEventSettlement(year);
   const saveSettlement = useSaveLeaveEventSettlement();
   const updateWage = useUpdateOrdinaryWage();
@@ -189,6 +190,16 @@ export function AdminLeaveEventSettlement() {
         description={`${settlement.year}년 · ${settlement.formula}`}
         actions={
           <>
+            <OrdinaryWageCsvActions
+              onMessage={(text) => {
+                setErrorMessage('');
+                setMessage(text);
+              }}
+              onError={(text) => {
+                setMessage('');
+                setErrorMessage(text);
+              }}
+            />
             <Button
               variant="secondary"
               onClick={() => downloadCsv(settlement, workplace, eventType)}
@@ -247,6 +258,11 @@ export function AdminLeaveEventSettlement() {
           {message}
         </div>
       )}
+      {errorMessage && (
+        <div className="mb-4 rounded-md border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-sm text-[#df1b41]">
+          {errorMessage}
+        </div>
+      )}
       {settlement.saved && (
         <div className="mb-4 rounded-md border border-[#d7f7c2] bg-[#f6fef9] px-4 py-3 text-sm text-[#09825d]">
           {settlement.year}년 연차 정산을 {settlement.saved.generatedAt}에 확정했습니다.
@@ -276,7 +292,9 @@ export function AdminLeaveEventSettlement() {
         />
       </div>
 
-      <p className="text-[13px] text-stripe-muted mb-6">{settlement.note}</p>
+      <p className="text-[13px] text-stripe-muted mb-6">
+        {settlement.note} 통상임금은 양식을 내려받아 사번 기준으로 업로드할 수 있습니다.
+      </p>
 
       {visibleGroups.length === 0 ? (
         <Panel>
@@ -299,7 +317,7 @@ export function AdminLeaveEventSettlement() {
                         <p className="text-sm font-medium text-stripe-text">{emp.name}</p>
                         <p className="text-xs text-stripe-muted mt-0.5">
                           {emp.empNo && <span className="font-mono mr-1.5">{emp.empNo}</span>}
-                          {emp.eventDate} · 지급 {emp.settledDays}일
+                          입사 {emp.hireDate || '—'} · {emp.eventDate} · 지급 {emp.settledDays}일
                           {emp.overusedDays ? ` · 초과이월 ${emp.overusedDays}일` : ''}
                         </p>
                       </div>
@@ -340,6 +358,7 @@ export function AdminLeaveEventSettlement() {
                     <tr>
                       <th>이름</th>
                       <th>사번</th>
+                      <th>입사일</th>
                       <th>정산일</th>
                       <th>유형</th>
                       <th className="text-right">정산일수</th>
@@ -355,6 +374,7 @@ export function AdminLeaveEventSettlement() {
                       <tr key={emp.id}>
                         <td className="font-medium whitespace-nowrap">{emp.name}</td>
                         <td className="font-mono text-[13px]">{emp.empNo || '-'}</td>
+                        <td className="font-mono text-[13px] whitespace-nowrap">{emp.hireDate || '—'}</td>
                         <td className="font-mono text-[13px] whitespace-nowrap">{emp.eventDate}</td>
                         <td>
                           <Badge variant={eventBadgeVariant(emp.eventType)}>{emp.eventTypeLabel}</Badge>

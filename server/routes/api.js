@@ -156,6 +156,39 @@ router.put('/admin/employees/:id/ordinary-wage', requireAdmin, (req, res, next) 
   }
 });
 
+router.get('/admin/ordinary-wages/template', requireAdmin, (req, res, next) => {
+  try {
+    const template = leaveService.getOrdinaryWageTemplate();
+    const escape = (value) => {
+      const text = value == null ? '' : String(value);
+      if (/[",\r\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+      return text;
+    };
+    const lines = [
+      template.headers.join(','),
+      ...template.rows.map((row) =>
+        [row.empNo, row.name, row.ordinaryWage, row.workplace, row.department, row.active]
+          .map(escape)
+          .join(',')
+      ),
+    ];
+    const csv = `\uFEFF${lines.join('\r\n')}`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="ordinary-wage-template.csv"');
+    res.send(csv);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/ordinary-wages/upload', requireAdmin, (req, res, next) => {
+  try {
+    res.json(leaveService.bulkUpdateOrdinaryWagesByEmpNo(req.body.rows || req.body.items || []));
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get('/employees/:id', requireAuth, (req, res, next) => {
   try {
     const emp = leaveService.getEmployeeById(req.params.id);

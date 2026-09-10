@@ -116,6 +116,18 @@ export function useUpdateOrdinaryWage() {
   });
 }
 
+export function useUploadOrdinaryWages() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (rows) => leaveApi.uploadOrdinaryWages(rows),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'leave-settlement'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'leave-event-settlement'] });
+      queryClient.invalidateQueries({ queryKey: leaveKeys.employees });
+    },
+  });
+}
+
 export function useLeaveEventSettlement(year, saved = false) {
   return useQuery({
     queryKey: leaveKeys.leaveEventSettlement(year, saved),

@@ -7,6 +7,7 @@ import { Panel, PanelHeader, PanelBody } from '../../components/ui/Panel';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { LeaveSummaryCard } from '../../components/LeaveSummaryCard';
+import { OrdinaryWageCsvActions } from '../../components/OrdinaryWageCsvActions';
 import {
   useLeaveSettlement,
   useSaveLeaveSettlement,
@@ -41,6 +42,7 @@ function downloadCsv(settlement, workplaceFilter) {
       '사업장',
       '사번',
       '이름',
+      '입사일',
       '부서',
       '직급',
       '상태',
@@ -60,6 +62,7 @@ function downloadCsv(settlement, workplaceFilter) {
         emp.workplace,
         emp.empNo,
         emp.name,
+        emp.hireDate || '',
         emp.department,
         emp.position,
         emp.status,
@@ -90,6 +93,7 @@ export function AdminLeaveSettlement() {
   const [workplace, setWorkplace] = useState('all');
   const [draftWages, setDraftWages] = useState({});
   const [message, setMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   const { data: settlement, isLoading, isError, refetch } = useLeaveSettlement(year, month);
   const saveSettlement = useSaveLeaveSettlement();
   const updateWage = useUpdateOrdinaryWage();
@@ -158,6 +162,16 @@ export function AdminLeaveSettlement() {
         description={`${settlement.asOfDate} 말일 기준 · ${settlement.formula}`}
         actions={
           <>
+            <OrdinaryWageCsvActions
+              onMessage={(text) => {
+                setErrorMessage('');
+                setMessage(text);
+              }}
+              onError={(text) => {
+                setMessage('');
+                setErrorMessage(text);
+              }}
+            />
             <Button
               variant="secondary"
               onClick={() => downloadCsv(settlement, workplace === 'all' ? '' : workplace)}
@@ -215,6 +229,11 @@ export function AdminLeaveSettlement() {
           {message}
         </div>
       )}
+      {errorMessage && (
+        <div className="mb-4 rounded-md border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-sm text-[#df1b41]">
+          {errorMessage}
+        </div>
+      )}
       {settlement.saved && (
         <div className="mb-4 rounded-md border border-[#d7f7c2] bg-[#f6fef9] px-4 py-3 text-sm text-[#09825d]">
           {settlement.year}년 {settlement.month}월 IFRS 연차부채를 {settlement.saved.generatedAt}에 확정했습니다.
@@ -244,7 +263,9 @@ export function AdminLeaveSettlement() {
         />
       </div>
 
-      <p className="text-[13px] text-stripe-muted mb-6">{settlement.note}</p>
+      <p className="text-[13px] text-stripe-muted mb-6">
+        {settlement.note} 통상임금은 양식을 내려받아 사번 기준으로 업로드할 수 있습니다.
+      </p>
 
       {visibleGroups.map((group) => (
         <Panel key={group.workplace} className="mb-6">
@@ -262,7 +283,7 @@ export function AdminLeaveSettlement() {
                       <p className="text-sm font-medium text-stripe-text">{emp.name}</p>
                       <p className="text-xs text-stripe-muted mt-0.5">
                         {emp.empNo && <span className="font-mono mr-1.5">{emp.empNo}</span>}
-                        {emp.department} · 잔여 {emp.remaining}일
+                        입사 {emp.hireDate || '—'} · {emp.department} · 잔여 {emp.remaining}일
                       </p>
                     </div>
                     <Badge variant={emp.wageMissing ? 'warning' : 'success'}>
@@ -300,6 +321,7 @@ export function AdminLeaveSettlement() {
                   <tr>
                     <th>이름</th>
                     <th>사번</th>
+                    <th>입사일</th>
                     <th>부서</th>
                     <th>상태</th>
                     <th className="text-right">잔여</th>
@@ -315,6 +337,7 @@ export function AdminLeaveSettlement() {
                     <tr key={emp.id}>
                       <td className="font-medium whitespace-nowrap">{emp.name}</td>
                       <td className="font-mono text-[13px]">{emp.empNo || '-'}</td>
+                      <td className="font-mono text-[13px] whitespace-nowrap">{emp.hireDate || '—'}</td>
                       <td className="muted whitespace-nowrap">{emp.department}</td>
                       <td>
                         <Badge variant={emp.status === '재직' ? 'success' : 'warning'}>{emp.status}</Badge>

@@ -1,4 +1,4 @@
-import { apiClient } from './client';
+import { apiClient, getAuthToken } from './client';
 import {
   getMockCurrentEmployee,
   getMockEmployeeById,
@@ -100,6 +100,26 @@ export const leaveApi = {
     return apiClient(`/admin/employees/${id}/ordinary-wage`, {
       method: 'PUT',
       body: { ordinaryWage },
+    });
+  },
+
+  async downloadOrdinaryWageTemplate() {
+    const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+    const token = getAuthToken();
+    const response = await fetch(`${API_BASE}/admin/ordinary-wages/template`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: '양식 다운로드 실패' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.blob();
+  },
+
+  async uploadOrdinaryWages(rows) {
+    return apiClient('/admin/ordinary-wages/upload', {
+      method: 'POST',
+      body: { rows },
     });
   },
 

@@ -554,6 +554,132 @@ export function updateEmployeeOrdinaryWage(employeeId, ordinaryWage) {
   };
 }
 
+function normalizeEmpNo(value) {
+  return String(value ?? '')
+    .trim()
+    .replace(/^'|'$/g, '');
+}
+
+function parseOrdinaryWageValue(value) {
+  if (value == null) return { skip: true, wage: null };
+  const raw = String(value).trim().replace(/,/g, '');
+  if (raw === '') return { skip: true, wage: null };
+  const wage = Number(raw);
+  if (!Number.isFinite(wage) || wage < 0) {
+    throw Object.assign(new Error(`통상임금 값이 올바르지 않습니다: ${value}`), { status: 400 });
+  }
+  return { skip: false, wage };
+}
+
+/** 통상임금 업로드 양식 (사번 기준) */
+export function getOrdinaryWageTemplate() {
+  const rows = getDb()
+    .prepare(
+      `SELECT emp_no, name, ordinary_wage, workplace, department, is_active
+       FROM employees
+       WHERE emp_no IS NOT NULL AND TRIM(emp_no) != ''
+       ORDER BY is_active DESC, workplace, name`
+    )
+    .all();
+
+  return {
+    headers: ['사번', '이름', '월통상임금', '사업장', '부서', '재직'],
+    rows: rows.map((row) => ({
+      empNo: row.emp_no,
+      name: row.name,
+      ordinaryWage: row.ordinary_wage == null ? '' : Number(row.ordinary_wage),
+      workplace: row.workplace || '',
+      department: row.department || '',
+      active: row.is_active ? 'Y' : 'N',
+    })),
+  };
+}
+
+/**
+ * 사번 기준 통상임금 일괄 반영
+ * - 월통상임금 칸이 비어 있으면 해당 행은 건너뜀
+ */
+export function bulkUpdateOrdinaryWagesByEmpNo(items = []) {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw Object.assign(new Error('업로드할 행이 없습니다.'), { status: 400 });
+  }
+
+  const db = getDb();
+  const findByEmpNo = db.prepare(
+    `SELECT id, emp_no, name FROM employees WHERE lower(emp_no) = lower(?) LIMIT 1`
+  );
+  const updateWage = db.prepare(
+    `UPDATE employees
+     SET ordinary_wage = ?, updated_at = datetime('now', 'localtime')
+     WHERE id = ?`
+  );
+
+  const updated = [];
+  const skipped = [];
+  const missing = [];
+  const errors = [];
+  const seen = new Set();
+
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i] || {};
+    const empNo = normalizeEmpNo(item.empNo ?? item.사번);
+    const line = i + 2; // header = 1
+
+    if (!empNo) {
+      skipped.push({ line, reason: '사번 없음' });
+      continue;
+    }
+    if (seen.has(empNo.toLowerCase())) {
+      skipped.push({ line, empNo, reason: '중복 사번' });
+      continue;
+    }
+    seen.add(empNo.toLowerCase());
+
+    let parsed;
+    try {
+      parsed = parseOrdinaryWageValue(item.ordinaryWage ?? item.월통상임금 ?? item.통상임금);
+    } catch (error) {
+      errors.push({ line, empNo, reason: error.message });
+      continue;
+    }
+    if (parsed.skip) {
+      skipped.push({ line, empNo, reason: '통상임금 미입력' });
+      continue;
+    }
+
+    const emp = findByEmpNo.get(empNo);
+    if (!emp) {
+      missing.push({ line, empNo });
+      continue;
+    }
+
+    updateWage.run(parsed.wage, emp.id);
+    updated.push({
+      id: String(emp.id),
+      empNo: emp.emp_no,
+      name: emp.name,
+      ordinaryWage: parsed.wage,
+    });
+  }
+
+  if (updated.length === 0 && errors.length === 0 && missing.length === 0) {
+    throw Object.assign(new Error('반영할 통상임금 행이 없습니다. 사번과 월통상임금을 확인해 주세요.'), {
+      status: 400,
+    });
+  }
+
+  return {
+    updatedCount: updated.length,
+    skippedCount: skipped.length,
+    missingCount: missing.length,
+    errorCount: errors.length,
+    updated,
+    skipped,
+    missing,
+    errors,
+  };
+}
+
 export function getLeavePaySettlement(year, month) {
   const y = Number(year);
   const m = Number(month);

@@ -110,7 +110,7 @@ router.get('/admin/leave-settlements', requireAdmin, (req, res, next) => {
     const settlement = savedOnly
       ? leaveService.getSavedLeavePaySettlement(req.query.year, req.query.month)
       : leaveService.getLeavePaySettlement(req.query.year, req.query.month);
-    if (!settlement) return res.status(404).json({ message: '저장된 연차수당 정산이 없습니다.' });
+    if (!settlement) return res.status(404).json({ message: '저장된 IFRS 연차부채가 없습니다.' });
     res.json(settlement);
   } catch (e) {
     next(e);
@@ -122,6 +122,27 @@ router.post('/admin/leave-settlements', requireAdmin, (req, res, next) => {
     res.status(201).json(
       leaveService.saveLeavePaySettlement(req.body.year, req.body.month, req.user.employeeId)
     );
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/leave-event-settlements', requireAdmin, (req, res, next) => {
+  try {
+    const savedOnly = req.query.saved === '1';
+    const settlement = savedOnly
+      ? leaveService.getSavedLeaveEventSettlement(req.query.year)
+      : leaveService.getLeaveEventSettlement(req.query.year);
+    if (!settlement) return res.status(404).json({ message: '저장된 연차 정산이 없습니다.' });
+    res.json(settlement);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/leave-event-settlements', requireAdmin, (req, res, next) => {
+  try {
+    res.status(201).json(leaveService.saveLeaveEventSettlement(req.body.year, req.user.employeeId));
   } catch (e) {
     next(e);
   }

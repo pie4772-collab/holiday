@@ -464,6 +464,17 @@ function migrate(database) {
   `);
 
   database.exec(`
+    CREATE TABLE IF NOT EXISTS leave_event_settlements (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      year          INTEGER NOT NULL UNIQUE,
+      as_of_date    TEXT NOT NULL,
+      generated_by  INTEGER,
+      payload       TEXT NOT NULL,
+      generated_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+  `);
+
+  database.exec(`
     CREATE TABLE IF NOT EXISTS mail_settings (
       id           INTEGER PRIMARY KEY CHECK (id = 1),
       enabled      INTEGER NOT NULL DEFAULT 0,

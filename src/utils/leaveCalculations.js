@@ -1,6 +1,7 @@
 import {
   differenceInDays,
   addYears,
+  addDays,
   startOfDay,
   isBefore,
   isAfter,
@@ -360,10 +361,11 @@ export function getSettlementEvents(hireDate, asOfDate = new Date()) {
 
 /**
  * 올해 기준 잔여 연차 계산
- * 잔여 = 올해 발생 - 올해 사용 - 올해 정산 차감
+ * 잔여(표시/부채) = max(0, 순잔여)
+ * 초과사용 = max(0, -순잔여) → 다음 주기 이월 차감
  */
 export function calculateLeaveBalance(hireDate, usages = [], asOfDate = new Date(), options = {}) {
-  const { manualAccrualTotal = 0, consumptionAsOf = asOfDate } = options;
+  const { manualAccrualTotal = 0, consumptionAsOf = asOfDate, skipCarryIn = false } = options;
   const asOf = startOfDay(asOfDate);
   const year = getCurrentDisplayYear(asOf);
   const oneYear = getOneYearAnniversary(hireDate);
@@ -402,12 +404,17 @@ export function calculateLeaveBalance(hireDate, usages = [], asOfDate = new Date
 
   const yearSettlements = getSettlementEventsInYear(hireDate, year, asOf);
   const settledDeduction = getCurrentYearSettledDeduction(hireDate, year, asOf);
+  const carryInDays = skipCarryIn
+    ? 0
+    : getPriorPeriodOveruseCarryIn(hireDate, asOf, usages, {
+        manualAccrualTotal,
+        consumptionAsOf,
+      });
   const totalAccrued = accruedThisYear + manualAccrualTotal;
 
-  const remaining = Math.max(
-    0,
-    Math.round((totalAccrued - usedDays - settledDeduction) * 10) / 10
-  );
+  const rawRemaining = Math.round((totalAccrued - usedDays - settledDeduction - carryInDays) * 10) / 10;
+  const remaining = Math.max(0, rawRemaining);
+  const overusedDays = Math.max(0, Math.round((-rawRemaining) * 10) / 10);
 
   const settlementInYear = yearSettlements.find((e) => e.type === 'first_year');
   const firstYearSettled = !isBefore(asOf, oneYear);
@@ -418,6 +425,9 @@ export function calculateLeaveBalance(hireDate, usages = [], asOfDate = new Date
     isFirstYear: isFirstYear(hireDate, asOf),
     isProratedTarget: isProratedPeriod(hireDate, asOf),
     remaining,
+    rawRemaining,
+    overusedDays,
+    carryInDays,
     accruedThisYear: Math.round((accruedThisYear + manualAccrualTotal) * 10) / 10,
     firstYearMonthly,
     proratedLeave,
@@ -440,4 +450,44 @@ export function calculateLeaveBalance(hireDate, usages = [], asOfDate = new Date
     },
     fiscalSettlements: yearSettlements.filter((s) => s.basis === 'fiscal'),
   };
+}
+
+/** 현재 주기 시작일 (입사일 / 일사일 / 회계기준일) */
+export function getLeavePeriodStart(hireDate, asOfDate = new Date()) {
+  const asOf = startOfDay(asOfDate);
+  const phase = getLeavePhase(hireDate, asOf);
+  if (phase === 'first_year_monthly') return parseHireDate(hireDate);
+  if (phase === 'prorated') return getOneYearAnniversary(hireDate);
+  return getFiscalYearStart(asOf);
+}
+
+/**
+ * 직전 주기에서 초과 사용한 연차(절대값)를 이번 주기 발생분에서 차감
+ */
+export function getPriorPeriodOveruseCarryIn(hireDate, asOfDate, usages = [], options = {}) {
+  const asOf = startOfDay(asOfDate);
+  const hire = parseHireDate(hireDate);
+  const periodStart = getLeavePeriodStart(hireDate, asOf);
+  if (isSameDay(periodStart, hire) || isBefore(periodStart, hire)) return 0;
+
+  const priorAsOf = addDays(periodStart, -1);
+  if (isBefore(priorAsOf, hire)) return 0;
+
+  const prior = calculateLeaveBalance(hireDate, usages, priorAsOf, {
+    ...options,
+    // 직전 주기 자체 이월은 재귀로 반영. 무한루프 방지를 위해 skip은 쓰지 않음.
+  });
+  return prior.overusedDays || 0;
+}
+
+/** IFRS 부채·수당 지급에 쓰는 연차 일수 (음수면 0) */
+export function getPayableLeaveDays(days) {
+  const value = Number(days) || 0;
+  return Math.max(0, Math.round(value * 10) / 10);
+}
+
+/** 초과 사용 일수 (음수 잔여의 절대값) */
+export function getOverusedLeaveDays(days) {
+  const value = Number(days) || 0;
+  return value < 0 ? Math.round((-value) * 10) / 10 : 0;
 }

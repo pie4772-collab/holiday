@@ -12,6 +12,7 @@ import {
   GitBranch,
   FileSpreadsheet,
   Wallet,
+  Scale,
   Mail,
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
@@ -33,7 +34,8 @@ const adminNav = [
   { to: '/admin/roster', icon: ClipboardList, label: '사원 명부' },
   { to: '/admin/approval-lines', icon: GitBranch, label: '결재 라인' },
   { to: '/admin/leave-reports', icon: FileSpreadsheet, label: '연차 보고서' },
-  { to: '/admin/leave-settlements', icon: Wallet, label: '연차수당 정산' },
+  { to: '/admin/leave-settlements', icon: Scale, label: 'IFRS 연차부채' },
+  { to: '/admin/leave-event-settlements', icon: Wallet, label: '연차 정산' },
   { to: '/admin/mail-settings', icon: Mail, label: '메일 서버' },
 ];
 

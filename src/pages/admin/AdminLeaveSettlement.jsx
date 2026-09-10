@@ -45,9 +45,10 @@ function downloadCsv(settlement, workplaceFilter) {
       '직급',
       '상태',
       '잔여일',
+      '초과이월',
       '월통상임금',
       '일급',
-      '연차수당',
+      '부채금액',
     ],
   ];
 
@@ -63,6 +64,7 @@ function downloadCsv(settlement, workplaceFilter) {
         emp.position,
         emp.status,
         emp.remaining,
+        emp.overusedDays || 0,
         emp.ordinaryWage ?? '',
         emp.dailyRate ?? '',
         emp.allowance ?? '',
@@ -76,7 +78,7 @@ function downloadCsv(settlement, workplaceFilter) {
   const link = document.createElement('a');
   const suffix = workplaceFilter ? `-${workplaceFilter}` : '';
   link.href = url;
-  link.download = `연차수당정산-${settlement.year}${String(settlement.month).padStart(2, '0')}${suffix}.csv`;
+  link.download = `IFRS연차부채-${settlement.year}${String(settlement.month).padStart(2, '0')}${suffix}.csv`;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -152,7 +154,7 @@ export function AdminLeaveSettlement() {
   return (
     <div>
       <PageHeader
-        title="연차수당 정산"
+        title="IFRS 연차부채"
         description={`${settlement.asOfDate} 말일 기준 · ${settlement.formula}`}
         actions={
           <>
@@ -168,7 +170,7 @@ export function AdminLeaveSettlement() {
               onClick={() => saveSettlement.mutate({ year, month })}
             >
               <Save className="h-4 w-4" />
-              {saveSettlement.isPending ? '저장 중…' : '정산 확정'}
+              {saveSettlement.isPending ? '저장 중…' : '월말 확정'}
             </Button>
           </>
         }
@@ -215,7 +217,7 @@ export function AdminLeaveSettlement() {
       )}
       {settlement.saved && (
         <div className="mb-4 rounded-md border border-[#d7f7c2] bg-[#f6fef9] px-4 py-3 text-sm text-[#09825d]">
-          {settlement.year}년 {settlement.month}월 정산을 {settlement.saved.generatedAt}에 확정했습니다.
+          {settlement.year}년 {settlement.month}월 IFRS 연차부채를 {settlement.saved.generatedAt}에 확정했습니다.
         </div>
       )}
       {(saveSettlement.isError || updateWage.isError) && (
@@ -226,19 +228,19 @@ export function AdminLeaveSettlement() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <LeaveSummaryCard title="대상 인원" value={visibleTotals.employeeCount} unit="명" subtitle="월말 재직 + 당월 퇴사" />
-        <LeaveSummaryCard title="잔여 합계" value={visibleTotals.remaining} subtitle="정산 기준 잔여일" />
+        <LeaveSummaryCard title="잔여 합계" value={visibleTotals.remaining} subtitle="월말 미사용(음수는 0)" />
         <LeaveSummaryCard
-          title="수당 합계"
+          title="부채 합계"
           value={visibleTotals.allowance.toLocaleString('ko-KR')}
           unit="원"
-          subtitle="일급 × 잔여일 합계"
+          subtitle="일급 × max(0, 잔여)"
           highlight
         />
         <LeaveSummaryCard
           title="통상임금 미입력"
           value={visibleTotals.wageMissingCount}
           unit="명"
-          subtitle="수당 계산 전 입력 필요"
+          subtitle="부채 계산 전 입력 필요"
         />
       </div>
 
@@ -301,9 +303,10 @@ export function AdminLeaveSettlement() {
                     <th>부서</th>
                     <th>상태</th>
                     <th className="text-right">잔여</th>
+                    <th className="text-right">초과이월</th>
                     <th>월 통상임금</th>
                     <th className="text-right">일급</th>
-                    <th className="text-right">연차수당</th>
+                    <th className="text-right">부채금액</th>
                     <th />
                   </tr>
                 </thead>
@@ -317,6 +320,9 @@ export function AdminLeaveSettlement() {
                         <Badge variant={emp.status === '재직' ? 'success' : 'warning'}>{emp.status}</Badge>
                       </td>
                       <td className="tabular-nums text-right">{emp.remaining}</td>
+                      <td className="tabular-nums text-right muted whitespace-nowrap">
+                        {emp.overusedDays ? emp.overusedDays : '—'}
+                      </td>
                       <td>
                         <input
                           className="stripe-input font-mono text-[13px] min-w-[120px]"

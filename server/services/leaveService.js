@@ -10,6 +10,10 @@ import {
   sumUsageDays,
   getReportMonthRange,
   FISCAL_YEAR_START_MONTH,
+  getSettlementEventsInYear,
+  getPayableLeaveDays,
+  getOverusedLeaveDays,
+  getPriorPeriodOveruseCarryIn,
 } from '../../src/utils/leaveCalculations.js';
 import {
   calendarSpanDays,
@@ -153,7 +157,13 @@ function buildLeaveSummary(row, options = {}) {
     const scheduledDays = sumUsageDays(filterScheduledUsages(newUsages, consumptionAsOf));
     const accrued = row.accrued + manualTotal;
     const used = Math.round(((row.used || 0) + extraUsed) * 10) / 10;
-    const remaining = Math.max(0, Math.round((row.remaining + manualTotal - extraUsed) * 10) / 10);
+    const carryInDays = getPriorPeriodOveruseCarryIn(row.hire_date, asOf, approvedUsages, {
+      manualAccrualTotal: manualTotal,
+      consumptionAsOf,
+    });
+    const rawRemaining = Math.round((Number(row.remaining || 0) + manualTotal - extraUsed - carryInDays) * 10) / 10;
+    const remaining = getPayableLeaveDays(rawRemaining);
+    const overusedDays = getOverusedLeaveDays(rawRemaining);
 
     return {
       employeeId: toApiId(dbId),
@@ -161,6 +171,9 @@ function buildLeaveSummary(row, options = {}) {
       accruedThisYear: accrued,
       usedDays: used,
       remaining,
+      rawRemaining,
+      overusedDays,
+      carryInDays,
       scheduledDays,
       totalGranted: accrued,
       manualAccrualTotal: manualTotal,
@@ -570,13 +583,14 @@ export function getLeavePaySettlement(year, month) {
       consumptionAsOf: range.consumptionAsOf,
     });
     const ordinaryWage = row.ordinary_wage == null ? null : Number(row.ordinary_wage);
-    const remaining = Number(summary.remaining) || 0;
+    const remaining = getPayableLeaveDays(summary.remaining);
+    const overusedDays = Number(summary.overusedDays) || 0;
     const dailyRate =
       ordinaryWage != null && ordinaryWage > 0
         ? Math.round((ordinaryWage / ORDINARY_WAGE_HOURS) * 100) / 100
         : null;
     const allowance =
-      dailyRate != null && remaining > 0 ? roundMoney(dailyRate * remaining) : ordinaryWage != null ? 0 : null;
+      dailyRate != null ? roundMoney(dailyRate * remaining) : ordinaryWage != null ? 0 : null;
     const terminatedInMonth = Boolean(
       row.terminated_date && row.terminated_date >= range.monthStart && row.terminated_date <= range.monthEnd
     );
@@ -593,6 +607,8 @@ export function getLeavePaySettlement(year, month) {
       terminatedDate: row.terminated_date || null,
       status: terminatedInMonth ? '당월 퇴사' : '재직',
       remaining: round1(remaining),
+      overusedDays: round1(overusedDays),
+      carryInDays: round1(summary.carryInDays || 0),
       ordinaryWage,
       dailyRate,
       allowance,
@@ -644,8 +660,8 @@ export function getLeavePaySettlement(year, month) {
     month: m,
     asOfDate: range.monthEnd,
     wageHours: ORDINARY_WAGE_HOURS,
-    formula: `연차수당 = (월 통상임금 ÷ ${ORDINARY_WAGE_HOURS}) × 잔여일수`,
-    note: '통상임금은 직원별로 입력합니다. 잔여 연차는 월말 보고서와 같은 기준으로 산정합니다.',
+    formula: `연차부채 = (월 통상임금 ÷ ${ORDINARY_WAGE_HOURS}) × max(0, 잔여일수)`,
+    note: '월말 미사용 연차가 0보다 작으면 부채 일수는 0으로 둡니다. 초과 사용분은 연차 정산에서 다음 주기로 이월 차감합니다.',
     totals,
     workplaces,
     saved: saved
@@ -688,6 +704,261 @@ export function saveLeavePaySettlement(year, month, generatedBy) {
 
 export function getSavedLeavePaySettlement(year, month) {
   const saved = getSavedPaySettlement(Number(year), Number(month));
+  if (!saved) return null;
+  try {
+    const payload = JSON.parse(saved.payload);
+    return {
+      ...payload,
+      saved: {
+        generatedAt: saved.generated_at,
+        generatedBy: saved.generated_by ? String(saved.generated_by) : null,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+const EVENT_TYPE_LABELS = {
+  first_year: '입사 1년',
+  prorated: '회계기준 전환',
+  fiscal_annual: '회계기준일',
+  resignation: '중도 퇴사',
+};
+
+function eventTypeLabel(type) {
+  return EVENT_TYPE_LABELS[type] || type;
+}
+
+function toDateKey(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value.slice(0, 10);
+  return formatDate(value);
+}
+
+function getSavedEventSettlement(year) {
+  return getDb().prepare('SELECT * FROM leave_event_settlements WHERE year = ?').get(year);
+}
+
+/**
+ * 연차 정산(수당 지급) 대상
+ * - 입사 1년(월차 정산)
+ * - 회계기준 전환(비례) / 회계기준일(정규)
+ * - 중도 퇴사(퇴사일 잔여)
+ * 매월 정산하지 않음.
+ */
+export function getLeaveEventSettlement(year) {
+  const y = Number(year);
+  if (!Number.isInteger(y) || y < 2000 || y > 2100) {
+    throw Object.assign(new Error('연도를 확인해주세요.'), { status: 400 });
+  }
+
+  const yearStart = `${y}-01-01`;
+  const yearEnd = `${y}-12-31`;
+  const asOf = new Date(y, 11, 31);
+
+  const rows = getDb()
+    .prepare(
+      `SELECT e.*, lbs.as_of_date, lbs.display_year, lbs.accrued, lbs.used, lbs.remaining
+       FROM employees e
+       LEFT JOIN leave_balance_snapshots lbs ON lbs.employee_id = e.id
+       WHERE e.hire_date <= ?
+         AND (e.terminated_date IS NULL OR e.terminated_date >= ?)
+       ORDER BY e.workplace, e.name`
+    )
+    .all(yearEnd, yearStart);
+
+  const items = [];
+
+  for (const row of rows) {
+    const base = toEmployeeBase(row);
+    const ordinaryWage = row.ordinary_wage == null ? null : Number(row.ordinary_wage);
+    const dailyRate =
+      ordinaryWage != null && ordinaryWage > 0
+        ? Math.round((ordinaryWage / ORDINARY_WAGE_HOURS) * 100) / 100
+        : null;
+
+    const events = [];
+
+    for (const event of getSettlementEventsInYear(row.hire_date, y, asOf)) {
+      const eventDate = toDateKey(event.date);
+      const summary = buildLeaveSummary(row, {
+        asOfDate: new Date(eventDate),
+        consumptionAsOf: new Date(eventDate),
+      });
+      const raw = Number(summary.rawRemaining ?? summary.remaining) || 0;
+      const overusedDays = getOverusedLeaveDays(raw);
+      const grantDays = round1(event.settledDays);
+      // 부여 정산: 잔여가 음수면 수당 일수 0, 초과분은 다음 주기로 이월 차감
+      const settledDays = overusedDays > 0 ? 0 : grantDays;
+      const description =
+        overusedDays > 0
+          ? `${event.description} · 초과사용 ${overusedDays}일 다음 주기 이월 차감`
+          : event.description;
+      events.push({
+        type: event.type,
+        typeLabel: eventTypeLabel(event.type),
+        date: eventDate,
+        grantDays,
+        settledDays,
+        overusedDays,
+        carryInDays: round1(summary.carryInDays || 0),
+        description,
+        basis: event.basis,
+      });
+    }
+
+    if (row.terminated_date) {
+      const term = String(row.terminated_date).slice(0, 10);
+      if (term >= yearStart && term <= yearEnd) {
+        const summary = buildLeaveSummary(row, {
+          asOfDate: new Date(term),
+          consumptionAsOf: new Date(term),
+        });
+        const raw = Number(summary.rawRemaining ?? summary.remaining) || 0;
+        const payableDays = getPayableLeaveDays(raw);
+        const overusedDays = getOverusedLeaveDays(raw);
+        events.push({
+          type: 'resignation',
+          typeLabel: eventTypeLabel('resignation'),
+          date: term,
+          grantDays: null,
+          settledDays: payableDays,
+          overusedDays,
+          carryInDays: round1(summary.carryInDays || 0),
+          description:
+            overusedDays > 0
+              ? `중도 퇴사 정산 · 초과사용 ${overusedDays}일 다음 주기 이월 차감`
+              : '중도 퇴사 정산 (퇴사일 잔여)',
+          basis: 'resignation',
+        });
+      }
+    }
+
+    events.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
+    for (const event of events) {
+      const allowance =
+        dailyRate != null ? roundMoney(dailyRate * event.settledDays) : ordinaryWage != null ? 0 : null;
+      items.push({
+        id: `${base.id}-${event.type}-${event.date}`,
+        employeeId: base.id,
+        empNo: base.empNo || '',
+        name: base.name,
+        workplace: base.workplace || '미지정',
+        workplaceCode: row.workplace_code || '',
+        department: base.department,
+        position: base.position,
+        hireDate: base.hireDate,
+        terminatedDate: row.terminated_date || null,
+        eventType: event.type,
+        eventTypeLabel: event.typeLabel,
+        eventDate: event.date,
+        description: event.description,
+        basis: event.basis,
+        grantDays: event.grantDays,
+        settledDays: event.settledDays,
+        overusedDays: event.overusedDays,
+        carryInDays: event.carryInDays,
+        ordinaryWage,
+        dailyRate,
+        allowance,
+        wageMissing: ordinaryWage == null,
+      });
+    }
+  }
+
+  const workplaceMap = new Map();
+  for (const item of items) {
+    if (!workplaceMap.has(item.workplace)) {
+      workplaceMap.set(item.workplace, {
+        workplace: item.workplace,
+        workplaceCode: item.workplaceCode,
+        eventCount: 0,
+        settledDays: 0,
+        allowance: 0,
+        wageMissingCount: 0,
+        employees: [],
+      });
+    }
+    const group = workplaceMap.get(item.workplace);
+    group.eventCount += 1;
+    group.settledDays += item.settledDays;
+    group.allowance += item.allowance || 0;
+    if (item.wageMissing) group.wageMissingCount += 1;
+    group.employees.push(item);
+  }
+
+  const workplaces = [...workplaceMap.values()].map((group) => ({
+    ...group,
+    settledDays: round1(group.settledDays),
+    allowance: roundMoney(group.allowance),
+  }));
+
+  const totals = workplaces.reduce(
+    (acc, group) => ({
+      eventCount: acc.eventCount + group.eventCount,
+      employeeCount: acc.employeeCount + new Set(group.employees.map((e) => e.employeeId)).size,
+      settledDays: round1(acc.settledDays + group.settledDays),
+      allowance: roundMoney(acc.allowance + group.allowance),
+      wageMissingCount: acc.wageMissingCount + group.wageMissingCount,
+    }),
+    { eventCount: 0, employeeCount: 0, settledDays: 0, allowance: 0, wageMissingCount: 0 }
+  );
+
+  // employeeCount across workplaces can double-count if we sum sets per group — recompute uniquely
+  totals.employeeCount = new Set(items.map((item) => item.employeeId)).size;
+
+  const saved = getSavedEventSettlement(y);
+
+  return {
+    year: y,
+    asOfDate: yearEnd,
+    wageHours: ORDINARY_WAGE_HOURS,
+    formula: `연차수당 = (월 통상임금 ÷ ${ORDINARY_WAGE_HOURS}) × max(0, 정산일수)`,
+    note: '정산 시점 잔여가 0 미만이면 수당 일수는 0으로 두고, 초과 사용 절대값은 다음 해·다음 주기 발생분에서 이월 차감됩니다. 퇴사 정산은 퇴사일 잔여(음수면 0) 기준입니다.',
+    eventTypes: [
+      { value: 'first_year', label: '입사 1년' },
+      { value: 'prorated', label: '회계기준 전환' },
+      { value: 'fiscal_annual', label: '회계기준일' },
+      { value: 'resignation', label: '중도 퇴사' },
+    ],
+    totals,
+    workplaces,
+    saved: saved
+      ? {
+          generatedAt: saved.generated_at,
+          generatedBy: saved.generated_by ? String(saved.generated_by) : null,
+        }
+      : null,
+  };
+}
+
+export function saveLeaveEventSettlement(year, generatedBy) {
+  const settlement = getLeaveEventSettlement(year);
+  getDb()
+    .prepare(
+      `INSERT INTO leave_event_settlements (year, as_of_date, generated_by, payload, generated_at)
+       VALUES (?, ?, ?, ?, datetime('now', 'localtime'))
+       ON CONFLICT(year) DO UPDATE SET
+         as_of_date = excluded.as_of_date,
+         generated_by = excluded.generated_by,
+         payload = excluded.payload,
+         generated_at = excluded.generated_at`
+    )
+    .run(settlement.year, settlement.asOfDate, generatedBy || null, JSON.stringify(settlement));
+
+  return {
+    ...settlement,
+    saved: {
+      generatedAt: getSavedEventSettlement(settlement.year)?.generated_at,
+      generatedBy: generatedBy ? String(generatedBy) : null,
+    },
+  };
+}
+
+export function getSavedLeaveEventSettlement(year) {
+  const saved = getSavedEventSettlement(Number(year));
   if (!saved) return null;
   try {
     const payload = JSON.parse(saved.payload);

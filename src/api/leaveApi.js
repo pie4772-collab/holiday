@@ -84,6 +84,18 @@ export const leaveApi = {
     return apiClient('/admin/leave-settlements', { method: 'POST', body: { year, month } });
   },
 
+  async getLeaveEventSettlement(year, { saved = false } = {}) {
+    const q = new URLSearchParams({
+      year: String(year),
+      ...(saved ? { saved: '1' } : {}),
+    });
+    return apiClient(`/admin/leave-event-settlements?${q}`);
+  },
+
+  async saveLeaveEventSettlement(year) {
+    return apiClient('/admin/leave-event-settlements', { method: 'POST', body: { year } });
+  },
+
   async updateOrdinaryWage(id, ordinaryWage) {
     return apiClient(`/admin/employees/${id}/ordinary-wage`, {
       method: 'PUT',

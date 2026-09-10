@@ -104,8 +104,8 @@ export function AdminLeaveManage() {
       <PageHeader
         title="연차 수정"
         description={`${employee.name} · ${year}년 · 잔여 ${employee.leaveSummary.remaining}일`}
-        backTo={`/admin/employees/${id}`}
-        backLabel="직원 상세"
+        backTo="/admin/leave-manage"
+        backLabel="연차 관리"
       />
 
       {message && (

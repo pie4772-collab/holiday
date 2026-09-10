@@ -36,8 +36,8 @@ export function AdminEmployeeDetail() {
       <PageHeader
         title={employee.name}
         description={`${employee.department}${employee.position ? ` · ${employee.position}` : ''}${employee.empNo ? ` · 사번 ${employee.empNo}` : ''}${employee.workplace ? ` · ${employee.workplace}` : ''}`}
-        backTo="/admin/employees"
-        backLabel="직원 목록"
+        backTo="/admin/leave-manage"
+        backLabel="연차 관리"
         actions={
           <Link to={`/admin/leave-manage/${id}`}>
             <Button variant="primary" size="sm">

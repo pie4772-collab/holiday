@@ -117,6 +117,10 @@
   box-shadow: 0 0 0 3px rgba(99, 91, 255, 0.12);
 }
 
+.stripe-input-search {
+  padding-left: 36px;
+}
+
 .stripe-label {
   display: block;
   font-size: 13px;

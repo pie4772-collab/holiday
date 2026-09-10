@@ -104,6 +104,37 @@ router.post('/admin/leave-reports', requireAdmin, (req, res, next) => {
   }
 });
 
+router.get('/admin/leave-settlements', requireAdmin, (req, res, next) => {
+  try {
+    const savedOnly = req.query.saved === '1';
+    const settlement = savedOnly
+      ? leaveService.getSavedLeavePaySettlement(req.query.year, req.query.month)
+      : leaveService.getLeavePaySettlement(req.query.year, req.query.month);
+    if (!settlement) return res.status(404).json({ message: '저장된 연차수당 정산이 없습니다.' });
+    res.json(settlement);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/leave-settlements', requireAdmin, (req, res, next) => {
+  try {
+    res.status(201).json(
+      leaveService.saveLeavePaySettlement(req.body.year, req.body.month, req.user.employeeId)
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.put('/admin/employees/:id/ordinary-wage', requireAdmin, (req, res, next) => {
+  try {
+    res.json(leaveService.updateEmployeeOrdinaryWage(req.params.id, req.body.ordinaryWage));
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get('/employees/:id', requireAuth, (req, res, next) => {
   try {
     const emp = leaveService.getEmployeeById(req.params.id);

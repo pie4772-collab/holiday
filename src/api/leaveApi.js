@@ -71,6 +71,26 @@ export const leaveApi = {
     return apiClient('/admin/leave-reports', { method: 'POST', body: { year, month } });
   },
 
+  async getLeaveSettlement(year, month, { saved = false } = {}) {
+    const q = new URLSearchParams({
+      year: String(year),
+      month: String(month),
+      ...(saved ? { saved: '1' } : {}),
+    });
+    return apiClient(`/admin/leave-settlements?${q}`);
+  },
+
+  async saveLeaveSettlement(year, month) {
+    return apiClient('/admin/leave-settlements', { method: 'POST', body: { year, month } });
+  },
+
+  async updateOrdinaryWage(id, ordinaryWage) {
+    return apiClient(`/admin/employees/${id}/ordinary-wage`, {
+      method: 'PUT',
+      body: { ordinaryWage },
+    });
+  },
+
   async getLeaveHistory(employeeId) {
     if (USE_MOCK) {
       await delay();

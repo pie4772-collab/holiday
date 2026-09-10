@@ -118,6 +118,20 @@ CREATE TABLE IF NOT EXISTS leave_month_reports (
   UNIQUE(year, month)
 );
 
+-- 월 통상임금(원). 연차수당 = (통상임금 / 209) × 잔여일수
+-- employees.ordinary_wage 컬럼은 migrate에서 추가
+
+CREATE TABLE IF NOT EXISTS leave_pay_settlements (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  year          INTEGER NOT NULL,
+  month         INTEGER NOT NULL,
+  as_of_date    TEXT NOT NULL,
+  generated_by  INTEGER,
+  payload       TEXT NOT NULL,
+  generated_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+  UNIQUE(year, month)
+);
+
 CREATE TABLE IF NOT EXISTS mail_settings (
   id           INTEGER PRIMARY KEY CHECK (id = 1),
   enabled      INTEGER NOT NULL DEFAULT 0,

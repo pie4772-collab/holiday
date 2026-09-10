@@ -503,6 +503,206 @@ export function getSavedMonthlyLeaveReport(year, month) {
   }
 }
 
+/** 월 통상임금 → 일급 환산 기준 시간(근로기준법 통상 월 소정근로시간) */
+export const ORDINARY_WAGE_HOURS = 209;
+
+function roundMoney(value) {
+  return Math.round(Number(value) || 0);
+}
+
+function getSavedPaySettlement(year, month) {
+  return getDb()
+    .prepare('SELECT * FROM leave_pay_settlements WHERE year = ? AND month = ?')
+    .get(year, month);
+}
+
+export function updateEmployeeOrdinaryWage(employeeId, ordinaryWage) {
+  const dbId = parseEmployeeId(employeeId);
+  if (!dbId) throw Object.assign(new Error('유효하지 않은 직원 ID입니다.'), { status: 400 });
+  const emp = getDb().prepare('SELECT id FROM employees WHERE id = ?').get(dbId);
+  if (!emp) throw Object.assign(new Error('직원을 찾을 수 없습니다.'), { status: 404 });
+
+  const wage = ordinaryWage === '' || ordinaryWage == null ? null : Number(ordinaryWage);
+  if (wage != null && (!Number.isFinite(wage) || wage < 0)) {
+    throw Object.assign(new Error('통상임금은 0 이상의 숫자로 입력해주세요.'), { status: 400 });
+  }
+
+  getDb()
+    .prepare(
+      `UPDATE employees
+       SET ordinary_wage = ?, updated_at = datetime('now', 'localtime')
+       WHERE id = ?`
+    )
+    .run(wage, dbId);
+
+  return {
+    id: String(dbId),
+    ordinaryWage: wage,
+  };
+}
+
+export function getLeavePaySettlement(year, month) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!Number.isInteger(y) || y < 2000 || y > 2100 || !Number.isInteger(m) || m < 1 || m > 12) {
+    throw Object.assign(new Error('연월을 확인해주세요.'), { status: 400 });
+  }
+
+  const range = getReportMonthRange(y, m);
+  const rows = getDb()
+    .prepare(
+      `SELECT e.*, lbs.as_of_date, lbs.display_year, lbs.accrued, lbs.used, lbs.remaining
+       FROM employees e
+       LEFT JOIN leave_balance_snapshots lbs ON lbs.employee_id = e.id
+       WHERE e.hire_date <= ?
+         AND (
+           (e.is_active = 1 AND (e.terminated_date IS NULL OR e.terminated_date > ?))
+           OR (e.terminated_date IS NOT NULL AND e.terminated_date >= ? AND e.terminated_date <= ?)
+         )
+       ORDER BY e.workplace, e.name`
+    )
+    .all(range.monthEnd, range.monthEnd, range.monthStart, range.monthEnd);
+
+  const employees = rows.map((row) => {
+    const base = toEmployeeBase(row);
+    const summary = buildLeaveSummary(row, {
+      asOfDate: range.asOf,
+      consumptionAsOf: range.consumptionAsOf,
+    });
+    const ordinaryWage = row.ordinary_wage == null ? null : Number(row.ordinary_wage);
+    const remaining = Number(summary.remaining) || 0;
+    const dailyRate =
+      ordinaryWage != null && ordinaryWage > 0
+        ? Math.round((ordinaryWage / ORDINARY_WAGE_HOURS) * 100) / 100
+        : null;
+    const allowance =
+      dailyRate != null && remaining > 0 ? roundMoney(dailyRate * remaining) : ordinaryWage != null ? 0 : null;
+    const terminatedInMonth = Boolean(
+      row.terminated_date && row.terminated_date >= range.monthStart && row.terminated_date <= range.monthEnd
+    );
+
+    return {
+      id: base.id,
+      empNo: base.empNo || '',
+      name: base.name,
+      workplace: base.workplace || '미지정',
+      workplaceCode: row.workplace_code || '',
+      department: base.department,
+      position: base.position,
+      hireDate: base.hireDate,
+      terminatedDate: row.terminated_date || null,
+      status: terminatedInMonth ? '당월 퇴사' : '재직',
+      remaining: round1(remaining),
+      ordinaryWage,
+      dailyRate,
+      allowance,
+      wageMissing: ordinaryWage == null,
+    };
+  });
+
+  const workplaceMap = new Map();
+  for (const emp of employees) {
+    if (!workplaceMap.has(emp.workplace)) {
+      workplaceMap.set(emp.workplace, {
+        workplace: emp.workplace,
+        workplaceCode: emp.workplaceCode,
+        employeeCount: 0,
+        remaining: 0,
+        allowance: 0,
+        wageMissingCount: 0,
+        employees: [],
+      });
+    }
+    const group = workplaceMap.get(emp.workplace);
+    group.employeeCount += 1;
+    group.remaining += emp.remaining;
+    group.allowance += emp.allowance || 0;
+    if (emp.wageMissing) group.wageMissingCount += 1;
+    group.employees.push(emp);
+  }
+
+  const workplaces = [...workplaceMap.values()].map((group) => ({
+    ...group,
+    remaining: round1(group.remaining),
+    allowance: roundMoney(group.allowance),
+  }));
+
+  const totals = workplaces.reduce(
+    (acc, group) => ({
+      employeeCount: acc.employeeCount + group.employeeCount,
+      remaining: round1(acc.remaining + group.remaining),
+      allowance: roundMoney(acc.allowance + group.allowance),
+      wageMissingCount: acc.wageMissingCount + group.wageMissingCount,
+    }),
+    { employeeCount: 0, remaining: 0, allowance: 0, wageMissingCount: 0 }
+  );
+
+  const saved = getSavedPaySettlement(y, m);
+
+  return {
+    year: y,
+    month: m,
+    asOfDate: range.monthEnd,
+    wageHours: ORDINARY_WAGE_HOURS,
+    formula: `연차수당 = (월 통상임금 ÷ ${ORDINARY_WAGE_HOURS}) × 잔여일수`,
+    note: '통상임금은 직원별로 입력합니다. 잔여 연차는 월말 보고서와 같은 기준으로 산정합니다.',
+    totals,
+    workplaces,
+    saved: saved
+      ? {
+          generatedAt: saved.generated_at,
+          generatedBy: saved.generated_by ? String(saved.generated_by) : null,
+        }
+      : null,
+  };
+}
+
+export function saveLeavePaySettlement(year, month, generatedBy) {
+  const settlement = getLeavePaySettlement(year, month);
+  getDb()
+    .prepare(
+      `INSERT INTO leave_pay_settlements (year, month, as_of_date, generated_by, payload, generated_at)
+       VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'))
+       ON CONFLICT(year, month) DO UPDATE SET
+         as_of_date = excluded.as_of_date,
+         generated_by = excluded.generated_by,
+         payload = excluded.payload,
+         generated_at = excluded.generated_at`
+    )
+    .run(
+      settlement.year,
+      settlement.month,
+      settlement.asOfDate,
+      generatedBy || null,
+      JSON.stringify(settlement)
+    );
+
+  return {
+    ...settlement,
+    saved: {
+      generatedAt: getSavedPaySettlement(settlement.year, settlement.month)?.generated_at,
+      generatedBy: generatedBy ? String(generatedBy) : null,
+    },
+  };
+}
+
+export function getSavedLeavePaySettlement(year, month) {
+  const saved = getSavedPaySettlement(Number(year), Number(month));
+  if (!saved) return null;
+  try {
+    const payload = JSON.parse(saved.payload);
+    return {
+      ...payload,
+      saved: {
+        generatedAt: saved.generated_at,
+        generatedBy: saved.generated_by ? String(saved.generated_by) : null,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function getLeaveHistory(employeeId) {
   const emp = getEmployeeById(employeeId);
   return emp?.accrualLogs || [];

@@ -155,9 +155,9 @@ export function AdminLeaveManageList() {
 
       <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="relative sm:col-span-2 lg:col-span-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stripe-muted" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stripe-muted" />
           <input
-            className="stripe-input pl-9"
+            className="stripe-input stripe-input-search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="이름, 사번, 부서 검색"
@@ -188,7 +188,7 @@ export function AdminLeaveManageList() {
       </div>
 
       <Panel>
-        <div className="md:hidden mobile-card-list">
+        <div className="mobile-only mobile-card-list">
           {filtered.length === 0 ? (
             <p className="py-12 text-center text-sm text-stripe-muted">검색 결과가 없습니다.</p>
           ) : (
@@ -237,7 +237,7 @@ export function AdminLeaveManageList() {
           )}
         </div>
 
-        <div className="hidden md:block stripe-table-scroll">
+        <div className="desktop-only stripe-table-scroll">
           {filtered.length === 0 ? (
             <p className="py-12 text-center text-sm text-stripe-muted">검색 결과가 없습니다.</p>
           ) : (

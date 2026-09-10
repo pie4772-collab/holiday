@@ -431,6 +431,7 @@ function migrate(database) {
   addColumn(database, 'employees', 'concurrent_dept_code TEXT');
   addColumn(database, 'employees', 'concurrent_position TEXT');
   addColumn(database, 'employees', 'concurrent_position_code TEXT');
+  addColumn(database, 'employees', 'ordinary_wage REAL');
   addColumn(database, 'leave_usages', 'approved_by INTEGER');
   addColumn(database, 'leave_usages', 'approved_at TEXT');
   addColumn(database, 'leave_usages', 'reject_reason TEXT');
@@ -438,6 +439,19 @@ function migrate(database) {
 
   database.exec(`
     CREATE TABLE IF NOT EXISTS leave_month_reports (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      year          INTEGER NOT NULL,
+      month         INTEGER NOT NULL,
+      as_of_date    TEXT NOT NULL,
+      generated_by  INTEGER,
+      payload       TEXT NOT NULL,
+      generated_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      UNIQUE(year, month)
+    );
+  `);
+
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS leave_pay_settlements (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       year          INTEGER NOT NULL,
       month         INTEGER NOT NULL,

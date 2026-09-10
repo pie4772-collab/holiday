@@ -12,6 +12,7 @@ export const leaveKeys = {
   adminAccruals: (id) => ['admin', 'accruals', id],
   adminUsages: (id) => ['admin', 'usages', id],
   leaveReport: (year, month, saved) => ['admin', 'leave-report', year, month, saved],
+  leaveSettlement: (year, month, saved) => ['admin', 'leave-settlement', year, month, saved],
 };
 
 function invalidateEmployeeData(queryClient, employeeId) {
@@ -75,6 +76,40 @@ export function useSaveLeaveReport() {
       queryClient.invalidateQueries({
         queryKey: leaveKeys.leaveReport(variables.year, variables.month, true),
       });
+    },
+  });
+}
+
+export function useLeaveSettlement(year, month, saved = false) {
+  return useQuery({
+    queryKey: leaveKeys.leaveSettlement(year, month, saved),
+    queryFn: () => leaveApi.getLeaveSettlement(year, month, { saved }),
+    enabled: Boolean(year && month),
+  });
+}
+
+export function useSaveLeaveSettlement() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ year, month }) => leaveApi.saveLeaveSettlement(year, month),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: leaveKeys.leaveSettlement(variables.year, variables.month, false),
+      });
+      queryClient.invalidateQueries({
+        queryKey: leaveKeys.leaveSettlement(variables.year, variables.month, true),
+      });
+    },
+  });
+}
+
+export function useUpdateOrdinaryWage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ordinaryWage }) => leaveApi.updateOrdinaryWage(id, ordinaryWage),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'leave-settlement'] });
+      queryClient.invalidateQueries({ queryKey: leaveKeys.employees });
     },
   });
 }

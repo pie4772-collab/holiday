@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Download, Save } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronsUpDown, Download, Save, Search } from 'lucide-react';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
@@ -39,10 +39,88 @@ function statusBadgeVariant(emp) {
 
 const compactBadgeClass = 'whitespace-nowrap text-[11px] px-1.5 py-0 leading-5';
 
-function downloadCsv(settlement, workplaceFilter, eventTypeFilter) {
-  const groups = workplaceFilter
-    ? settlement.workplaces.filter((group) => group.workplace === workplaceFilter)
-    : settlement.workplaces;
+function matchesEventTypeFilter(emp, eventTypeFilter) {
+  if (!eventTypeFilter || eventTypeFilter === 'all') return true;
+  if (eventTypeFilter === 'fiscal_annual') {
+    return emp.eventType === 'fiscal_annual' || emp.eventType === 'prorated';
+  }
+  return emp.eventType === eventTypeFilter;
+}
+
+function matchesNameOrEmpNo(emp, query) {
+  const keyword = String(query || '').trim().toLowerCase();
+  if (!keyword) return true;
+  return [emp.name, emp.empNo]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes(keyword));
+}
+
+function sortValue(emp, key) {
+  switch (key) {
+    case 'name':
+      return emp.name || '';
+    case 'empNo':
+      return emp.empNo || '';
+    case 'hireDate':
+      return emp.hireDate || '';
+    case 'eventDate':
+      return emp.eventDate || '';
+    case 'eventType':
+      return emp.eventTypeLabel || '';
+    case 'status':
+      return emp.statusLabel || '';
+    case 'settledDays':
+      return Number(emp.settledDays) || 0;
+    case 'overusedDays':
+      return Number(emp.overusedDays) || 0;
+    case 'ordinaryWage':
+      return Number(emp.ordinaryWage) || 0;
+    case 'dailyRate':
+      return Number(emp.dailyRate) || 0;
+    case 'allowance':
+      return Number(emp.allowance) || 0;
+    default:
+      return '';
+  }
+}
+
+function compareEmployees(a, b, sort) {
+  const va = sortValue(a, sort.key);
+  const vb = sortValue(b, sort.key);
+  const cmp =
+    typeof va === 'number' && typeof vb === 'number'
+      ? va - vb
+      : String(va).localeCompare(String(vb), 'ko', { numeric: true });
+  return sort.dir === 'desc' ? -cmp : cmp;
+}
+
+function SortButton({ label, column, sort, onSort, className = '' }) {
+  const active = sort.key === column;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(column)}
+      className={`inline-flex items-center gap-1 text-inherit font-inherit whitespace-nowrap ${className}`}
+    >
+      {label}
+      {active ? (
+        sort.dir === 'asc' ? (
+          <ArrowUp className="h-3 w-3" />
+        ) : (
+          <ArrowDown className="h-3 w-3" />
+        )
+      ) : (
+        <ChevronsUpDown className="h-3 w-3 opacity-30" />
+      )}
+    </button>
+  );
+}
+
+function downloadCsv(settlement, workplaceFilter, eventTypeFilter, query = '') {
+  const groups =
+    workplaceFilter && workplaceFilter !== 'all'
+      ? settlement.workplaces.filter((group) => group.workplace === workplaceFilter)
+      : settlement.workplaces;
   const rows = [
     [
       '기준연도',
@@ -67,7 +145,8 @@ function downloadCsv(settlement, workplaceFilter, eventTypeFilter) {
 
   for (const group of groups) {
     for (const emp of group.employees) {
-      if (eventTypeFilter !== 'all' && emp.eventType !== eventTypeFilter) continue;
+      if (eventTypeFilter !== 'all' && !matchesEventTypeFilter(emp, eventTypeFilter)) continue;
+      if (!matchesNameOrEmpNo(emp, query)) continue;
       rows.push([
         settlement.year,
         emp.eventDate,
@@ -104,6 +183,8 @@ export function AdminLeaveEventSettlement() {
   const [year, setYear] = useState(new Date().getFullYear());
   const [workplace, setWorkplace] = useState('all');
   const [eventType, setEventType] = useState('all');
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState({ key: 'eventDate', dir: 'asc' });
   const [draftWages, setDraftWages] = useState({});
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -126,10 +207,9 @@ export function AdminLeaveEventSettlement() {
 
     return groups
       .map((group) => {
-        const employees =
-          eventType === 'all'
-            ? group.employees
-            : group.employees.filter((emp) => emp.eventType === eventType);
+        const employees = group.employees
+          .filter((emp) => matchesEventTypeFilter(emp, eventType) && matchesNameOrEmpNo(emp, query))
+          .sort((a, b) => compareEmployees(a, b, sort));
         const settledDays = employees.reduce((sum, emp) => sum + emp.settledDays, 0);
         const allowance = employees.reduce((sum, emp) => sum + (emp.allowance || 0), 0);
         const wageMissingCount = employees.filter((emp) => emp.wageMissing).length;
@@ -143,7 +223,7 @@ export function AdminLeaveEventSettlement() {
         };
       })
       .filter((group) => group.eventCount > 0);
-  }, [settlement, workplace, eventType]);
+  }, [settlement, workplace, eventType, query, sort]);
 
   const visibleTotals = useMemo(() => {
     return visibleGroups.reduce(
@@ -180,6 +260,12 @@ export function AdminLeaveEventSettlement() {
     });
     setMessage(`${emp.name} 통상임금을 저장했습니다.`);
     setTimeout(() => setMessage(''), 3000);
+  }
+
+  function handleSort(column) {
+    setSort((prev) =>
+      prev.key === column ? { key: column, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key: column, dir: 'asc' }
+    );
   }
 
   if (isLoading && !settlement) {
@@ -221,7 +307,7 @@ export function AdminLeaveEventSettlement() {
             />
             <Button
               variant="secondary"
-              onClick={() => downloadCsv(settlement, workplace, eventType)}
+              onClick={() => downloadCsv(settlement, workplace, eventType, query)}
             >
               <Download className="h-4 w-4" />
               CSV 받기
@@ -238,6 +324,18 @@ export function AdminLeaveEventSettlement() {
       />
 
       <div className="flex flex-wrap items-end gap-3 mb-6">
+        <label className="text-sm min-w-[220px] flex-1">
+          <span className="stripe-label">이름 / 사번</span>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stripe-muted" />
+            <input
+              className="stripe-input stripe-input-search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="이름 또는 사번 검색"
+            />
+          </div>
+        </label>
         <label className="text-sm">
           <span className="stripe-label">연도</span>
           <select className="stripe-input" value={year} onChange={(e) => setYear(Number(e.target.value))}>
@@ -263,7 +361,9 @@ export function AdminLeaveEventSettlement() {
           <span className="stripe-label">정산 유형</span>
           <select className="stripe-input" value={eventType} onChange={(e) => setEventType(e.target.value)}>
             <option value="all">전체</option>
-            {settlement.eventTypes.map((item) => (
+            {settlement.eventTypes
+              .filter((item) => item.value !== 'prorated')
+              .map((item) => (
               <option key={item.value} value={item.value}>
                 {item.label}
               </option>
@@ -382,17 +482,51 @@ export function AdminLeaveEventSettlement() {
                 <table className="stripe-table w-full">
                   <thead>
                     <tr>
-                      <th>이름</th>
-                      <th>사번</th>
-                      <th>입사일</th>
-                      <th className="whitespace-nowrap">정산일</th>
-                      <th className="whitespace-nowrap">유형</th>
-                      <th className="whitespace-nowrap">상태</th>
-                      <th className="text-right whitespace-nowrap">정산일수</th>
-                      <th className="text-right whitespace-nowrap">초과이월</th>
-                      <th>월 통상임금</th>
-                      <th className="text-right">일급</th>
-                      <th className="text-right">연차수당</th>
+                      <th>
+                        <SortButton label="이름" column="name" sort={sort} onSort={handleSort} />
+                      </th>
+                      <th>
+                        <SortButton label="사번" column="empNo" sort={sort} onSort={handleSort} />
+                      </th>
+                      <th>
+                        <SortButton label="입사일" column="hireDate" sort={sort} onSort={handleSort} />
+                      </th>
+                      <th className="whitespace-nowrap">
+                        <SortButton label="정산일" column="eventDate" sort={sort} onSort={handleSort} />
+                      </th>
+                      <th className="whitespace-nowrap">
+                        <SortButton label="유형" column="eventType" sort={sort} onSort={handleSort} />
+                      </th>
+                      <th className="whitespace-nowrap">
+                        <SortButton label="상태" column="status" sort={sort} onSort={handleSort} />
+                      </th>
+                      <th className="text-right whitespace-nowrap">
+                        <SortButton
+                          label="정산일수"
+                          column="settledDays"
+                          sort={sort}
+                          onSort={handleSort}
+                          className="ml-auto"
+                        />
+                      </th>
+                      <th className="text-right whitespace-nowrap">
+                        <SortButton
+                          label="초과이월"
+                          column="overusedDays"
+                          sort={sort}
+                          onSort={handleSort}
+                          className="ml-auto"
+                        />
+                      </th>
+                      <th>
+                        <SortButton label="월 통상임금" column="ordinaryWage" sort={sort} onSort={handleSort} />
+                      </th>
+                      <th className="text-right">
+                        <SortButton label="일급" column="dailyRate" sort={sort} onSort={handleSort} className="ml-auto" />
+                      </th>
+                      <th className="text-right">
+                        <SortButton label="연차수당" column="allowance" sort={sort} onSort={handleSort} className="ml-auto" />
+                      </th>
                       <th />
                     </tr>
                   </thead>

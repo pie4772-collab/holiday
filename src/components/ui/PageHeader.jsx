@@ -24,7 +24,7 @@ export function PageHeader({ title, description, backTo, backLabel, actions, chi
           {children}
         </div>
         {actions && (
-          <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none [&>a]:flex-1 sm:[&>a]:flex-none">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end [&>button]:flex-1 sm:[&>button]:flex-none [&>div]:w-full sm:[&>div]:w-auto [&>div]:flex [&>div]:flex-wrap [&>div]:gap-2">
             {actions}
           </div>
         )}

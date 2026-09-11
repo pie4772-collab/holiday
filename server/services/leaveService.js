@@ -953,8 +953,16 @@ export function getLeaveEventSettlement(year) {
     .all(yearEnd, yearStart);
 
   const items = [];
+  const workplaceCatalog = new Map();
 
   for (const row of rows) {
+    const workplaceName = row.workplace || '미지정';
+    if (!workplaceCatalog.has(workplaceName)) {
+      workplaceCatalog.set(workplaceName, {
+        workplace: workplaceName,
+        workplaceCode: row.workplace_code || '',
+      });
+    }
     const base = toEmployeeBase(row);
     const ordinaryWage = row.ordinary_wage == null ? null : Number(row.ordinary_wage);
     const dailyRate =
@@ -1144,6 +1152,7 @@ export function getLeaveEventSettlement(year) {
     ],
     totals,
     workplaces,
+    workplaceOptions: [...workplaceCatalog.values()],
     saved: saved
       ? {
           generatedAt: saved.generated_at,

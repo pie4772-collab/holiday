@@ -62,7 +62,7 @@ export function OrdinaryWageCsvActions({ onMessage, onError }) {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none">
       <Button
         type="button"
         variant="secondary"

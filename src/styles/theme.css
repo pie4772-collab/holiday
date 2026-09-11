@@ -163,6 +163,62 @@
   min-width: 640px;
 }
 
+/* Settlement pages: fit every column inside the panel width */
+.stripe-table-fit-wrap {
+  overflow-x: auto;
+}
+
+.stripe-table-fit-wrap .stripe-table,
+.stripe-table-fit {
+  min-width: 0 !important;
+  width: 100%;
+  table-layout: fixed;
+}
+
+.stripe-table-fit thead th,
+.stripe-table-fit tbody td {
+  padding: 8px 5px;
+  font-size: 12px;
+  letter-spacing: 0;
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.stripe-table-fit thead th {
+  white-space: normal;
+  line-height: 1.25;
+  text-transform: none;
+}
+
+.stripe-table-fit thead th button {
+  white-space: normal;
+  max-width: 100%;
+}
+
+.stripe-table-fit tbody td {
+  text-overflow: ellipsis;
+}
+
+.stripe-table-fit .stripe-input {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.stripe-table-fit input[type='number'] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.stripe-table-fit input[type='number']::-webkit-outer-spin-button,
+.stripe-table-fit input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 /* Mobile card list (alternative to tables) */
 .mobile-card-list {
   display: flex;
@@ -238,5 +294,31 @@
   .stripe-table tbody td {
     padding: 10px 12px;
     font-size: 13px;
+  }
+}
+
+/* After .mobile-card-list so display:flex does not un-hide desktop cards */
+.settlement-cards {
+  display: none;
+}
+
+.settlement-table {
+  display: block;
+}
+
+@media (max-width: 1279px) {
+  .settlement-cards.mobile-card-list,
+  .settlement-cards {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .settlement-table {
+    display: none;
+  }
+
+  .stripe-panel-header {
+    flex-wrap: wrap;
+    gap: 8px;
   }
 }

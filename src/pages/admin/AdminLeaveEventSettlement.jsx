@@ -225,6 +225,10 @@ export function AdminLeaveEventSettlement() {
       .filter((group) => group.eventCount > 0);
   }, [settlement, workplace, eventType, query, sort]);
 
+  const workplaceOptions = settlement?.workplaceOptions?.length
+    ? settlement.workplaceOptions
+    : settlement?.workplaces || [];
+
   const visibleTotals = useMemo(() => {
     return visibleGroups.reduce(
       (acc, group) => ({
@@ -324,7 +328,7 @@ export function AdminLeaveEventSettlement() {
       />
 
       <div className="flex flex-wrap items-end gap-3 mb-6">
-        <label className="text-sm min-w-[220px] flex-1">
+        <label className="text-sm w-full min-w-0 sm:min-w-[220px] sm:flex-1">
           <span className="stripe-label">이름 / 사번</span>
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stripe-muted" />
@@ -336,7 +340,7 @@ export function AdminLeaveEventSettlement() {
             />
           </div>
         </label>
-        <label className="text-sm">
+        <label className="text-sm w-full sm:w-auto">
           <span className="stripe-label">연도</span>
           <select className="stripe-input" value={year} onChange={(e) => setYear(Number(e.target.value))}>
             {years.map((item) => (
@@ -346,18 +350,18 @@ export function AdminLeaveEventSettlement() {
             ))}
           </select>
         </label>
-        <label className="text-sm min-w-[160px]">
+        <label className="text-sm w-full sm:w-auto sm:min-w-[160px]">
           <span className="stripe-label">사업장</span>
           <select className="stripe-input" value={workplace} onChange={(e) => setWorkplace(e.target.value)}>
             <option value="all">전체 사업장</option>
-            {settlement.workplaces.map((group) => (
+            {workplaceOptions.map((group) => (
               <option key={group.workplace} value={group.workplace}>
                 {group.workplace}
               </option>
             ))}
           </select>
         </label>
-        <label className="text-sm min-w-[160px]">
+        <label className="text-sm w-full sm:w-auto sm:min-w-[160px]">
           <span className="stripe-label">정산 유형</span>
           <select className="stripe-input" value={eventType} onChange={(e) => setEventType(e.target.value)}>
             <option value="all">전체</option>
@@ -428,7 +432,7 @@ export function AdminLeaveEventSettlement() {
               actions={<Badge variant="primary">{formatWon(group.allowance)}</Badge>}
             />
             <PanelBody noPadding>
-              <div className="mobile-only mobile-card-list">
+              <div className="settlement-cards mobile-card-list">
                 {group.employees.map((emp) => (
                   <div key={emp.id} className="mobile-card-item">
                     <div className="flex items-start justify-between gap-3">
@@ -478,8 +482,22 @@ export function AdminLeaveEventSettlement() {
                 ))}
               </div>
 
-              <div className="desktop-only stripe-table-scroll">
-                <table className="stripe-table w-full">
+              <div className="settlement-table stripe-table-fit-wrap">
+                <table className="stripe-table stripe-table-fit w-full">
+                  <colgroup>
+                    <col style={{ width: '8%' }} />
+                    <col style={{ width: '8%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '8%' }} />
+                    <col style={{ width: '7%' }} />
+                    <col style={{ width: '7%' }} />
+                    <col style={{ width: '12%' }} />
+                    <col style={{ width: '8%' }} />
+                    <col style={{ width: '8%' }} />
+                    <col style={{ width: '4%' }} />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>
@@ -553,7 +571,7 @@ export function AdminLeaveEventSettlement() {
                         </td>
                         <td>
                           <input
-                            className="stripe-input font-mono text-[13px] min-w-[120px]"
+                            className="stripe-input font-mono text-[12px]"
                             type="number"
                             min="0"
                             step="1"

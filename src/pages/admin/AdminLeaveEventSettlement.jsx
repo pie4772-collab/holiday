@@ -31,7 +31,11 @@ function eventBadgeVariant(type) {
   return 'success';
 }
 
-const compactBadgeClass = 'whitespace-nowrap text-[11px] px-1.5 py-0 leading-5';
+function statusBadgeVariant(emp) {
+  if (emp.isUpcoming) return 'info';
+  if (emp.inPayrollWindow || emp.statusLabel === '급여일 대기') return 'warning';
+  return 'success';
+}
 
 function downloadCsv(settlement, workplaceFilter, eventTypeFilter) {
   const groups = workplaceFilter
@@ -330,7 +334,7 @@ export function AdminLeaveEventSettlement() {
                         <Badge variant={eventBadgeVariant(emp.eventType)} className={compactBadgeClass}>
                           {emp.eventTypeLabel}
                         </Badge>
-                        <Badge variant={emp.isUpcoming ? 'info' : 'success'} className={compactBadgeClass}>
+                        <Badge variant={statusBadgeVariant(emp)} className={compactBadgeClass}>
                           {emp.statusLabel || (emp.isUpcoming ? '도래 예정' : '도래')}
                         </Badge>
                       </div>
@@ -395,7 +399,7 @@ export function AdminLeaveEventSettlement() {
                           </Badge>
                         </td>
                         <td className="whitespace-nowrap">
-                          <Badge variant={emp.isUpcoming ? 'info' : 'success'} className={compactBadgeClass}>
+                          <Badge variant={statusBadgeVariant(emp)} className={compactBadgeClass}>
                             {emp.statusLabel || (emp.isUpcoming ? '도래 예정' : '도래')}
                           </Badge>
                         </td>

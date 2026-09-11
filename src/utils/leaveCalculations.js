@@ -171,6 +171,14 @@ export function getPreviousDate(date) {
   return addDays(d, -1);
 }
 
+/** 입사 1년 연차수당 급여일: 일사일 다음 달 8일 */
+export const FIRST_YEAR_PAYROLL_DAY = 8;
+
+export function getFirstYearPayrollDate(anniversaryDate) {
+  const d = startOfDay(typeof anniversaryDate === 'string' ? parseISO(anniversaryDate) : anniversaryDate);
+  return startOfDay(new Date(d.getFullYear(), d.getMonth() + 1, FIRST_YEAR_PAYROLL_DAY));
+}
+
 /** 일사일 (입사 1주년) */
 export function getOneYearAnniversary(hireDate) {
   const hire = typeof hireDate === 'string' ? parseISO(hireDate) : hireDate;

@@ -15,6 +15,7 @@ import {
   getOverusedLeaveDays,
   getPriorPeriodOveruseCarryIn,
   getPreviousDate,
+  getFirstYearPayrollDate,
 } from '../../src/utils/leaveCalculations.js';
 import {
   calendarSpanDays,
@@ -150,6 +151,7 @@ function buildLeaveSummary(row, options = {}) {
     manualAccrualTotal: manualTotal,
     consumptionAsOf,
     skipSettledDeduction: Boolean(options.skipSettledDeduction),
+    skipCarryIn: Boolean(options.skipCarryIn),
   });
 
   if (!options.skipSnapshot && hasImportedSnapshot(row)) {
@@ -159,10 +161,12 @@ function buildLeaveSummary(row, options = {}) {
     const scheduledDays = sumUsageDays(filterScheduledUsages(newUsages, consumptionAsOf));
     const accrued = row.accrued + manualTotal;
     const used = Math.round(((row.used || 0) + extraUsed) * 10) / 10;
-    const carryInDays = getPriorPeriodOveruseCarryIn(row.hire_date, asOf, approvedUsages, {
-      manualAccrualTotal: manualTotal,
-      consumptionAsOf,
-    });
+    const carryInDays = options.skipCarryIn
+      ? 0
+      : getPriorPeriodOveruseCarryIn(row.hire_date, asOf, approvedUsages, {
+          manualAccrualTotal: manualTotal,
+          consumptionAsOf,
+        });
     const rawRemaining = Math.round((Number(row.remaining || 0) + manualTotal - extraUsed - carryInDays) * 10) / 10;
     const remaining = getPayableLeaveDays(rawRemaining);
     const overusedDays = getOverusedLeaveDays(rawRemaining);
@@ -864,6 +868,26 @@ function toDateKey(value) {
   return formatDate(value);
 }
 
+function toLocalDate(value) {
+  const key = toDateKey(value);
+  if (!key) return new Date(NaN);
+  const [year, month, day] = key.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function closingPeriodStart(hireDate, eventType, eventDate) {
+  if (eventType === 'first_year') return String(hireDate).slice(0, 10);
+  if (eventType === 'prorated') return toDateKey(getOneYearAnniversary(hireDate));
+  const periodEnd = getPreviousDate(eventDate);
+  return `${periodEnd.getFullYear()}-01-01`;
+}
+
+function snapshotCoversPeriod(row, periodStart, periodEndKey) {
+  if (!hasImportedSnapshot(row) || !row.as_of_date) return false;
+  const snap = String(row.as_of_date).slice(0, 10);
+  return snap >= periodStart && snap <= periodEndKey;
+}
+
 function getSavedEventSettlement(year) {
   return getDb().prepare('SELECT * FROM leave_event_settlements WHERE year = ?').get(year);
 }
@@ -881,8 +905,9 @@ function listEventSettlementYears() {
   const minTerm = Number(bounds?.min_term);
   const maxTerm = Number(bounds?.max_term) || current;
   // 정기·전환 정산은 현재 시점 이후만 보여 주므로 연도 기본은 올해부터.
+  // 입사 1년은 일사일 다음 달 8일(급여일)까지 정산하므로 전년도도 포함.
   // 중도 퇴사는 과거 연도도 조회할 수 있게 퇴사 이력이 있는 연도까지 포함.
-  const start = Number.isFinite(minTerm) ? Math.min(current, minTerm) : current;
+  const start = Number.isFinite(minTerm) ? Math.min(current - 1, minTerm) : current - 1;
   const end = Math.max(current + 2, maxTerm);
   const years = [];
   for (let year = start; year <= end; year += 1) years.push(year);
@@ -896,7 +921,7 @@ function listEventSettlementYears() {
  * - 회계기준 전환(비례) / 회계기준일(정규)
  * - 1/1 입사: 일사일 정산 후 바로 회계연도(정규) 전환
  * - 중도 퇴사(퇴사일 잔여) — 과거 연도의 퇴사자(is_active=0)도 해당 연도에서 계산
- * - 입사 1년·회계전환·회계기준일은 현재 시점 이전(이미 정산된 것으로 봄) 대상은 제외
+ * - 입사 1년은 일사일 다음 달 8일(급여일)까지 정산 가능. 그 외 회계전환·회계기준일은 현재 시점 이전은 제외
  * 매월 정산하지 않음.
  */
 export function getLeaveEventSettlement(year) {
@@ -944,26 +969,41 @@ export function getLeaveEventSettlement(year) {
       const eventDate = toDateKey(event.date);
       // 퇴사일 이후 도래하는 부여 정산은 제외 (퇴사 정산으로 갈음)
       if (terminatedDate && eventDate > terminatedDate) continue;
-      // 입사 1년·회계전환·회계기준일은 이미 지난 시점이면 정산 완료로 보고 제외
-      if (eventDate < todayKey) continue;
+      const payrollDate =
+        event.type === 'first_year' ? toDateKey(getFirstYearPayrollDate(eventDate)) : null;
+      // 입사 1년: 일사일 다음 달 8일(급여일)까지는 기간이 지나도 정산
+      if (event.type === 'first_year') {
+        if (payrollDate && payrollDate < todayKey) continue;
+      } else if (eventDate < todayKey) {
+        // 회계전환·회계기준일은 이미 지난 시점이면 정산 완료로 보고 제외
+        continue;
+      }
 
       // 정산일수 = 전기(전년도·이전 주기) 사용 후 잔여. 부여일이 아님.
       const periodEnd = getPreviousDate(eventDate);
+      const periodEndKey = toDateKey(periodEnd);
+      const periodStart = closingPeriodStart(row.hire_date, event.type, eventDate);
+      const useSnapshot = snapshotCoversPeriod(row, periodStart, periodEndKey);
       const summary = buildLeaveSummary(row, {
         asOfDate: periodEnd,
-        consumptionAsOf: new Date(eventDate),
-        skipSnapshot: true,
+        consumptionAsOf: toLocalDate(eventDate),
+        skipSnapshot: !useSnapshot,
         skipSettledDeduction: true,
+        skipCarryIn: useSnapshot,
       });
       const raw = Number(summary.rawRemaining ?? summary.remaining) || 0;
       const overusedDays = getOverusedLeaveDays(raw);
       const grantDays = round1(event.settledDays);
+      const usedDays = round1(summary.usedDays || 0);
       const settledDays = getPayableLeaveDays(raw);
       const isUpcoming = eventDate > todayKey;
+      const inPayrollWindow = Boolean(payrollDate && eventDate <= todayKey && payrollDate >= todayKey);
+      const statusLabel = isUpcoming ? '도래 예정' : inPayrollWindow ? '급여일 대기' : '도래';
+      const payrollNote = payrollDate ? ` · 급여일 ${payrollDate}까지 정산` : '';
       const description =
         overusedDays > 0
-          ? `${event.description} · 전기 초과사용 ${overusedDays}일 다음 주기 이월 차감`
-          : `${event.description} · 전기 잔여 ${settledDays}일`;
+          ? `${event.description} · 전기 초과사용 ${overusedDays}일 다음 주기 이월 차감${payrollNote}`
+          : `${event.description} · 전기 잔여 ${settledDays}일 (부여 ${grantDays}일 − 사용 ${usedDays}일)${payrollNote}`;
       events.push({
         type: event.type,
         typeLabel: eventTypeLabel(event.type),
@@ -975,7 +1015,9 @@ export function getLeaveEventSettlement(year) {
         description,
         basis: event.basis,
         isUpcoming,
-        statusLabel: isUpcoming ? '도래 예정' : '도래',
+        inPayrollWindow,
+        payrollDate,
+        statusLabel,
       });
     }
 
@@ -1032,6 +1074,8 @@ export function getLeaveEventSettlement(year) {
         overusedDays: event.overusedDays,
         carryInDays: event.carryInDays,
         isUpcoming: event.isUpcoming,
+        inPayrollWindow: Boolean(event.inPayrollWindow),
+        payrollDate: event.payrollDate || null,
         statusLabel: event.statusLabel,
         ordinaryWage,
         dailyRate,
@@ -1090,7 +1134,7 @@ export function getLeaveEventSettlement(year) {
     wageHours: ORDINARY_WAGE_HOURS,
     formula: `연차수당 = (월 통상임금 ÷ ${ORDINARY_WAGE_HOURS}) × max(0, 전기 잔여)`,
     note: '정산일수는 해당 시점에 새로 발생하는 부여일이 아니라, 전년도·이전 주기에 사용하고 남은 잔여입니다. 잔여가 0 미만이면 수당 0, 초과분은 다음 주기로 이월 차감됩니다. 입사 1년·회계전환·회계기준일은 현재 이후 도래 대상만 표시하고, 중도 퇴사는 과거 연도도 조회할 수 있습니다.',
-    note: '입사 1년·회계기준 전환·회계기준일은 현재 시점 이후 도래 대상만 보여 줍니다. 이미 지난 정산은 완료된 것으로 봅니다. 중도 퇴사는 과거 연도의 퇴사자도 해당 연도를 선택하면 계산됩니다. 1월 1일 입사는 최초 1년 정산 후 바로 회계연도(정규)로 전환됩니다.',
+    note: '입사 1년 정산은 일사일 다음 달 8일(급여일)까지 계산할 수 있습니다. 회계기준 전환·회계기준일은 현재 시점 이후 도래 대상만 보여 주고, 이미 지난 정산은 완료된 것으로 봅니다. 중도 퇴사는 과거 연도의 퇴사자도 해당 연도를 선택하면 계산됩니다.',
     availableYears: listEventSettlementYears(),
     eventTypes: [
       { value: 'first_year', label: '입사 1년' },

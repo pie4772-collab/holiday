@@ -37,6 +37,8 @@ function statusBadgeVariant(emp) {
   return 'success';
 }
 
+const compactBadgeClass = 'whitespace-nowrap text-[11px] px-1.5 py-0 leading-5';
+
 function downloadCsv(settlement, workplaceFilter, eventTypeFilter) {
   const groups = workplaceFilter
     ? settlement.workplaces.filter((group) => group.workplace === workplaceFilter)
@@ -190,6 +192,14 @@ export function AdminLeaveEventSettlement() {
 
   if (isError && !settlement) {
     return <ErrorMessage onRetry={() => refetch()} />;
+  }
+
+  if (!settlement) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
   }
 
   return (

@@ -14,6 +14,7 @@ import {
   getPayableLeaveDays,
   getOverusedLeaveDays,
   getPriorPeriodOveruseCarryIn,
+  getPreviousDate,
 } from '../../src/utils/leaveCalculations.js';
 import {
   calendarSpanDays,
@@ -148,9 +149,10 @@ function buildLeaveSummary(row, options = {}) {
   const calculated = calculateLeaveBalance(row.hire_date, approvedUsages, asOf, {
     manualAccrualTotal: manualTotal,
     consumptionAsOf,
+    skipSettledDeduction: Boolean(options.skipSettledDeduction),
   });
 
-  if (hasImportedSnapshot(row)) {
+  if (!options.skipSnapshot && hasImportedSnapshot(row)) {
     const snapshotAsOf = row.as_of_date;
     const newUsages = approvedUsages.filter((usage) => !snapshotAsOf || usage.date > snapshotAsOf);
     const extraUsed = sumUsageDays(filterConsumedUsages(newUsages, consumptionAsOf));
@@ -945,20 +947,23 @@ export function getLeaveEventSettlement(year) {
       // 입사 1년·회계전환·회계기준일은 이미 지난 시점이면 정산 완료로 보고 제외
       if (eventDate < todayKey) continue;
 
+      // 정산일수 = 전기(전년도·이전 주기) 사용 후 잔여. 부여일이 아님.
+      const periodEnd = getPreviousDate(eventDate);
       const summary = buildLeaveSummary(row, {
-        asOfDate: new Date(eventDate),
+        asOfDate: periodEnd,
         consumptionAsOf: new Date(eventDate),
+        skipSnapshot: true,
+        skipSettledDeduction: true,
       });
       const raw = Number(summary.rawRemaining ?? summary.remaining) || 0;
       const overusedDays = getOverusedLeaveDays(raw);
       const grantDays = round1(event.settledDays);
-      // 부여 정산: 잔여가 음수면 수당 일수 0, 초과분은 다음 주기로 이월 차감
-      const settledDays = overusedDays > 0 ? 0 : grantDays;
+      const settledDays = getPayableLeaveDays(raw);
       const isUpcoming = eventDate > todayKey;
       const description =
         overusedDays > 0
-          ? `${event.description} · 초과사용 ${overusedDays}일 다음 주기 이월 차감`
-          : event.description;
+          ? `${event.description} · 전기 초과사용 ${overusedDays}일 다음 주기 이월 차감`
+          : `${event.description} · 전기 잔여 ${settledDays}일`;
       events.push({
         type: event.type,
         typeLabel: eventTypeLabel(event.type),
@@ -1083,7 +1088,8 @@ export function getLeaveEventSettlement(year) {
     year: y,
     asOfDate: yearEnd,
     wageHours: ORDINARY_WAGE_HOURS,
-    formula: `연차수당 = (월 통상임금 ÷ ${ORDINARY_WAGE_HOURS}) × max(0, 정산일수)`,
+    formula: `연차수당 = (월 통상임금 ÷ ${ORDINARY_WAGE_HOURS}) × max(0, 전기 잔여)`,
+    note: '정산일수는 해당 시점에 새로 발생하는 부여일이 아니라, 전년도·이전 주기에 사용하고 남은 잔여입니다. 잔여가 0 미만이면 수당 0, 초과분은 다음 주기로 이월 차감됩니다. 입사 1년·회계전환·회계기준일은 현재 이후 도래 대상만 표시하고, 중도 퇴사는 과거 연도도 조회할 수 있습니다.',
     note: '입사 1년·회계기준 전환·회계기준일은 현재 시점 이후 도래 대상만 보여 줍니다. 이미 지난 정산은 완료된 것으로 봅니다. 중도 퇴사는 과거 연도의 퇴사자도 해당 연도를 선택하면 계산됩니다. 1월 1일 입사는 최초 1년 정산 후 바로 회계연도(정규)로 전환됩니다.',
     availableYears: listEventSettlementYears(),
     eventTypes: [

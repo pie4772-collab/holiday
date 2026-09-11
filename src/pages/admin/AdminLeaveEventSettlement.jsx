@@ -281,12 +281,12 @@ export function AdminLeaveEventSettlement() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <LeaveSummaryCard title="정산 건수" value={visibleTotals.eventCount} unit="건" subtitle={`${visibleTotals.employeeCount}명`} />
-        <LeaveSummaryCard title="정산일수" value={visibleTotals.settledDays} subtitle="유형별 정산 일수 합" />
+        <LeaveSummaryCard title="정산일수" value={visibleTotals.settledDays} subtitle="전기 잔여 합 (부여일 아님)" />
         <LeaveSummaryCard
           title="수당 합계"
           value={visibleTotals.allowance.toLocaleString('ko-KR')}
           unit="원"
-          subtitle="일급 × 정산일수"
+          subtitle="일급 × 전기 잔여"
           highlight
         />
         <LeaveSummaryCard

@@ -165,6 +165,12 @@ export function formatDate(date) {
   return format(d, 'yyyy-MM-dd');
 }
 
+/** 하루 전 (전기 말일) */
+export function getPreviousDate(date) {
+  const d = startOfDay(typeof date === 'string' ? parseISO(date) : date);
+  return addDays(d, -1);
+}
+
 /** 일사일 (입사 1주년) */
 export function getOneYearAnniversary(hireDate) {
   const hire = typeof hireDate === 'string' ? parseISO(hireDate) : hireDate;
@@ -381,7 +387,12 @@ export function getSettlementEvents(hireDate, asOfDate = new Date()) {
  * 초과사용 = max(0, -순잔여) → 다음 주기 이월 차감
  */
 export function calculateLeaveBalance(hireDate, usages = [], asOfDate = new Date(), options = {}) {
-  const { manualAccrualTotal = 0, consumptionAsOf = asOfDate, skipCarryIn = false } = options;
+  const {
+    manualAccrualTotal = 0,
+    consumptionAsOf = asOfDate,
+    skipCarryIn = false,
+    skipSettledDeduction = false,
+  } = options;
   const asOf = startOfDay(asOfDate);
   const year = getCurrentDisplayYear(asOf);
   const oneYear = getOneYearAnniversary(hireDate);
@@ -419,7 +430,9 @@ export function calculateLeaveBalance(hireDate, usages = [], asOfDate = new Date
   }
 
   const yearSettlements = getSettlementEventsInYear(hireDate, year, asOf);
-  const settledDeduction = getCurrentYearSettledDeduction(hireDate, year, asOf);
+  const settledDeduction = skipSettledDeduction
+    ? 0
+    : getCurrentYearSettledDeduction(hireDate, year, asOf);
   const carryInDays = skipCarryIn
     ? 0
     : getPriorPeriodOveruseCarryIn(hireDate, asOf, usages, {

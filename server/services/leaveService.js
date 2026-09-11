@@ -866,11 +866,34 @@ function getSavedEventSettlement(year) {
   return getDb().prepare('SELECT * FROM leave_event_settlements WHERE year = ?').get(year);
 }
 
+function listEventSettlementYears() {
+  const current = getConsumptionAsOf().getFullYear();
+  const bounds = getDb()
+    .prepare(
+      `SELECT
+         MIN(substr(hire_date, 1, 4)) AS min_hire,
+         MIN(CASE WHEN terminated_date IS NOT NULL THEN substr(terminated_date, 1, 4) END) AS min_term,
+         MAX(CASE WHEN terminated_date IS NOT NULL THEN substr(terminated_date, 1, 4) END) AS max_term
+       FROM employees`
+    )
+    .get();
+  const minHire = Number(bounds?.min_hire) || current;
+  const minTerm = Number(bounds?.min_term) || current;
+  const maxTerm = Number(bounds?.max_term) || current;
+  const start = Math.min(minHire, minTerm, current - 5, maxTerm);
+  const end = Math.max(current + 2, maxTerm);
+  const years = [];
+  for (let year = start; year <= end; year += 1) years.push(year);
+  return years;
+}
+
 /**
  * 연차 정산(수당 지급) 대상
+ * - 선택 연도 내 도래하는 정산 시점(미래 포함)을 연말 기준으로 미리 표시
  * - 입사 1년(월차 정산)
  * - 회계기준 전환(비례) / 회계기준일(정규)
- * - 중도 퇴사(퇴사일 잔여)
+ * - 1/1 입사: 일사일 정산 후 바로 회계연도(정규) 전환
+ * - 중도 퇴사(퇴사일 잔여) — 과거 연도의 퇴사자(is_active=0)도 해당 연도에서 계산
  * 매월 정산하지 않음.
  */
 export function getLeaveEventSettlement(year) {
@@ -881,15 +904,22 @@ export function getLeaveEventSettlement(year) {
 
   const yearStart = `${y}-01-01`;
   const yearEnd = `${y}-12-31`;
+  // 해당 연도에 도래하는 모든 정산(아직 오지 않은 미래 시점 포함)을 보이도록 연말 기준
   const asOf = new Date(y, 11, 31);
+  const todayKey = toDateKey(getConsumptionAsOf());
 
+  // 연중 재직자 + 해당 연도 퇴사자(과거 퇴사·비활성 포함). 퇴사일이 연초 이전인 사람만 제외.
   const rows = getDb()
     .prepare(
       `SELECT e.*, lbs.as_of_date, lbs.display_year, lbs.accrued, lbs.used, lbs.remaining
        FROM employees e
        LEFT JOIN leave_balance_snapshots lbs ON lbs.employee_id = e.id
-       WHERE e.hire_date <= ?
-         AND (e.terminated_date IS NULL OR e.terminated_date >= ?)
+       WHERE e.hire_date IS NOT NULL
+         AND substr(e.hire_date, 1, 10) <= ?
+         AND (
+           e.terminated_date IS NULL
+           OR substr(e.terminated_date, 1, 10) >= ?
+         )
        ORDER BY e.workplace, e.name`
     )
     .all(yearEnd, yearStart);
@@ -903,11 +933,15 @@ export function getLeaveEventSettlement(year) {
       ordinaryWage != null && ordinaryWage > 0
         ? Math.round((ordinaryWage / ORDINARY_WAGE_HOURS) * 100) / 100
         : null;
+    const terminatedDate = row.terminated_date ? String(row.terminated_date).slice(0, 10) : null;
 
     const events = [];
 
     for (const event of getSettlementEventsInYear(row.hire_date, y, asOf)) {
       const eventDate = toDateKey(event.date);
+      // 퇴사일 이후 도래하는 부여 정산은 제외 (퇴사 정산으로 갈음)
+      if (terminatedDate && eventDate > terminatedDate) continue;
+
       const summary = buildLeaveSummary(row, {
         asOfDate: new Date(eventDate),
         consumptionAsOf: new Date(eventDate),
@@ -917,6 +951,7 @@ export function getLeaveEventSettlement(year) {
       const grantDays = round1(event.settledDays);
       // 부여 정산: 잔여가 음수면 수당 일수 0, 초과분은 다음 주기로 이월 차감
       const settledDays = overusedDays > 0 ? 0 : grantDays;
+      const isUpcoming = eventDate > todayKey;
       const description =
         overusedDays > 0
           ? `${event.description} · 초과사용 ${overusedDays}일 다음 주기 이월 차감`
@@ -931,34 +966,36 @@ export function getLeaveEventSettlement(year) {
         carryInDays: round1(summary.carryInDays || 0),
         description,
         basis: event.basis,
+        isUpcoming,
+        statusLabel: isUpcoming ? '도래 예정' : '도래',
       });
     }
 
-    if (row.terminated_date) {
-      const term = String(row.terminated_date).slice(0, 10);
-      if (term >= yearStart && term <= yearEnd) {
-        const summary = buildLeaveSummary(row, {
-          asOfDate: new Date(term),
-          consumptionAsOf: new Date(term),
-        });
-        const raw = Number(summary.rawRemaining ?? summary.remaining) || 0;
-        const payableDays = getPayableLeaveDays(raw);
-        const overusedDays = getOverusedLeaveDays(raw);
-        events.push({
-          type: 'resignation',
-          typeLabel: eventTypeLabel('resignation'),
-          date: term,
-          grantDays: null,
-          settledDays: payableDays,
-          overusedDays,
-          carryInDays: round1(summary.carryInDays || 0),
-          description:
-            overusedDays > 0
-              ? `중도 퇴사 정산 · 초과사용 ${overusedDays}일 다음 주기 이월 차감`
-              : '중도 퇴사 정산 (퇴사일 잔여)',
-          basis: 'resignation',
-        });
-      }
+    if (terminatedDate && terminatedDate >= yearStart && terminatedDate <= yearEnd) {
+      const summary = buildLeaveSummary(row, {
+        asOfDate: new Date(terminatedDate),
+        consumptionAsOf: new Date(terminatedDate),
+      });
+      const raw = Number(summary.rawRemaining ?? summary.remaining) || 0;
+      const payableDays = getPayableLeaveDays(raw);
+      const overusedDays = getOverusedLeaveDays(raw);
+      const isUpcoming = terminatedDate > todayKey;
+      events.push({
+        type: 'resignation',
+        typeLabel: eventTypeLabel('resignation'),
+        date: terminatedDate,
+        grantDays: null,
+        settledDays: payableDays,
+        overusedDays,
+        carryInDays: round1(summary.carryInDays || 0),
+        description:
+          overusedDays > 0
+            ? `중도 퇴사 정산 · 초과사용 ${overusedDays}일 다음 주기 이월 차감`
+            : '중도 퇴사 정산 (퇴사일 잔여)',
+        basis: 'resignation',
+        isUpcoming,
+        statusLabel: isUpcoming ? '도래 예정' : '도래',
+      });
     }
 
     events.sort((a, b) => String(a.date).localeCompare(String(b.date)));
@@ -976,7 +1013,7 @@ export function getLeaveEventSettlement(year) {
         department: base.department,
         position: base.position,
         hireDate: base.hireDate,
-        terminatedDate: row.terminated_date || null,
+        terminatedDate,
         eventType: event.type,
         eventTypeLabel: event.typeLabel,
         eventDate: event.date,
@@ -986,6 +1023,8 @@ export function getLeaveEventSettlement(year) {
         settledDays: event.settledDays,
         overusedDays: event.overusedDays,
         carryInDays: event.carryInDays,
+        isUpcoming: event.isUpcoming,
+        statusLabel: event.statusLabel,
         ordinaryWage,
         dailyRate,
         allowance,
@@ -1042,7 +1081,8 @@ export function getLeaveEventSettlement(year) {
     asOfDate: yearEnd,
     wageHours: ORDINARY_WAGE_HOURS,
     formula: `연차수당 = (월 통상임금 ÷ ${ORDINARY_WAGE_HOURS}) × max(0, 정산일수)`,
-    note: '정산 시점 잔여가 0 미만이면 수당 일수는 0으로 두고, 초과 사용 절대값은 다음 해·다음 주기 발생분에서 이월 차감됩니다. 퇴사 정산은 퇴사일 잔여(음수면 0) 기준입니다.',
+    note: '선택한 연도에 도래하는 정산(미래·과거 포함)을 보여 줍니다. 중도 퇴사는 과거 연도의 퇴사자도 해당 연도를 선택하면 계산됩니다. 1월 1일 입사는 최초 1년 정산 후 바로 회계연도(정규)로 전환됩니다. 잔여가 0 미만이면 수당 일수 0, 초과분은 다음 주기로 이월 차감됩니다.',
+    availableYears: listEventSettlementYears(),
     eventTypes: [
       { value: 'first_year', label: '입사 1년' },
       { value: 'prorated', label: '회계기준 전환' },

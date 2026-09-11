@@ -40,6 +40,7 @@ function downloadCsv(settlement, workplaceFilter, eventTypeFilter) {
       '기준연도',
       '정산일',
       '정산유형',
+      '상태',
       '사업장',
       '사번',
       '이름',
@@ -63,6 +64,7 @@ function downloadCsv(settlement, workplaceFilter, eventTypeFilter) {
         settlement.year,
         emp.eventDate,
         emp.eventTypeLabel,
+        emp.statusLabel || (emp.isUpcoming ? '도래 예정' : '도래'),
         emp.workplace,
         emp.empNo,
         emp.name,
@@ -102,9 +104,10 @@ export function AdminLeaveEventSettlement() {
   const updateWage = useUpdateOrdinaryWage();
 
   const years = useMemo(() => {
+    if (settlement?.availableYears?.length) return settlement.availableYears;
     const current = new Date().getFullYear();
-    return [current - 1, current, current + 1];
-  }, []);
+    return [current - 5, current - 4, current - 3, current - 2, current - 1, current, current + 1, current + 2];
+  }, [settlement]);
 
   const visibleGroups = useMemo(() => {
     if (!settlement) return [];
@@ -187,7 +190,7 @@ export function AdminLeaveEventSettlement() {
     <div>
       <PageHeader
         title="연차 정산"
-        description={`${settlement.year}년 · ${settlement.formula}`}
+        description={`${settlement.year}년 도래 정산(미래 포함) · ${settlement.formula}`}
         actions={
           <>
             <OrdinaryWageCsvActions
@@ -321,7 +324,12 @@ export function AdminLeaveEventSettlement() {
                           {emp.overusedDays ? ` · 초과이월 ${emp.overusedDays}일` : ''}
                         </p>
                       </div>
-                      <Badge variant={eventBadgeVariant(emp.eventType)}>{emp.eventTypeLabel}</Badge>
+                      <div className="flex flex-col items-end gap-1">
+                        <Badge variant={eventBadgeVariant(emp.eventType)}>{emp.eventTypeLabel}</Badge>
+                        <Badge variant={emp.isUpcoming ? 'info' : 'success'}>
+                          {emp.statusLabel || (emp.isUpcoming ? '도래 예정' : '도래')}
+                        </Badge>
+                      </div>
                     </div>
                     <p className="text-xs text-stripe-muted mt-2">{emp.description}</p>
                     <div className="mt-3 flex gap-2">
@@ -361,6 +369,7 @@ export function AdminLeaveEventSettlement() {
                       <th>입사일</th>
                       <th>정산일</th>
                       <th>유형</th>
+                      <th>상태</th>
                       <th className="text-right">정산일수</th>
                       <th className="text-right">초과이월</th>
                       <th>월 통상임금</th>
@@ -378,6 +387,11 @@ export function AdminLeaveEventSettlement() {
                         <td className="font-mono text-[13px] whitespace-nowrap">{emp.eventDate}</td>
                         <td>
                           <Badge variant={eventBadgeVariant(emp.eventType)}>{emp.eventTypeLabel}</Badge>
+                        </td>
+                        <td>
+                          <Badge variant={emp.isUpcoming ? 'info' : 'success'}>
+                            {emp.statusLabel || (emp.isUpcoming ? '도래 예정' : '도래')}
+                          </Badge>
                         </td>
                         <td className="tabular-nums text-right">{emp.settledDays}</td>
                         <td className="tabular-nums text-right muted whitespace-nowrap">

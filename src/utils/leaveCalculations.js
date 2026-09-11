@@ -30,6 +30,18 @@ export function getNextFiscalYearStart(date) {
   return new Date(current.getFullYear() + 1, FISCAL_YEAR_START_MONTH, 1);
 }
 
+/**
+ * 기준일 당일 포함, 같거나 이후의 첫 회계기준일(1/1)
+ * - 1/1 입사 → 일사일도 1/1이므로 그날이 바로 회계연도 전환일
+ * - 그 외 → 다음 해 1/1
+ */
+export function getFirstFiscalYearStartOnOrAfter(date) {
+  const d = startOfDay(typeof date === 'string' ? parseISO(date) : date);
+  const fiscalStart = getFiscalYearStart(d);
+  if (isSameDay(d, fiscalStart)) return fiscalStart;
+  return getNextFiscalYearStart(d);
+}
+
 /** 입사 후 경과 개월 수 (입사월 제외, 매월 1일 기준) */
 export function getMonthsSinceHire(hireDate, asOfDate = new Date()) {
   const hire = startOfDay(typeof hireDate === 'string' ? parseISO(hireDate) : hireDate);
@@ -73,20 +85,21 @@ export function calculateFirstYearMonthlyLeave(hireDate, asOfDate = new Date()) 
 /**
  * 1년 도달 시점 비례 연차
  * 비례 연차 = 15 × (다음 회계연도 시작일까지 남은 일수 / 365)
+ * 일사일이 이미 1/1이면 남은 일수 0 → 비례 연차 없음(바로 정규 전환)
  */
 export function calculateProratedLeave(hireDate) {
   const hire = typeof hireDate === 'string' ? parseISO(hireDate) : hireDate;
   const oneYearAnniversary = addYears(hire, 1);
-  const nextFiscalStart = getNextFiscalYearStart(oneYearAnniversary);
+  const nextFiscalStart = getFirstFiscalYearStartOnOrAfter(oneYearAnniversary);
   const remainingDays = differenceInDays(nextFiscalStart, oneYearAnniversary);
   if (remainingDays <= 0) return 0;
   return Math.round((15 * (remainingDays / 365)) * 10) / 10;
 }
 
-/** 정규 연차 최초 발생일 (비례 연차 기간 종료 후 첫 회계기준일) */
+/** 정규 연차 최초 발생일 (비례 연차 기간 종료 후 첫 회계기준일, 1/1 입사는 일사일 당일) */
 export function getRegularAnnualLeaveStartDate(hireDate) {
   const oneYear = getOneYearAnniversary(hireDate);
-  return getNextFiscalYearStart(oneYear);
+  return getFirstFiscalYearStartOnOrAfter(oneYear);
 }
 
 /** 정규 연차 기준 근속연수 (해당 회계연도 1/1 발생 시점) */
@@ -117,11 +130,11 @@ export function calculateAnnualLeave(hireDate, fiscalYear) {
   return base + bonus;
 }
 
-/** 비례 연차 대상자 여부: 1년 도달했으나 아직 다음 회계연도 전 */
+/** 비례 연차 대상자 여부: 1년 도달했으나 아직 다음 회계연도 전 (1/1 입사는 해당 없음) */
 export function isProratedPeriod(hireDate, asOfDate = new Date()) {
   const hire = typeof hireDate === 'string' ? parseISO(hireDate) : hireDate;
   const oneYearAnniversary = addYears(hire, 1);
-  const nextFiscalStart = getNextFiscalYearStart(oneYearAnniversary);
+  const nextFiscalStart = getFirstFiscalYearStartOnOrAfter(oneYearAnniversary);
   return (
     !isBefore(asOfDate, oneYearAnniversary) &&
     isBefore(asOfDate, nextFiscalStart)
@@ -283,7 +296,7 @@ export function getCurrentYearSettledDeduction(hireDate, year, asOfDate = new Da
   }
 
   if (phase === 'prorated') {
-    const firstFiscal = getNextFiscalYearStart(oneYear);
+    const firstFiscal = getFirstFiscalYearStartOnOrAfter(oneYear);
     return events
       .filter((e) => e.type === 'prorated' && isSameDay(e.date, firstFiscal))
       .reduce((sum, e) => sum + e.settledDays, 0);
@@ -301,7 +314,9 @@ export function getCurrentYearSettledDeduction(hireDate, year, asOfDate = new Da
 /**
  * 연차 정산 이벤트 생성
  * - 첫해: 일사일(입사 1주년) 기준 월차 정산
- * - 이후: 매 회계기준일(1/1) 연차 정산
+ * - 1/1 입사: 일사일 = 회계기준일이므로 최초 1년 정산 후 바로 정규(회계연도) 전환 (비례 없음)
+ * - 그 외: 일사일 이후 첫 1/1에 비례 정산, 이후 매 1/1 정규 연차 정산
+ * - asOf 이전·당일 이벤트만 포함. 연간 정산 미리보기는 연말 asOf로 호출.
  */
 export function getSettlementEvents(hireDate, asOfDate = new Date()) {
   const hire = parseHireDate(hireDate);
@@ -311,16 +326,19 @@ export function getSettlementEvents(hireDate, asOfDate = new Date()) {
 
   if (!isBefore(asOf, oneYear)) {
     const firstYearSettled = calculateFirstYearMonthlyLeave(hireDate, oneYear);
+    const sameDayFiscalSwitch = isSameDay(oneYear, getFirstFiscalYearStartOnOrAfter(oneYear));
     events.push({
       type: 'first_year',
       date: oneYear,
       settledDays: firstYearSettled,
-      description: '첫해 월차 정산 (일사일 기준)',
+      description: sameDayFiscalSwitch
+        ? '첫해 월차 정산 (일사일 = 회계기준일, 이후 정규 연차 전환)'
+        : '첫해 월차 정산 (일사일 기준)',
       basis: 'anniversary',
     });
   }
 
-  const firstFiscalSettlement = getNextFiscalYearStart(oneYear);
+  const firstFiscalSettlement = getFirstFiscalYearStartOnOrAfter(oneYear);
 
   if (!isBefore(asOf, firstFiscalSettlement)) {
     const prorated = calculateProratedLeave(hireDate);
@@ -336,12 +354,10 @@ export function getSettlementEvents(hireDate, asOfDate = new Date()) {
   }
 
   // 회계연도 종료 시(다음 회계기준일) 이전 연도 정규 연차 정산
-  const currentFiscalStart = getFiscalYearStart(asOf);
+  // firstFiscal 당일은 비례(또는 1/1 입사 전환)이고, 정규 정산은 그 다음 1/1부터
   let fiscalSettlementDate = addYears(firstFiscalSettlement, 1);
 
   while (isBefore(fiscalSettlementDate, asOf) || isSameDay(fiscalSettlementDate, asOf)) {
-    if (!isBefore(fiscalSettlementDate, currentFiscalStart)) break;
-
     const settledFiscalYear = addYears(fiscalSettlementDate, -1).getFullYear();
     const annual = calculateAnnualLeave(hireDate, settledFiscalYear);
     if (annual > 0) {

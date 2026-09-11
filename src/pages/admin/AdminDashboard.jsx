@@ -33,6 +33,34 @@ export function AdminDashboard() {
         description={`전체 ${stats.totalEmployees}명 · ${stats.displayYear}년 기준 연차 현황`}
       />
 
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+        <LeaveSummaryCard
+          title="총 부여"
+          value={stats.totalGranted}
+          unit="일"
+          subtitle={`${stats.displayYear}년 부여 합계`}
+          highlight
+        />
+        <LeaveSummaryCard
+          title="총 사용"
+          value={stats.totalUsed}
+          unit="일"
+          subtitle={`${stats.displayYear}년 사용 합계`}
+        />
+        <LeaveSummaryCard
+          title="평균 사용율"
+          value={stats.averageUsageRate}
+          unit="%"
+          subtitle="사용 ÷ 부여"
+        />
+        <LeaveSummaryCard
+          title="평균 사용"
+          value={stats.averageUsed}
+          unit="일"
+          subtitle="1인당 평균 사용"
+        />
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <LeaveSummaryCard
           title="평균 잔여"

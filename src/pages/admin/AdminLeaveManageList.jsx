@@ -188,7 +188,7 @@ export function AdminLeaveManageList() {
       </div>
 
       <Panel>
-        <div className="mobile-only mobile-card-list">
+        <div className="settlement-cards mobile-card-list">
           {filtered.length === 0 ? (
             <p className="py-12 text-center text-sm text-stripe-muted">검색 결과가 없습니다.</p>
           ) : (
@@ -237,11 +237,11 @@ export function AdminLeaveManageList() {
           )}
         </div>
 
-        <div className="desktop-only stripe-table-scroll">
+        <div className="settlement-table stripe-table-fit-wrap">
           {filtered.length === 0 ? (
             <p className="py-12 text-center text-sm text-stripe-muted">검색 결과가 없습니다.</p>
           ) : (
-            <table className="stripe-table w-full">
+            <table className="stripe-table stripe-table-fit w-full">
               <thead>
                 <tr>
                   <th>

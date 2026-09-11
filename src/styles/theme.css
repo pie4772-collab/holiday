@@ -297,7 +297,7 @@
   }
 }
 
-/* After .mobile-card-list so display:flex does not un-hide desktop cards */
+/* Shared list pages: cards below xl, compact table from 1280px */
 .settlement-cards {
   display: none;
 }

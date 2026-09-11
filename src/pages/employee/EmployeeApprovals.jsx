@@ -42,7 +42,7 @@ export function EmployeeApprovals() {
           <p className="py-12 text-center text-sm text-stripe-muted">승인 대기 중인 신청이 없습니다.</p>
         ) : (
           <>
-            <div className="mobile-only mobile-card-list">
+            <div className="settlement-cards mobile-card-list">
               {requests.map((item) => (
                 <div key={item.id} className="mobile-card-item">
                   <div className="flex items-start justify-between gap-3">
@@ -82,8 +82,8 @@ export function EmployeeApprovals() {
               ))}
             </div>
 
-            <div className="desktop-only stripe-table-scroll">
-              <table className="stripe-table w-full">
+            <div className="settlement-table stripe-table-fit-wrap">
+              <table className="stripe-table stripe-table-fit w-full">
                 <thead>
                   <tr>
                     <th>이름</th>

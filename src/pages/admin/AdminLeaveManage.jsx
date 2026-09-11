@@ -129,8 +129,8 @@ export function AdminLeaveManage() {
         ) : accruals?.length === 0 ? (
           <p className="py-10 text-center text-sm text-stripe-muted">발생 내역이 없습니다.</p>
         ) : (
-          <div className="stripe-table-scroll">
-            <table className="stripe-table w-full">
+          <div className="stripe-table-fit-wrap">
+            <table className="stripe-table stripe-table-fit w-full">
               <thead>
                 <tr>
                   <th>발생일</th>
@@ -199,8 +199,8 @@ export function AdminLeaveManage() {
         ) : usages?.length === 0 ? (
           <p className="py-10 text-center text-sm text-stripe-muted">사용 내역이 없습니다.</p>
         ) : (
-          <div className="stripe-table-scroll">
-            <table className="stripe-table w-full">
+          <div className="stripe-table-fit-wrap">
+            <table className="stripe-table stripe-table-fit w-full">
               <thead>
                 <tr>
                   <th>사용일</th>

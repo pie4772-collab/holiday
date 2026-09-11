@@ -212,8 +212,15 @@ export function getMockAdminStats() {
     })
     .reduce((sum, u) => sum + (u.type === 'half' ? 0.5 : 1), 0);
 
+  const totalGranted = Math.round(all.reduce((sum, e) => sum + (e.leaveSummary.totalGranted || 0), 0) * 10) / 10;
+  const totalUsed = Math.round(all.reduce((sum, e) => sum + (e.leaveSummary.usedDays || 0), 0) * 10) / 10;
+
   return {
     displayYear: DISPLAY_YEAR,
+    totalGranted,
+    totalUsed,
+    averageUsageRate: totalGranted > 0 ? Math.round((totalUsed / totalGranted) * 1000) / 10 : 0,
+    averageUsed: Math.round((totalUsed / (all.length || 1)) * 10) / 10,
     averageRemaining: Math.round(avgRemaining * 10) / 10,
     monthlyUsage,
     firstYearEmployeeCount: all.filter((e) => e.leaveSummary.isFirstYear).length,

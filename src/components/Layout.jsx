@@ -249,15 +249,7 @@ export function Layout() {
       </nav>
 
       <main className="md:ml-[240px] min-h-screen pt-14 md:pt-0 pb-[calc(4.5rem+env(safe-area-inset-bottom))] md:pb-0">
-        <div
-          className={`px-4 py-5 sm:px-6 sm:py-8 mx-auto ${
-            location.pathname.startsWith('/admin/leave-settlements') ||
-            location.pathname.startsWith('/admin/leave-event-settlements') ||
-            location.pathname.startsWith('/admin/leave-reports')
-              ? 'max-w-[1400px]'
-              : 'max-w-[1080px]'
-          }`}
-        >
+        <div className="px-4 py-5 sm:px-6 sm:py-8 mx-auto max-w-[1400px]">
           <Outlet />
         </div>
       </main>

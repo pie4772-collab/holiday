@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { LeaveHistoryTable } from '../../components/LeaveHistoryTable';
 import { LeaveUsageTable } from '../../components/LeaveUsageTable';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
@@ -8,10 +9,24 @@ import { Badge } from '../../components/ui/Badge';
 import { LeaveSummaryCard } from '../../components/LeaveSummaryCard';
 import { useCurrentEmployee, useLeaveHistory, useLeaveUsages } from '../../hooks/useLeaveData';
 
+const HIDE_SETTLEMENTS_THROUGH_YEAR = 2026;
+
 export function EmployeeLeaveHistory() {
   const { data: employee, isLoading: empLoading, isError: empError, refetch } = useCurrentEmployee();
   const { data: logs, isLoading: logsLoading } = useLeaveHistory(employee?.id);
   const { data: usages, isLoading: usagesLoading } = useLeaveUsages(employee?.id);
+  const sortedUsages = useMemo(
+    () => [...(usages || [])].sort((a, b) => String(b.date).localeCompare(String(a.date))),
+    [usages]
+  );
+  const visibleLogs = useMemo(
+    () =>
+      (logs || []).filter((log) => {
+        if (log.type !== 'settlement') return true;
+        return Number(String(log.date).slice(0, 4)) > HIDE_SETTLEMENTS_THROUGH_YEAR;
+      }),
+    [logs]
+  );
 
   if (empLoading) {
     return (
@@ -27,7 +42,6 @@ export function EmployeeLeaveHistory() {
 
   const year = employee.leaveSummary.displayYear;
   const summary = employee.leaveSummary;
-  const sortedUsages = [...(usages || [])].sort((a, b) => String(b.date).localeCompare(String(a.date)));
 
   return (
     <div>
@@ -67,7 +81,7 @@ export function EmployeeLeaveHistory() {
             </div>
           }
         />
-        <LeaveHistoryTable logs={logs} isLoading={logsLoading} />
+        <LeaveHistoryTable logs={visibleLogs} isLoading={logsLoading} />
       </Panel>
     </div>
   );

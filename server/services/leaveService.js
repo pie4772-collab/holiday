@@ -334,9 +334,21 @@ export function getAdminStats() {
 
   const avgRemaining =
     employees.reduce((sum, e) => sum + e.leaveSummary.remaining, 0) / (employees.length || 1);
+  const totalGranted = round1(
+    employees.reduce((sum, e) => sum + (Number(e.leaveSummary.totalGranted) || 0), 0)
+  );
+  const totalUsed = round1(
+    employees.reduce((sum, e) => sum + (Number(e.leaveSummary.usedDays) || 0), 0)
+  );
+  const averageUsageRate = totalGranted > 0 ? round1((totalUsed / totalGranted) * 100) : 0;
+  const averageUsed = round1(totalUsed / (employees.length || 1));
 
   return {
     displayYear,
+    totalGranted,
+    totalUsed,
+    averageUsageRate,
+    averageUsed,
     averageRemaining: Math.round(avgRemaining * 10) / 10,
     monthlyUsage,
     firstYearEmployeeCount: employees.filter((e) => e.leaveSummary.isFirstYear).length,

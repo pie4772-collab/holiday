@@ -33,7 +33,7 @@ export function AdminEmployeeList() {
 
       <Panel>
         {/* Mobile card list */}
-        <div className="md:hidden mobile-card-list">
+        <div className="settlement-cards mobile-card-list">
           {employees?.map((emp) => (
             <div key={emp.id} className="mobile-card-item">
               <div className="flex items-start justify-between gap-3">
@@ -87,8 +87,8 @@ export function AdminEmployeeList() {
         </div>
 
         {/* Desktop table */}
-        <div className="hidden md:block stripe-table-scroll">
-          <table className="stripe-table w-full">
+        <div className="settlement-table stripe-table-fit-wrap">
+          <table className="stripe-table stripe-table-fit w-full">
             <thead>
               <tr>
                 <th>이름</th>

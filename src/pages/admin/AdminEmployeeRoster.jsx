@@ -90,7 +90,7 @@ export function AdminEmployeeRoster() {
 
       <Panel>
         {/* Mobile card list */}
-        <div className="mobile-only mobile-card-list">
+        <div className="settlement-cards mobile-card-list">
           {roster?.map((emp) => (
             <div key={emp.id} className={`mobile-card-item ${!emp.isActive ? 'opacity-60' : ''}`}>
               <div className="flex items-start justify-between gap-3">
@@ -168,8 +168,8 @@ export function AdminEmployeeRoster() {
         </div>
 
         {/* Desktop / web: one row per employee */}
-        <div className="desktop-only stripe-table-scroll">
-          <table className="stripe-table w-full">
+        <div className="settlement-table stripe-table-fit-wrap">
+          <table className="stripe-table stripe-table-fit w-full">
             <thead>
               <tr>
                 <th>이름</th>

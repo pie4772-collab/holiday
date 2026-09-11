@@ -7,6 +7,8 @@ const STATUS = {
   rejected: { label: '반려', variant: 'danger' },
 };
 
+const compactBadgeClass = 'whitespace-nowrap text-[11px] px-1.5 py-0 leading-5';
+
 function daysLabel(usage) {
   if (typeof usage.days === 'number') return usage.days;
   return usage.type === 'half' ? 0.5 : 1;
@@ -31,7 +33,7 @@ export function LeaveUsageTable({ usages, isLoading }) {
 
   return (
     <>
-      <div className="mobile-only mobile-card-list">
+      <div className="settlement-cards mobile-card-list">
         {usages.map((usage) => {
           const status = STATUS[usage.status] || STATUS.pending;
           return (
@@ -45,10 +47,12 @@ export function LeaveUsageTable({ usages, isLoading }) {
                   )}
                 </div>
                 <div className="flex flex-col items-end gap-1 shrink-0">
-                  <Badge variant={usage.type === 'full' ? 'info' : 'warning'}>
+                  <Badge variant={usage.type === 'full' ? 'info' : 'warning'} className={compactBadgeClass}>
                     {formatLeaveType(usage.type)}
                   </Badge>
-                  <Badge variant={status.variant}>{status.label}</Badge>
+                  <Badge variant={status.variant} className={compactBadgeClass}>
+                    {status.label}
+                  </Badge>
                 </div>
               </div>
               <p className="mt-2 text-xs tabular-nums text-stripe-muted">차감 {daysLabel(usage)}일</p>
@@ -57,8 +61,15 @@ export function LeaveUsageTable({ usages, isLoading }) {
         })}
       </div>
 
-      <div className="desktop-only stripe-table-scroll">
-        <table className="stripe-table w-full">
+      <div className="settlement-table stripe-table-fit-wrap">
+        <table className="stripe-table stripe-table-fit w-full">
+          <colgroup>
+            <col style={{ width: '16%' }} />
+            <col style={{ width: '12%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '12%' }} />
+            <col style={{ width: '50%' }} />
+          </colgroup>
           <thead>
             <tr>
               <th>사용일</th>
@@ -75,13 +86,15 @@ export function LeaveUsageTable({ usages, isLoading }) {
                 <tr key={usage.id}>
                   <td className="font-mono text-[13px] whitespace-nowrap">{usage.date}</td>
                   <td>
-                    <Badge variant={usage.type === 'full' ? 'info' : 'warning'}>
+                    <Badge variant={usage.type === 'full' ? 'info' : 'warning'} className={compactBadgeClass}>
                       {formatLeaveType(usage.type)}
                     </Badge>
                   </td>
                   <td className="text-right tabular-nums font-medium">{daysLabel(usage)}</td>
                   <td>
-                    <Badge variant={status.variant}>{status.label}</Badge>
+                    <Badge variant={status.variant} className={compactBadgeClass}>
+                      {status.label}
+                    </Badge>
                   </td>
                   <td className="muted text-[13px]">
                     {usage.reason || '-'}

@@ -252,7 +252,8 @@ export function Layout() {
         <div
           className={`px-4 py-5 sm:px-6 sm:py-8 mx-auto ${
             location.pathname.startsWith('/admin/leave-settlements') ||
-            location.pathname.startsWith('/admin/leave-event-settlements')
+            location.pathname.startsWith('/admin/leave-event-settlements') ||
+            location.pathname.startsWith('/admin/leave-reports')
               ? 'max-w-[1400px]'
               : 'max-w-[1080px]'
           }`}

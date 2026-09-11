@@ -12,6 +12,7 @@ import {
 } from 'date-fns';
 import { ko } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { getHolidayName, isNonWorkingDay, isWeekendDate } from '../utils/workCalendar';
 
 export function LeaveCalendar({ usages = [], onDateClick, displayYear }) {
   const initialMonth = displayYear
@@ -107,34 +108,52 @@ export function LeaveCalendar({ usages = [], onDateClick, displayYear }) {
             const dateStr = format(day, 'yyyy-MM-dd');
             const style = getDayStyle(dateStr);
             const isToday = isSameDay(day, new Date());
+            const holidayName = getHolidayName(dateStr);
+            const weekend = isWeekendDate(day);
+            const blocked = isNonWorkingDay(dateStr);
+            const weekdayClass =
+              getDay(day) === 0 || holidayName
+                ? 'text-[#df1b41]'
+                : getDay(day) === 6
+                  ? 'text-primary-500'
+                  : 'text-stripe-text';
 
             return (
               <button
                 key={dateStr}
-                onClick={() => onDateClick?.(dateStr)}
-                disabled={!onDateClick}
+                onClick={() => {
+                  if (blocked) return;
+                  onDateClick?.(dateStr);
+                }}
+                disabled={!onDateClick || blocked}
+                title={holidayName || (weekend ? (getDay(day) === 0 ? '일요일' : '토요일') : undefined)}
                 className={`aspect-square flex flex-col items-center justify-center rounded-md text-sm transition-all
-                  ${!isSameMonth(day, currentMonth) ? 'text-[#c1cad6]' : 'text-stripe-text'}
-                  ${style || 'hover:bg-[#f6f9fc]'}
+                  ${!isSameMonth(day, currentMonth) ? 'text-[#c1cad6]' : weekdayClass}
+                  ${style || (holidayName && !usageMap[dateStr] ? 'bg-[#fef2f2]' : 'hover:bg-[#f6f9fc]')}
                   ${isToday ? 'ring-1 ring-primary-500 ring-offset-1' : ''}
-                  ${onDateClick ? 'cursor-pointer' : 'cursor-default'}
+                  ${onDateClick && !blocked ? 'cursor-pointer' : 'cursor-default'}
+                  ${blocked && onDateClick ? 'opacity-70' : ''}
                 `}
               >
                 <span className="text-[13px] font-medium">{format(day, 'd')}</span>
-                {usageMap[dateStr] && (
+                {usageMap[dateStr] ? (
                   <span className="text-[9px] mt-0.5 opacity-90">
                     {usageMap[dateStr].some((u) => u.status === 'pending')
                       ? '대기'
                       : usageMap[dateStr].map((u) => (u.type === 'half' ? '반' : '연')).join('')}
                   </span>
-                )}
+                ) : holidayName ? (
+                  <span className="text-[8px] mt-0.5 text-[#df1b41] leading-tight px-0.5 truncate max-w-full">
+                    휴일
+                  </span>
+                ) : null}
               </button>
             );
           })}
         </div>
       </div>
 
-      <div className="flex items-center gap-5 px-5 py-3 border-t border-stripe-border bg-[#fafbfc]">
+      <div className="flex flex-wrap items-center gap-5 px-5 py-3 border-t border-stripe-border bg-[#fafbfc]">
         <div className="flex items-center gap-2 text-xs text-stripe-muted">
           <span className="h-2.5 w-2.5 rounded-sm bg-primary-500" />
           연차
@@ -146,6 +165,10 @@ export function LeaveCalendar({ usages = [], onDateClick, displayYear }) {
         <div className="flex items-center gap-2 text-xs text-stripe-muted">
           <span className="h-2.5 w-2.5 rounded-sm bg-[#fef3c7] ring-1 ring-[#fbbf24]" />
           승인 대기
+        </div>
+        <div className="flex items-center gap-2 text-xs text-stripe-muted">
+          <span className="h-2.5 w-2.5 rounded-sm bg-[#fef2f2] ring-1 ring-[#fecaca]" />
+          공휴일
         </div>
       </div>
     </div>

@@ -5,6 +5,7 @@ import { Button } from './ui/Button';
 import {
   calendarSpanDays,
   describeLeaveDates,
+  leaveBlockedReason,
   listLeaveRequestDates,
   MAX_LEAVE_RANGE_DAYS,
 } from '../utils/leaveRequestDates';
@@ -34,19 +35,20 @@ export function LeaveRequestModal({
   }, [isOpen, initialDate]);
 
   const previewDates = useMemo(
-    () => listLeaveRequestDates(startDate, type === 'half' ? startDate : endDate, { skipWeekends: type === 'full' }),
+    () => listLeaveRequestDates(startDate, type === 'half' ? startDate : endDate),
     [startDate, endDate, type]
   );
   const spanDays = calendarSpanDays(startDate, type === 'half' ? startDate : endDate);
   const rangeTooLong = type === 'full' && spanDays > MAX_LEAVE_RANGE_DAYS;
   const endBeforeStart = type === 'full' && endDate && startDate && endDate < startDate;
+  const blockedStart = leaveBlockedReason(startDate);
+  const blockedHalf = type === 'half' ? blockedStart : '';
 
   if (!isOpen) return null;
 
   async function handleSubmit(e) {
     e.preventDefault();
     if (!reason.trim() || !employeeId || isSubmitting) return;
-    try {
     try {
       await onSubmit({
         employeeId,
@@ -56,9 +58,6 @@ export function LeaveRequestModal({
         type,
         reason: reason.trim(),
       });
-    } catch {
-      // submitError is shown by the parent mutation
-    }
     } catch {
       // submitError is shown by the parent mutation
     }
@@ -139,9 +138,12 @@ export function LeaveRequestModal({
                 : rangeTooLong
                   ? `한 번에 최대 ${MAX_LEAVE_RANGE_DAYS}일까지 신청할 수 있습니다.`
                   : previewDates.length
-                    ? `${describeLeaveDates(previewDates)} 신청 · 주말 제외`
-                    : '선택한 기간에 신청할 평일이 없습니다.'}
+                    ? `${describeLeaveDates(previewDates)} 신청 · 주말·공휴일 제외`
+                    : '선택한 기간에 신청할 평일이 없습니다. 주말·공휴일은 제외됩니다.'}
             </p>
+          )}
+          {type === 'half' && blockedHalf && (
+            <p className="text-[13px] text-[#df1b41]">{blockedHalf}</p>
           )}
 
           <div>

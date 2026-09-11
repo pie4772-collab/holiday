@@ -4,11 +4,12 @@ import {
   getOneYearAnniversary,
   getCurrentDisplayYear,
   getMonthlyAccrualInYear,
+  getFirstYearMonthlyAccrualDate,
   filterUsagesByYear,
   FISCAL_YEAR_START_MONTH,
 } from '../utils/leaveCalculations';
 import { parseISO } from 'date-fns';
-import { describeLeaveDates, listLeaveRequestDates } from '../utils/leaveRequestDates';
+import { describeLeaveDates, leaveBlockedReason, listLeaveRequestDates } from '../utils/leaveRequestDates';
 
 const TODAY = new Date('2026-07-10');
 const DISPLAY_YEAR = getCurrentDisplayYear(TODAY);
@@ -88,11 +89,10 @@ function buildAutoAccrualLogs(employee) {
   const balance = calculateLeaveBalance(hireDate, approvedUsages, TODAY);
 
   const monthlyInYear = getMonthlyAccrualInYear(hireDate, DISPLAY_YEAR, TODAY);
-  const hire = new Date(hireDate);
   for (let m = 1; m <= monthlyInYear; m++) {
     let count = 0;
     for (let i = 1; i <= 11; i++) {
-      const accrualDate = new Date(hire.getFullYear(), hire.getMonth() + i, 1);
+      const accrualDate = getFirstYearMonthlyAccrualDate(hireDate, i);
       if (accrualDate.getFullYear() === DISPLAY_YEAR) {
         count++;
         if (count === m) {
@@ -102,7 +102,7 @@ function buildAutoAccrualLogs(employee) {
             type: 'first_year_monthly',
             amount: 1,
             date: formatDate(accrualDate),
-            description: `${DISPLAY_YEAR}년 월차 발생`,
+            description: `${DISPLAY_YEAR}년 월차 발생 (입사 대응일)`,
             isManual: false,
           });
           break;
@@ -251,10 +251,15 @@ export function getMockAdminUsages(employeeId) {
 export function addMockLeaveRequest(request) {
   const startDate = request.startDate || request.date;
   const endDate = request.type === 'half' ? startDate : request.endDate || request.date || startDate;
-  const dates =
-    request.type === 'half'
-      ? [startDate]
-      : listLeaveRequestDates(startDate, endDate);
+  const dates = listLeaveRequestDates(startDate, endDate);
+  if (!dates.length) {
+    throw new Error(
+      leaveBlockedReason(startDate) ||
+        (request.type === 'half'
+          ? '반차는 평일에만 사용할 수 있습니다. 주말·공휴일은 제외됩니다.'
+          : '선택한 기간에 신청할 평일이 없습니다. 주말·공휴일은 제외됩니다.')
+    );
+  }
   const created = dates.map((date, index) => ({
     id: `use-${Date.now()}-${index}`,
     employeeId: request.employeeId,
@@ -301,6 +306,8 @@ export function deleteMockAccrual(id) {
 }
 
 export function createMockUsage(data) {
+  const blocked = leaveBlockedReason(data.date);
+  if (blocked) throw new Error(blocked);
   const item = {
     id: `use-${Date.now()}`,
     employeeId: data.employeeId,
@@ -316,6 +323,9 @@ export function createMockUsage(data) {
 export function updateMockUsage(id, data) {
   const idx = leaveUsages.findIndex((u) => u.id === id);
   if (idx === -1) throw new Error('사용 내역을 찾을 수 없습니다.');
+  const nextDate = data.date || leaveUsages[idx].date;
+  const blocked = leaveBlockedReason(nextDate);
+  if (blocked) throw new Error(blocked);
   leaveUsages[idx] = { ...leaveUsages[idx], ...data };
   return leaveUsages[idx];
 }

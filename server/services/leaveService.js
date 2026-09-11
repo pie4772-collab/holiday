@@ -4,6 +4,7 @@ import {
   getOneYearAnniversary,
   getCurrentDisplayYear,
   getMonthlyAccrualInYear,
+  getFirstYearMonthlyAccrualDate,
   filterUsagesByYear,
   filterConsumedUsages,
   filterScheduledUsages,
@@ -21,6 +22,7 @@ import {
   calendarSpanDays,
   describeLeaveDates,
   isValidLeaveDate,
+  leaveBlockedReason,
   listLeaveRequestDates,
   MAX_LEAVE_RANGE_DAYS,
 } from '../../src/utils/leaveRequestDates.js';
@@ -154,7 +156,14 @@ function buildLeaveSummary(row, options = {}) {
     skipCarryIn: Boolean(options.skipCarryIn),
   });
 
-  if (!options.skipSnapshot && hasImportedSnapshot(row)) {
+  // Excel 스냅샷은 첫해·정규 구간의 잔액 기준으로 사용.
+  // 비례 구간에서는 스냅샷이 첫해 숫자(예: 발생 11)를 그대로 두는 경우가 많아
+  // 엔진 비례 발생분(15×남은일/365)을 우선한다.
+  if (
+    !options.skipSnapshot &&
+    hasImportedSnapshot(row) &&
+    calculated.phase !== 'prorated'
+  ) {
     const snapshotAsOf = row.as_of_date;
     const newUsages = approvedUsages.filter((usage) => !snapshotAsOf || usage.date > snapshotAsOf);
     const extraUsed = sumUsageDays(filterConsumedUsages(newUsages, consumptionAsOf));
@@ -201,12 +210,11 @@ function buildAutoAccrualLogs(employee, balance) {
   const hireDate = employee.hireDate;
   const displayYear = balance.displayYear;
   const monthlyInYear = getMonthlyAccrualInYear(hireDate, displayYear, TODAY);
-  const hire = new Date(hireDate);
 
   for (let m = 1; m <= monthlyInYear; m++) {
     let count = 0;
     for (let i = 1; i <= 11; i++) {
-      const accrualDate = new Date(hire.getFullYear(), hire.getMonth() + i, 1);
+      const accrualDate = getFirstYearMonthlyAccrualDate(hireDate, i);
       if (accrualDate.getFullYear() === displayYear) {
         count++;
         if (count === m) {
@@ -216,7 +224,7 @@ function buildAutoAccrualLogs(employee, balance) {
             type: 'first_year_monthly',
             amount: 1,
             date: formatDate(accrualDate),
-            description: `${displayYear}년 월차 발생`,
+            description: `${displayYear}년 월차 발생 (입사 대응일)`,
             isManual: false,
           });
           break;
@@ -1268,10 +1276,14 @@ export function submitLeaveRequest(data) {
     throw httpError(`한 번에 최대 ${MAX_LEAVE_RANGE_DAYS}일까지 신청할 수 있습니다.`);
   }
 
-  const dates = listLeaveRequestDates(startDate, endDate, { skipWeekends: type === 'full' });
+  const dates = listLeaveRequestDates(startDate, endDate);
   if (!dates.length) {
+    const blocked = leaveBlockedReason(startDate) || leaveBlockedReason(endDate);
     throw httpError(
-      type === 'full' ? '선택한 기간에 신청할 평일이 없습니다. 주말은 제외됩니다.' : '반차는 사용할 날짜를 선택해주세요.'
+      blocked ||
+        (type === 'full'
+          ? '선택한 기간에 신청할 평일이 없습니다. 주말·공휴일은 제외됩니다.'
+          : '반차는 평일에만 사용할 수 있습니다. 주말·공휴일은 제외됩니다.')
     );
   }
   if (type === 'half' && dates.length !== 1) {
@@ -1455,6 +1467,9 @@ export function deleteAccrual(id) {
 export function createUsage(data) {
   const dbId = parseEmployeeId(data.employeeId);
   if (!dbId) throw new Error('유효하지 않은 직원 ID입니다.');
+  if (!isValidLeaveDate(data.date)) throw new Error('날짜를 확인해주세요.');
+  const blocked = leaveBlockedReason(data.date);
+  if (blocked) throw httpError(blocked);
 
   const days = data.type === 'half' ? 0.5 : 1;
   const result = getDb()
@@ -1472,6 +1487,9 @@ export function createUsage(data) {
 export function updateUsage(id, data) {
   const row = getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(id);
   if (!row) throw new Error('사용 내역을 찾을 수 없습니다.');
+  if (!isValidLeaveDate(data.date)) throw new Error('날짜를 확인해주세요.');
+  const blocked = leaveBlockedReason(data.date);
+  if (blocked) throw httpError(blocked);
 
   const days = data.type === 'half' ? 0.5 : 1;
   getDb()

@@ -29,8 +29,8 @@ export function Timeline({ hireDate, leaveSummary }) {
       title: '첫해 월차 발생',
       date: hireDate ? `${formatDate(hireDate)} ~` : '-',
       description: firstYearStatus === 'current'
-        ? `매월 1개씩 발생 (최대 11개) · 현재 ${settlement?.totalMonths || 0}개`
-        : '매월 1개씩 발생 (최대 11개) · 첫해 월차 기간 종료',
+        ? `입사 대응일마다 1개 발생 (최대 11개) · 현재 ${settlement?.totalMonths || 0}개`
+        : '입사 대응일마다 1개 발생 (최대 11개) · 첫해 월차 기간 종료',
       status: firstYearStatus,
     },
     {

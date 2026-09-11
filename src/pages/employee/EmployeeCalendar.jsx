@@ -34,7 +34,7 @@ export function EmployeeCalendar() {
     <div>
       <PageHeader
         title="캘린더"
-        description={`${employee.leaveSummary.displayYear}년 연차 사용 내역 · 날짜를 누르면 그 날부터 신청할 수 있습니다`}
+        description={`${employee.leaveSummary.displayYear}년 연차 사용 내역 · 평일을 누르면 그 날부터 신청할 수 있습니다`}
         actions={
           <Button size="sm" onClick={() => openRequestModal()}>
             연차 신청

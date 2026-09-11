@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { formatLeaveType } from '../../utils/leaveCalculations';
+import { leaveBlockedReason } from '../../utils/leaveRequestDates';
 import { Button } from '../ui/Button';
 
 const ACCRUAL_TYPES = [
@@ -115,8 +116,11 @@ export function LeaveUsageFormModal({ isOpen, onClose, onSubmit, isSubmitting, i
 
   if (!isOpen) return null;
 
+  const blocked = leaveBlockedReason(form.date);
+
   function handleSubmit(e) {
     e.preventDefault();
+    if (blocked) return;
     onSubmit(form);
   }
 
@@ -142,6 +146,7 @@ export function LeaveUsageFormModal({ isOpen, onClose, onSubmit, isSubmitting, i
               required
               className="stripe-input"
             />
+            {blocked && <p className="mt-1 text-[13px] text-[#df1b41]">{blocked}</p>}
           </div>
           <div>
             <label className="stripe-label">유형</label>
@@ -188,7 +193,7 @@ export function LeaveUsageFormModal({ isOpen, onClose, onSubmit, isSubmitting, i
           </div>
           <div className="flex gap-2 pt-1">
             <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>취소</Button>
-            <Button type="submit" className="flex-1" disabled={isSubmitting}>
+            <Button type="submit" className="flex-1" disabled={isSubmitting || Boolean(blocked)}>
               {isSubmitting ? '저장 중...' : '저장'}
             </Button>
           </div>

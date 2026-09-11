@@ -2,6 +2,7 @@ import {
   differenceInDays,
   addYears,
   addDays,
+  addMonths,
   startOfDay,
   isBefore,
   isAfter,
@@ -42,21 +43,33 @@ export function getFirstFiscalYearStartOnOrAfter(date) {
   return getNextFiscalYearStart(d);
 }
 
-/** 입사 후 경과 개월 수 (입사월 제외, 매월 1일 기준) */
+/**
+ * 첫해 월차 n번째 발생일 (입사 대응일)
+ * 예: 8/18 입사 → 1개월차 9/18, 2개월차 10/18 …
+ * 해당 월에 같은 일이 없으면 말일 (date-fns addMonths)
+ */
+export function getFirstYearMonthlyAccrualDate(hireDate, monthNumber) {
+  const hire = parseHireDate(hireDate);
+  const n = Number(monthNumber);
+  if (!Number.isInteger(n) || n < 1 || n > 11) {
+    throw new Error('월차 발생 회차는 1~11이어야 합니다.');
+  }
+  return startOfDay(addMonths(hire, n));
+}
+
+/** 입사 후 경과 개월 수 (입사 대응일 기준, 최대 11) */
 export function getMonthsSinceHire(hireDate, asOfDate = new Date()) {
-  const hire = startOfDay(typeof hireDate === 'string' ? parseISO(hireDate) : hireDate);
+  const hire = parseHireDate(hireDate);
   const asOf = startOfDay(asOfDate);
   if (isBefore(asOf, hire)) return 0;
 
   let months = 0;
-  let cursor = new Date(hire.getFullYear(), hire.getMonth() + 1, 1);
-
-  while (isBefore(cursor, asOf) || cursor.getTime() === asOf.getTime()) {
-    months++;
-    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
-    if (months >= 11) break;
+  for (let m = 1; m <= 11; m += 1) {
+    const accrualDate = getFirstYearMonthlyAccrualDate(hire, m);
+    if (isAfter(accrualDate, asOf)) break;
+    months = m;
   }
-  return Math.min(months, 11);
+  return months;
 }
 
 /** 첫해 여부: 입사 1년 미만 */
@@ -73,7 +86,7 @@ export function hasReachedOneYear(hireDate, asOfDate = new Date()) {
 
 /**
  * 첫해 월차 발생량 (최대 11개)
- * 입사 후 매월 1개씩 발생
+ * 입사 대응일이 될 때마다 1개씩 발생
  */
 export function calculateFirstYearMonthlyLeave(hireDate, asOfDate = new Date()) {
   if (!isFirstYear(hireDate, asOfDate)) {
@@ -259,6 +272,15 @@ export function filterUsagesByYear(usages, year) {
   return usages.filter((u) => parseISO(u.date).getFullYear() === year);
 }
 
+/** 현재 연차 주기(입사~일사일 / 일사일~다음 1/1 / 회계연도) 사용분만 집계 */
+export function filterUsagesInCurrentPeriod(usages, hireDate, asOfDate = new Date()) {
+  const periodStart = startOfDay(getLeavePeriodStart(hireDate, asOfDate));
+  return usages.filter((u) => {
+    const usageDate = parseUsageDate(u.date);
+    return !isBefore(usageDate, periodStart);
+  });
+}
+
 /** 올해 발생한 월차 수 (첫해, 달력연도 기준) */
 export function getMonthlyAccrualInYear(hireDate, year, asOfDate = new Date()) {
   const hire = parseHireDate(hireDate);
@@ -274,7 +296,7 @@ export function getMonthlyAccrualInYear(hireDate, year, asOfDate = new Date()) {
 
   let count = 0;
   for (let m = 1; m <= 11; m++) {
-    const accrualDate = startOfDay(new Date(hire.getFullYear(), hire.getMonth() + m, 1));
+    const accrualDate = getFirstYearMonthlyAccrualDate(hireDate, m);
     if (accrualDate.getFullYear() !== year) continue;
     if (isAfter(accrualDate, asOf)) break;
     if (!isBefore(asOf, oneYear) && isBefore(accrualDate, oneYear)) continue;
@@ -298,15 +320,8 @@ export function getCurrentYearSettledDeduction(hireDate, year, asOfDate = new Da
   const events = getSettlementEventsInYear(hireDate, year, asOf);
 
   if (phase === 'annual') {
-    const fiscalStart = getFiscalYearStart(asOf);
-    return events
-      .filter((e) => {
-        if (e.type === 'fiscal_annual') {
-          return isSameDay(e.date, fiscalStart);
-        }
-        return false;
-      })
-      .reduce((sum, e) => sum + e.settledDays, 0);
+    // 회계기준일 정산은 '직전 회계연도' 연차 정산이라 올해 발생분에서 차감하지 않음
+    return 0;
   }
 
   if (phase === 'prorated') {
@@ -407,9 +422,13 @@ export function calculateLeaveBalance(hireDate, usages = [], asOfDate = new Date
   const phase = getLeavePhase(hireDate, asOf);
 
   const consumedUsages = filterConsumedUsages(usages, consumptionAsOf);
-  const yearUsages = filterUsagesByYear(consumedUsages, year);
-  const usedDays = sumUsedDays(yearUsages);
-  const scheduledDays = sumUsedDays(filterUsagesByYear(filterScheduledUsages(usages, consumptionAsOf), year));
+  // 잔여는 '올해 달력'이 아니라 현재 연차 주기 사용분 기준으로 맞춤
+  // (비례 구간에서 일사일 이전 첫해 사용분이 비례 발생분을 깎지 않도록)
+  const periodUsages = filterUsagesInCurrentPeriod(consumedUsages, hireDate, asOf);
+  const usedDays = sumUsedDays(periodUsages);
+  const scheduledDays = sumUsedDays(
+    filterUsagesInCurrentPeriod(filterScheduledUsages(usages, consumptionAsOf), hireDate, asOf)
+  );
 
   let accruedThisYear = 0;
   let firstYearMonthly = 0;

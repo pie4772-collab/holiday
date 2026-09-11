@@ -34,7 +34,7 @@ export function EmployeeRequest() {
     <div>
       <PageHeader
         title="연차 신청"
-        description="시작일과 종료일을 선택하면 그 사이 평일을 한 번에 신청합니다."
+        description="시작일과 종료일을 선택하면 그 사이 평일만 한 번에 신청합니다. 주말·공휴일은 제외됩니다."
       />
 
       {lastRequestMessage && (
@@ -73,8 +73,8 @@ export function EmployeeRequest() {
               안내
             </p>
             <ul className="space-y-2 text-[13px] text-stripe-muted">
-              <li>연속 연차는 시작일~종료일의 평일만 신청됩니다 (주말 제외)</li>
-              <li>반차는 하루만 신청할 수 있습니다</li>
+              <li>연속 연차는 시작일~종료일의 평일만 신청됩니다 (주말·공휴일 제외)</li>
+              <li>반차는 평일 하루만 신청할 수 있습니다</li>
               <li>신청·승인 직후에는 잔여가 줄지 않고, 사용일이 지난 뒤에 차감됩니다</li>
               <li>팀원 신청은 팀장 승인, 경영전략실은 박지은 승인</li>
             </ul>

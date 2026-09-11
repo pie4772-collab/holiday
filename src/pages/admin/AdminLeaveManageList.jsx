@@ -262,14 +262,14 @@ export function AdminLeaveManageList() {
                   <th>
                     <SortButton label="입사일" column="hireDate" sort={sort} onSort={handleSort} />
                   </th>
-                  <th className="text-right">
-                    <SortButton label="발생" column="accrued" sort={sort} onSort={handleSort} className="ml-auto" />
+                  <th>
+                    <SortButton label="발생" column="accrued" sort={sort} onSort={handleSort} />
                   </th>
-                  <th className="text-right">
-                    <SortButton label="사용" column="used" sort={sort} onSort={handleSort} className="ml-auto" />
+                  <th>
+                    <SortButton label="사용" column="used" sort={sort} onSort={handleSort} />
                   </th>
-                  <th className="text-right">
-                    <SortButton label="잔여" column="remaining" sort={sort} onSort={handleSort} className="ml-auto" />
+                  <th>
+                    <SortButton label="잔여" column="remaining" sort={sort} onSort={handleSort} />
                   </th>
                   <th>
                     <SortButton label="상태" column="status" sort={sort} onSort={handleSort} />
@@ -286,9 +286,9 @@ export function AdminLeaveManageList() {
                     <td className="muted whitespace-nowrap">{emp.department || '-'}</td>
                     <td className="muted whitespace-nowrap">{emp.position || '-'}</td>
                     <td className="font-mono text-[13px] muted whitespace-nowrap">{formatDate(emp.hireDate)}</td>
-                    <td className="tabular-nums text-right whitespace-nowrap">{emp.leaveSummary.accruedThisYear}</td>
-                    <td className="tabular-nums text-right muted whitespace-nowrap">{emp.leaveSummary.usedDays}</td>
-                    <td className="tabular-nums text-right whitespace-nowrap">
+                    <td className="tabular-nums whitespace-nowrap">{emp.leaveSummary.accruedThisYear}</td>
+                    <td className="tabular-nums muted whitespace-nowrap">{emp.leaveSummary.usedDays}</td>
+                    <td className="tabular-nums whitespace-nowrap">
                       <span
                         className={`font-medium ${
                           emp.leaveSummary.remaining < 3 ? 'text-[#df1b41]' : 'text-[#09825d]'
@@ -298,7 +298,7 @@ export function AdminLeaveManageList() {
                       </span>
                     </td>
                     <td>{phaseBadge(emp.leaveSummary)}</td>
-                    <td className="text-right whitespace-nowrap">
+                    <td className="whitespace-nowrap">
                       <Link
                         to={`/admin/leave-manage/${emp.id}`}
                         className="text-[13px] font-medium text-primary-500 hover:text-primary-600"

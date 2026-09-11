@@ -182,6 +182,7 @@
   letter-spacing: 0;
   overflow: hidden;
   vertical-align: middle;
+  text-align: center;
 }
 
 .stripe-table-fit thead th {
@@ -193,6 +194,8 @@
 .stripe-table-fit thead th button {
   white-space: normal;
   max-width: 100%;
+  justify-content: center;
+  width: 100%;
 }
 
 .stripe-table-fit tbody td {

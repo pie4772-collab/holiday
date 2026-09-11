@@ -96,8 +96,52 @@ export function calculateFirstYearMonthlyLeave(hireDate, asOfDate = new Date()) 
 }
 
 /**
+ * 스냅샷 기준일 다음날~asOf 사이에 추가로 발생한 첫해 월차 수
+ * (스냅샷 accrued에 아직 반영되지 않은 입사 대응일 발생분)
+ */
+export function countFirstYearMonthlyAccrualsAfter(hireDate, afterDate, asOfDate = new Date()) {
+  if (!afterDate) return 0;
+  const after = startOfDay(typeof afterDate === 'string' ? parseISO(afterDate) : afterDate);
+  const asOf = startOfDay(asOfDate);
+  if (!isAfter(asOf, after)) return 0;
+
+  let count = 0;
+  for (let m = 1; m <= 11; m += 1) {
+    const accrualDate = getFirstYearMonthlyAccrualDate(hireDate, m);
+    if (isAfter(accrualDate, after) && !isAfter(accrualDate, asOf)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+/**
+ * 연차 발생일수 반올림 (0.5 단위)
+ * - 소수 0    → 그대로 (정수)
+ * - 0.1~0.4   → 0.5
+ * - 0.5       → 0.5
+ * - 0.6~0.9   → 다음 정수(+1)
+ * 사용(반차 0.5)과 잔여 표시는 별도 — 발생·부여 계산에만 사용
+ */
+export function roundAccruedLeaveDays(days) {
+  const value = Number(days);
+  if (!Number.isFinite(value) || value === 0) return 0;
+
+  const sign = value < 0 ? -1 : 1;
+  const abs = Math.abs(value);
+  const whole = Math.floor(abs + 1e-9);
+  const frac = Math.round((abs - whole) * 1000) / 1000;
+
+  let adjusted = whole;
+  if (frac >= 0.1 && frac <= 0.5) adjusted = whole + 0.5;
+  else if (frac > 0.5) adjusted = whole + 1;
+
+  return sign * adjusted;
+}
+
+/**
  * 1년 도달 시점 비례 연차
- * 비례 연차 = 15 × (다음 회계연도 시작일까지 남은 일수 / 365)
+ * 비례 연차 = roundAccrued(15 × (다음 회계연도 시작일까지 남은 일수 / 365))
  * 일사일이 이미 1/1이면 남은 일수 0 → 비례 연차 없음(바로 정규 전환)
  */
 export function calculateProratedLeave(hireDate) {
@@ -106,7 +150,7 @@ export function calculateProratedLeave(hireDate) {
   const nextFiscalStart = getFirstFiscalYearStartOnOrAfter(oneYearAnniversary);
   const remainingDays = differenceInDays(nextFiscalStart, oneYearAnniversary);
   if (remainingDays <= 0) return 0;
-  return Math.round((15 * (remainingDays / 365)) * 10) / 10;
+  return roundAccruedLeaveDays(15 * (remainingDays / 365));
 }
 
 /** 정규 연차 최초 발생일 (비례 연차 기간 종료 후 첫 회계기준일, 1/1 입사는 일사일 당일) */
@@ -436,7 +480,8 @@ export function calculateLeaveBalance(hireDate, usages = [], asOfDate = new Date
   let annualLeave = 0;
 
   if (phase === 'first_year_monthly') {
-    firstYearMonthly = getMonthlyAccrualInYear(hireDate, year, asOf);
+    // 잔여·발생은 달력연도가 아니라 입사~현재까지 누적 월차(최대 11)
+    firstYearMonthly = calculateFirstYearMonthlyLeave(hireDate, asOf);
     accruedThisYear = firstYearMonthly;
   } else if (phase === 'prorated') {
     if (oneYear.getFullYear() === year) {
@@ -495,7 +540,7 @@ export function calculateLeaveBalance(hireDate, usages = [], asOfDate = new Date
     settlements: yearSettlements,
     firstYearMonthlySettlement: {
       totalMonths: phase === 'first_year_monthly'
-        ? getMonthlyAccrualInYear(hireDate, year, asOf)
+        ? calculateFirstYearMonthlyLeave(hireDate, asOf)
         : calculateFirstYearMonthlyLeave(hireDate, oneYear),
       totalDays: firstYearMonthly,
       settled: firstYearSettled,

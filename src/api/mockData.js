@@ -118,7 +118,7 @@ function buildAutoAccrualLogs(employee) {
       type: 'prorated',
       amount: balance.proratedLeave,
       date: formatDate(getOneYearAnniversary(hireDate)),
-      description: `${DISPLAY_YEAR}년 비례 연차 (15 × 남은일수/365)`,
+      description: `${DISPLAY_YEAR}년 비례 연차 (15 × 남은일수/365, 0.1~0.4→0.5 / 0.6~0.9→1)`,
       isManual: false,
     });
   }

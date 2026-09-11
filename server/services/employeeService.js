@@ -8,7 +8,7 @@ function normalizePosition(value) {
   return POSITIONS.includes(position) ? position : DEFAULT_POSITION;
 }
 
-const AS_OF_DATE = process.env.AS_OF_DATE || '2026-08-31';
+const AS_OF_DATE = process.env.AS_OF_DATE || '2026-07-31';
 const DISPLAY_YEAR = getCurrentDisplayYear(new Date(AS_OF_DATE));
 
 function toApiId(dbId) {

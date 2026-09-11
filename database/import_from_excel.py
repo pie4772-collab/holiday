@@ -13,7 +13,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "holiday.db"
 SCHEMA_PATH = BASE_DIR / "schema.sql"
 LOCAL_COPY = BASE_DIR / "_import_source.xlsx"
-AS_OF_DATE = "2026-08-31"
+AS_OF_DATE = "2026-07-31"
 DISPLAY_YEAR = 2026
 
 DEFAULT_EXCEL_DIRS = [

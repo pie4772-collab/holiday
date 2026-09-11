@@ -69,7 +69,7 @@ export function EmployeeDashboard() {
           value={leaveSummary.accruedThisYear}
           subtitle={
             leaveSummary.phase === 'first_year_monthly'
-              ? `${year}년 월차 ${leaveSummary.accruedThisYear}개`
+              ? `첫해 월차 누적 ${leaveSummary.accruedThisYear}개`
               : leaveSummary.phase === 'prorated'
                 ? `${year}년 비례 ${leaveSummary.proratedLeave}일`
                 : `${year}년 정규 ${leaveSummary.annualLeave}일`

@@ -62,7 +62,7 @@ export function AdminEmployeeDetail() {
       <Panel className="mb-6">
         <PanelHeader title="기본 정보" />
         <PanelBody>
-          <dl className="grid grid-cols-2 lg:grid-cols-4 gap-6 text-sm">
+          <dl className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-6 text-sm">
             {[
               { label: '입사일', value: formatDate(employee.hireDate) },
               { label: '이메일', value: employee.email || '—' },
@@ -73,6 +73,10 @@ export function AdminEmployeeDetail() {
                   : leaveSummary.isProratedTarget
                     ? '비례 연차'
                     : '정규 연차',
+              },
+              {
+                label: '당해 누적 사용',
+                value: `${leaveSummary.usedDays ?? 0}일`,
               },
               { label: '잔여 연차', value: `${leaveSummary.remaining}일`, accent: true },
             ].map(({ label, value, accent }) => (
@@ -115,7 +119,7 @@ export function AdminEmployeeDetail() {
         <LeaveSummaryCard
           title="비례 연차"
           value={leaveSummary.proratedLeave || 0}
-          subtitle="15 × (남은일수/365)"
+          subtitle="15 × (남은일수/365) · 0.1~0.4→0.5, 0.6~0.9→1"
         />
         <LeaveSummaryCard
           title="정규 연차"

@@ -49,7 +49,7 @@ export function Timeline({ hireDate, leaveSummary }) {
       title: '비례 연차',
       date: oneYearDate || '-',
       description: leaveSummary?.proratedLeave
-        ? `15 × (남은일수/365) = ${leaveSummary.proratedLeave}일`
+        ? `15 × (남은일수/365) → ${leaveSummary.proratedLeave}일 (0.1~0.4→0.5, 0.6~0.9→1)`
         : proratedStatus === 'completed'
           ? '1년 도달 후 다음 회계연도까지 비례 발생 · 기간 종료'
           : '1년 도달 후 다음 회계연도까지 비례 발생',

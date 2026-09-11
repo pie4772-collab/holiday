@@ -1,10 +1,12 @@
 import {
   calculateLeaveBalance,
+  calculateFirstYearMonthlyLeave,
   formatDate,
   getOneYearAnniversary,
   getCurrentDisplayYear,
   getMonthlyAccrualInYear,
   getFirstYearMonthlyAccrualDate,
+  getLeavePeriodStart,
   filterUsagesByYear,
   filterConsumedUsages,
   filterScheduledUsages,
@@ -30,17 +32,57 @@ import { getDb, parseEmployeeId } from '../db.js';
 import * as approvalService from './approvalService.js';
 import * as mailService from './mailService.js';
 
-const AS_OF_DATE = process.env.AS_OF_DATE || '2026-07-10';
+/** Excel 연차 대장 임포트 기준일 (7월 말 사용분까지 반영) */
+const AS_OF_DATE = process.env.AS_OF_DATE || '2026-07-31';
 const TODAY = new Date(AS_OF_DATE);
 
-function getConsumptionAsOf() {
+const EMPLOYEE_SNAPSHOT_SELECT = `
+  SELECT e.*, lbs.as_of_date, lbs.display_year, lbs.accrued, lbs.used, lbs.remaining, lbs.source_file
+  FROM employees e
+  LEFT JOIN leave_balance_snapshots lbs
+    ON lbs.employee_id = e.id
+   AND lbs.as_of_date = (
+     SELECT MAX(s.as_of_date) FROM leave_balance_snapshots s WHERE s.employee_id = e.id
+   )
+`;
+
+/** 사용·발생 모두 실제 오늘이 기준일보다 뒤면 오늘을 사용 */
+function getBalanceAsOf() {
   const now = new Date();
   return now.getTime() > TODAY.getTime() ? now : TODAY;
 }
 
+function getConsumptionAsOf() {
+  return getBalanceAsOf();
+}
+
 function hasImportedSnapshot(row) {
   if (row.accrued == null && row.used == null && row.remaining == null) return false;
+  if (!row.as_of_date) return false;
+  const source = row.source_file || '';
+  if (source === 'manual_hire' || source === 'roster_seed') return false;
   return Number(row.accrued) !== 0 || Number(row.used) !== 0 || Number(row.remaining) !== 0;
+}
+
+function toDateKey(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value.slice(0, 10);
+  return formatDate(value);
+}
+
+/**
+ * 스냅샷을 현재 잔액에 쓸지 여부
+ * - asOf가 스냅샷 기준일 이전(과거 보고서)이면 사용 안 함
+ * - 스냅샷이 현재 연차 주기 시작 이전이면(주기가 바뀐 뒤) 사용 안 함
+ *   → 비례 전환·다음 회계연도 정규 부여는 엔진 계산으로 전환
+ */
+function shouldUseImportedSnapshot(row, hireDate, asOfDate) {
+  if (!hasImportedSnapshot(row)) return false;
+  const snap = String(row.as_of_date).slice(0, 10);
+  const asOfKey = toDateKey(asOfDate);
+  if (!asOfKey || asOfKey < snap) return false;
+  const periodStart = toDateKey(getLeavePeriodStart(hireDate, asOfDate));
+  return Boolean(periodStart) && snap >= periodStart;
 }
 
 function toApiId(dbId) {
@@ -85,12 +127,7 @@ function getEmployeeRow(id) {
   const dbId = parseEmployeeId(id);
   if (!dbId || Number.isNaN(dbId)) return null;
   return getDb()
-    .prepare(
-      `SELECT e.*, lbs.as_of_date, lbs.display_year, lbs.accrued, lbs.used, lbs.remaining
-       FROM employees e
-       LEFT JOIN leave_balance_snapshots lbs ON lbs.employee_id = e.id
-       WHERE e.id = ? AND e.is_active = 1`
-    )
+    .prepare(`${EMPLOYEE_SNAPSHOT_SELECT} WHERE e.id = ? AND e.is_active = 1`)
     .get(dbId);
 }
 
@@ -121,8 +158,12 @@ function getManualAccruals(dbId, year) {
   return year ? rows.filter((r) => new Date(r.date).getFullYear() === year) : rows;
 }
 
-function getManualAccrualTotal(dbId, year) {
-  return getManualAccruals(dbId, year).reduce((sum, a) => sum + a.amount, 0);
+function getManualAccrualTotal(dbId, year, afterDate = null) {
+  const rows = getManualAccruals(dbId, year);
+  const filtered = afterDate
+    ? rows.filter((r) => String(r.date || '').slice(0, 10) > String(afterDate).slice(0, 10))
+    : rows;
+  return filtered.reduce((sum, a) => sum + a.amount, 0);
 }
 
 function toEmployeeBase(row) {
@@ -145,64 +186,67 @@ function toEmployeeBase(row) {
 
 function buildLeaveSummary(row, options = {}) {
   const dbId = row.id;
-  const asOf = options.asOfDate || TODAY;
+  const asOf = options.asOfDate || getBalanceAsOf();
   const consumptionAsOf = options.consumptionAsOf || getConsumptionAsOf();
   const approvedUsages = getApprovedUsages(dbId);
-  const manualTotal = getManualAccrualTotal(dbId, getCurrentDisplayYear(asOf));
+  const displayYear = getCurrentDisplayYear(asOf);
+  const useSnapshot =
+    !options.skipSnapshot && shouldUseImportedSnapshot(row, row.hire_date, asOf);
+  const snapshotAsOf = useSnapshot ? String(row.as_of_date).slice(0, 10) : null;
+  // 스냅샷 사용 시: 기준일 이후 수동 발생만 가산 (엑셀에 이미 포함된 조정 중복 방지)
+  const manualTotal = getManualAccrualTotal(dbId, displayYear, snapshotAsOf);
   const calculated = calculateLeaveBalance(row.hire_date, approvedUsages, asOf, {
-    manualAccrualTotal: manualTotal,
+    manualAccrualTotal: useSnapshot
+      ? manualTotal
+      : getManualAccrualTotal(dbId, displayYear),
     consumptionAsOf,
     skipSettledDeduction: Boolean(options.skipSettledDeduction),
-    skipCarryIn: Boolean(options.skipCarryIn),
+    skipCarryIn: Boolean(options.skipCarryIn) || useSnapshot,
   });
 
-  // Excel 스냅샷은 첫해·정규 구간의 잔액 기준으로 사용.
-  // 비례 구간에서는 스냅샷이 첫해 숫자(예: 발생 11)를 그대로 두는 경우가 많아
-  // 엔진 비례 발생분(15×남은일/365)을 우선한다.
-  if (
-    !options.skipSnapshot &&
-    hasImportedSnapshot(row) &&
-    calculated.phase !== 'prorated'
-  ) {
-    const snapshotAsOf = row.as_of_date;
+  if (useSnapshot) {
     // 스냅샷 기준일 다음날부터의 사용만 추가 차감 (기준일까지는 스냅샷 used/remaining에 포함)
-    const newUsages = approvedUsages.filter((usage) => !snapshotAsOf || usage.date > snapshotAsOf);
+    const newUsages = approvedUsages.filter((usage) => usage.date > snapshotAsOf);
     const extraUsed = sumUsageDays(filterConsumedUsages(newUsages, consumptionAsOf));
     const scheduledDays = sumUsageDays(filterScheduledUsages(newUsages, consumptionAsOf));
-    const accrued = row.accrued + manualTotal;
+    // 첫해: 엔진 누적 월차와 스냅샷 발생의 차이를 보정해
+    // (스냅샷 이후 대응일 + 스냅샷 시점 과소계상 모두 반영)
+    const extraAccrued = calculated.phase === 'first_year_monthly'
+      ? Math.max(0, calculateFirstYearMonthlyLeave(row.hire_date, asOf) - Number(row.accrued || 0))
+      : 0;
+    const accrued = Number(row.accrued || 0) + extraAccrued + manualTotal;
     const used = Math.round(((row.used || 0) + extraUsed) * 10) / 10;
-    const carryInDays = options.skipCarryIn
-      ? 0
-      : getPriorPeriodOveruseCarryIn(row.hire_date, asOf, approvedUsages, {
-          manualAccrualTotal: manualTotal,
-          consumptionAsOf,
-        });
-    const rawRemaining = Math.round((Number(row.remaining || 0) + manualTotal - extraUsed - carryInDays) * 10) / 10;
+    const rawRemaining = Math.round(
+      (Number(row.remaining || 0) + extraAccrued + manualTotal - extraUsed) * 10
+    ) / 10;
     const remaining = getPayableLeaveDays(rawRemaining);
     const overusedDays = getOverusedLeaveDays(rawRemaining);
 
     return {
       employeeId: toApiId(dbId),
       ...calculated,
-      accruedThisYear: accrued,
+      accruedThisYear: Math.round(accrued * 10) / 10,
       usedDays: used,
       remaining,
       rawRemaining,
       overusedDays,
-      carryInDays,
+      carryInDays: 0,
       scheduledDays,
-      totalGranted: accrued,
+      totalGranted: Math.round(accrued * 10) / 10,
       manualAccrualTotal: manualTotal,
       snapshotAccrued: row.accrued,
       snapshotUsed: row.used,
       snapshotRemaining: row.remaining,
+      extraAccruedAfterSnapshot: extraAccrued,
+      usingSnapshot: true,
     };
   }
 
   return {
     employeeId: toApiId(dbId),
     ...calculated,
-    manualAccrualTotal: manualTotal,
+    manualAccrualTotal: getManualAccrualTotal(dbId, displayYear),
+    usingSnapshot: false,
   };
 }
 
@@ -210,7 +254,7 @@ function buildAutoAccrualLogs(employee, balance) {
   const logs = [];
   const hireDate = employee.hireDate;
   const displayYear = balance.displayYear;
-  const monthlyInYear = getMonthlyAccrualInYear(hireDate, displayYear, TODAY);
+  const monthlyInYear = getMonthlyAccrualInYear(hireDate, displayYear, getBalanceAsOf());
 
   for (let m = 1; m <= monthlyInYear; m++) {
     let count = 0;
@@ -241,7 +285,7 @@ function buildAutoAccrualLogs(employee, balance) {
       type: 'prorated',
       amount: balance.proratedLeave,
       date: formatDate(getOneYearAnniversary(hireDate)),
-      description: `${displayYear}년 비례 연차 (15 × 남은일수/365)`,
+      description: `${displayYear}년 비례 연차 (15 × 남은일수/365, 0.1~0.4→0.5 / 0.6~0.9→1)`,
       isManual: false,
     });
   }
@@ -281,13 +325,7 @@ function buildAccrualLogs(employee, balance) {
 
 export function getAllEmployees() {
   const rows = getDb()
-    .prepare(
-      `SELECT e.*, lbs.as_of_date, lbs.display_year, lbs.accrued, lbs.used, lbs.remaining
-       FROM employees e
-       LEFT JOIN leave_balance_snapshots lbs ON lbs.employee_id = e.id
-       WHERE e.is_active = 1
-       ORDER BY e.name`
-    )
+    .prepare(`${EMPLOYEE_SNAPSHOT_SELECT} WHERE e.is_active = 1 ORDER BY e.name`)
     .all();
 
   return rows.map((row) => {
@@ -325,9 +363,10 @@ export function getCurrentEmployee(employeeId) {
 
 export function getAdminStats() {
   const employees = getAllEmployees();
-  const displayYear = getCurrentDisplayYear(TODAY);
-  const thisMonth = TODAY.getMonth();
-  const thisYear = TODAY.getFullYear();
+  const asOf = getBalanceAsOf();
+  const displayYear = getCurrentDisplayYear(asOf);
+  const thisMonth = asOf.getMonth();
+  const thisYear = asOf.getFullYear();
 
   const consumedBefore = formatDate(getConsumptionAsOf());
   const monthlyUsage = getDb()
@@ -386,9 +425,7 @@ export function getMonthlyLeaveReport(year, month) {
   const range = getReportMonthRange(y, m);
   const rows = getDb()
     .prepare(
-      `SELECT e.*, lbs.as_of_date, lbs.display_year, lbs.accrued, lbs.used, lbs.remaining
-       FROM employees e
-       LEFT JOIN leave_balance_snapshots lbs ON lbs.employee_id = e.id
+      `${EMPLOYEE_SNAPSHOT_SELECT}
        WHERE e.hire_date <= ?
          AND (
            (e.is_active = 1 AND (e.terminated_date IS NULL OR e.terminated_date > ?))
@@ -724,9 +761,7 @@ export function getLeavePaySettlement(year, month) {
   const range = getReportMonthRange(y, m);
   const rows = getDb()
     .prepare(
-      `SELECT e.*, lbs.as_of_date, lbs.display_year, lbs.accrued, lbs.used, lbs.remaining
-       FROM employees e
-       LEFT JOIN leave_balance_snapshots lbs ON lbs.employee_id = e.id
+      `${EMPLOYEE_SNAPSHOT_SELECT}
        WHERE e.hire_date <= ?
          AND (
            (e.is_active = 1 AND (e.terminated_date IS NULL OR e.terminated_date > ?))
@@ -888,12 +923,6 @@ function eventTypeLabel(type) {
   return EVENT_TYPE_LABELS[type] || type;
 }
 
-function toDateKey(value) {
-  if (!value) return '';
-  if (typeof value === 'string') return value.slice(0, 10);
-  return formatDate(value);
-}
-
 function toLocalDate(value) {
   const key = toDateKey(value);
   if (!key) return new Date(NaN);
@@ -965,9 +994,7 @@ export function getLeaveEventSettlement(year) {
   // 연중 재직자 + 해당 연도 퇴사자(과거 퇴사·비활성 포함). 퇴사일이 연초 이전인 사람만 제외.
   const rows = getDb()
     .prepare(
-      `SELECT e.*, lbs.as_of_date, lbs.display_year, lbs.accrued, lbs.used, lbs.remaining
-       FROM employees e
-       LEFT JOIN leave_balance_snapshots lbs ON lbs.employee_id = e.id
+      `${EMPLOYEE_SNAPSHOT_SELECT}
        WHERE e.hire_date IS NOT NULL
          AND substr(e.hire_date, 1, 10) <= ?
          AND (
@@ -1233,7 +1260,7 @@ export function getLeaveHistory(employeeId) {
 export function getLeaveUsages(employeeId) {
   const row = getEmployeeRow(employeeId);
   if (!row) return [];
-  const year = String(getCurrentDisplayYear(TODAY));
+  const year = String(getCurrentDisplayYear(getBalanceAsOf()));
   return getAllUsages(row.id).filter(
     (usage) =>
       usage.status === 'pending' ||
@@ -1249,7 +1276,7 @@ export function getAdminAccruals(employeeId) {
 export function getAdminUsages(employeeId) {
   const row = getEmployeeRow(employeeId);
   if (!row) return [];
-  return getAllUsages(row.id, getCurrentDisplayYear(TODAY));
+  return getAllUsages(row.id, getCurrentDisplayYear(getBalanceAsOf()));
 }
 
 function httpError(message, status = 400) {

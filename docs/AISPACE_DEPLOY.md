@@ -24,7 +24,7 @@ Holiday 프로젝트를 **space_02** (Node.js / Express API + 프론트)에 배�
 | `PORT` | (플랫폼 할당값) | 보통 자동 설정 |
 | `HOST` | `0.0.0.0` | |
 | `CURRENT_EMPLOYEE_ID` | `13` | 기본 직원 |
-| `AS_OF_DATE` | `2026-08-31` | 연차 기준일 |
+| `AS_OF_DATE` | `2026-07-31` | Excel 연차 대장 스냅샷 기준일 |
 | `DB_PATH` | 영속 스토리지 경로 | SQLite 파일 (재배포 후에도 유지) |
 
 `server/.env`도 함께 업로드되지만, **콘솔 환경 변수가 우선**합니다.

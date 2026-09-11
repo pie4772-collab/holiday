@@ -871,16 +871,16 @@ function listEventSettlementYears() {
   const bounds = getDb()
     .prepare(
       `SELECT
-         MIN(substr(hire_date, 1, 4)) AS min_hire,
          MIN(CASE WHEN terminated_date IS NOT NULL THEN substr(terminated_date, 1, 4) END) AS min_term,
          MAX(CASE WHEN terminated_date IS NOT NULL THEN substr(terminated_date, 1, 4) END) AS max_term
        FROM employees`
     )
     .get();
-  const minHire = Number(bounds?.min_hire) || current;
-  const minTerm = Number(bounds?.min_term) || current;
+  const minTerm = Number(bounds?.min_term);
   const maxTerm = Number(bounds?.max_term) || current;
-  const start = Math.min(minHire, minTerm, current - 5, maxTerm);
+  // 정기·전환 정산은 현재 시점 이후만 보여 주므로 연도 기본은 올해부터.
+  // 중도 퇴사는 과거 연도도 조회할 수 있게 퇴사 이력이 있는 연도까지 포함.
+  const start = Number.isFinite(minTerm) ? Math.min(current, minTerm) : current;
   const end = Math.max(current + 2, maxTerm);
   const years = [];
   for (let year = start; year <= end; year += 1) years.push(year);
@@ -894,6 +894,7 @@ function listEventSettlementYears() {
  * - 회계기준 전환(비례) / 회계기준일(정규)
  * - 1/1 입사: 일사일 정산 후 바로 회계연도(정규) 전환
  * - 중도 퇴사(퇴사일 잔여) — 과거 연도의 퇴사자(is_active=0)도 해당 연도에서 계산
+ * - 입사 1년·회계전환·회계기준일은 현재 시점 이전(이미 정산된 것으로 봄) 대상은 제외
  * 매월 정산하지 않음.
  */
 export function getLeaveEventSettlement(year) {
@@ -941,6 +942,8 @@ export function getLeaveEventSettlement(year) {
       const eventDate = toDateKey(event.date);
       // 퇴사일 이후 도래하는 부여 정산은 제외 (퇴사 정산으로 갈음)
       if (terminatedDate && eventDate > terminatedDate) continue;
+      // 입사 1년·회계전환·회계기준일은 이미 지난 시점이면 정산 완료로 보고 제외
+      if (eventDate < todayKey) continue;
 
       const summary = buildLeaveSummary(row, {
         asOfDate: new Date(eventDate),
@@ -1081,7 +1084,7 @@ export function getLeaveEventSettlement(year) {
     asOfDate: yearEnd,
     wageHours: ORDINARY_WAGE_HOURS,
     formula: `연차수당 = (월 통상임금 ÷ ${ORDINARY_WAGE_HOURS}) × max(0, 정산일수)`,
-    note: '선택한 연도에 도래하는 정산(미래·과거 포함)을 보여 줍니다. 중도 퇴사는 과거 연도의 퇴사자도 해당 연도를 선택하면 계산됩니다. 1월 1일 입사는 최초 1년 정산 후 바로 회계연도(정규)로 전환됩니다. 잔여가 0 미만이면 수당 일수 0, 초과분은 다음 주기로 이월 차감됩니다.',
+    note: '입사 1년·회계기준 전환·회계기준일은 현재 시점 이후 도래 대상만 보여 줍니다. 이미 지난 정산은 완료된 것으로 봅니다. 중도 퇴사는 과거 연도의 퇴사자도 해당 연도를 선택하면 계산됩니다. 1월 1일 입사는 최초 1년 정산 후 바로 회계연도(정규)로 전환됩니다.',
     availableYears: listEventSettlementYears(),
     eventTypes: [
       { value: 'first_year', label: '입사 1년' },

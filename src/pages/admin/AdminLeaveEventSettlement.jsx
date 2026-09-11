@@ -31,6 +31,8 @@ function eventBadgeVariant(type) {
   return 'success';
 }
 
+const compactBadgeClass = 'whitespace-nowrap text-[11px] px-1.5 py-0 leading-5';
+
 function downloadCsv(settlement, workplaceFilter, eventTypeFilter) {
   const groups = workplaceFilter
     ? settlement.workplaces.filter((group) => group.workplace === workplaceFilter)
@@ -325,8 +327,10 @@ export function AdminLeaveEventSettlement() {
                         </p>
                       </div>
                       <div className="flex flex-col items-end gap-1">
-                        <Badge variant={eventBadgeVariant(emp.eventType)}>{emp.eventTypeLabel}</Badge>
-                        <Badge variant={emp.isUpcoming ? 'info' : 'success'}>
+                        <Badge variant={eventBadgeVariant(emp.eventType)} className={compactBadgeClass}>
+                          {emp.eventTypeLabel}
+                        </Badge>
+                        <Badge variant={emp.isUpcoming ? 'info' : 'success'} className={compactBadgeClass}>
                           {emp.statusLabel || (emp.isUpcoming ? '도래 예정' : '도래')}
                         </Badge>
                       </div>
@@ -367,11 +371,11 @@ export function AdminLeaveEventSettlement() {
                       <th>이름</th>
                       <th>사번</th>
                       <th>입사일</th>
-                      <th>정산일</th>
-                      <th>유형</th>
-                      <th>상태</th>
-                      <th className="text-right">정산일수</th>
-                      <th className="text-right">초과이월</th>
+                      <th className="whitespace-nowrap">정산일</th>
+                      <th className="whitespace-nowrap">유형</th>
+                      <th className="whitespace-nowrap">상태</th>
+                      <th className="text-right whitespace-nowrap">정산일수</th>
+                      <th className="text-right whitespace-nowrap">초과이월</th>
                       <th>월 통상임금</th>
                       <th className="text-right">일급</th>
                       <th className="text-right">연차수당</th>
@@ -385,11 +389,13 @@ export function AdminLeaveEventSettlement() {
                         <td className="font-mono text-[13px]">{emp.empNo || '-'}</td>
                         <td className="font-mono text-[13px] whitespace-nowrap">{emp.hireDate || '—'}</td>
                         <td className="font-mono text-[13px] whitespace-nowrap">{emp.eventDate}</td>
-                        <td>
-                          <Badge variant={eventBadgeVariant(emp.eventType)}>{emp.eventTypeLabel}</Badge>
+                        <td className="whitespace-nowrap">
+                          <Badge variant={eventBadgeVariant(emp.eventType)} className={compactBadgeClass}>
+                            {emp.eventTypeLabel}
+                          </Badge>
                         </td>
-                        <td>
-                          <Badge variant={emp.isUpcoming ? 'info' : 'success'}>
+                        <td className="whitespace-nowrap">
+                          <Badge variant={emp.isUpcoming ? 'info' : 'success'} className={compactBadgeClass}>
                             {emp.statusLabel || (emp.isUpcoming ? '도래 예정' : '도래')}
                           </Badge>
                         </td>

@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS leave_month_reports (
   UNIQUE(year, month)
 );
 
--- 월 통상임금(원). 연차수당 = (통상임금 / 209) × 잔여일수
+-- 월 통상임금(원). 일급 = 통상임금 / 209 × 8, 연차수당 = 일급 × 잔여일수
 -- employees.ordinary_wage 컬럼은 migrate에서 추가
 
 CREATE TABLE IF NOT EXISTS leave_pay_settlements (

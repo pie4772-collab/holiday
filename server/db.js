@@ -543,6 +543,22 @@ function migrate(database) {
   importRosterSeed(database);
   seedApprovalRules(database);
   seedApprovalSeats(database);
+
+  // 7월 말 임포트 잔액인데 as_of가 8/31로 들어간 경우 보정.
+  // (8월 사용분이 스냅샷 이후 차감에 잡히지 않는 문제 방지)
+  const snapFix = database.prepare(`SELECT value FROM app_meta WHERE key = 'snapshot_asof_jul31_fixed'`).get();
+  if (!snapFix) {
+    database
+      .prepare(
+        `UPDATE leave_balance_snapshots
+         SET as_of_date = '2026-07-31'
+         WHERE as_of_date = '2026-08-31'`
+      )
+      .run();
+    database
+      .prepare(`INSERT OR REPLACE INTO app_meta (key, value) VALUES ('snapshot_asof_jul31_fixed', '1')`)
+      .run();
+  }
 }
 
 sqlDb.run('PRAGMA foreign_keys = ON');

@@ -85,6 +85,7 @@ export function AdminLeaveManage() {
       showMsg('연차 사용 내역이 추가되었습니다.');
     }
     setUsageModal({ open: false, item: null });
+    await refetch();
   }
 
   async function handleDeleteAccrual(item) {
@@ -97,6 +98,7 @@ export function AdminLeaveManage() {
     if (!confirm('이 연차 사용 내역을 삭제하시겠습니까?')) return;
     await deleteUsage.mutateAsync({ id: item.id, employeeId: id });
     showMsg('연차 사용 내역이 삭제되었습니다.');
+    await refetch();
   }
 
   return (

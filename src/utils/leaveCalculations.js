@@ -213,10 +213,10 @@ export function parseUsageDate(date) {
   return startOfDay(typeof date === 'string' ? parseISO(date) : date);
 }
 
-/** 사용일이 기준일보다 이전인지 (당일은 아직 차감하지 않음) */
+/** 사용일이 기준일 이하인지 (당일 사용분도 잔여 차감) */
 export function hasUsageDatePassed(usageDate, asOfDate = new Date()) {
   if (!usageDate) return false;
-  return isBefore(parseUsageDate(usageDate), startOfDay(asOfDate));
+  return !isAfter(parseUsageDate(usageDate), startOfDay(asOfDate));
 }
 
 /** 승인됐고 사용일이 지난 연차만 잔여 차감 대상 */

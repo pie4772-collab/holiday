@@ -106,12 +106,31 @@ export function LeaveAccrualFormModal({ isOpen, onClose, onSubmit, isSubmitting,
   );
 }
 
+function todayLocalIsoDate() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 export function LeaveUsageFormModal({ isOpen, onClose, onSubmit, isSubmitting, initial }) {
-  const defaultForm = { date: new Date().toISOString().slice(0, 10), type: 'full', reason: '', status: 'approved' };
+  const defaultForm = { date: todayLocalIsoDate(), type: 'full', reason: '', status: 'approved' };
   const [form, setForm] = useState(initial || defaultForm);
 
   useEffect(() => {
-    if (isOpen) setForm(initial || defaultForm);
+    if (isOpen) {
+      setForm(
+        initial
+          ? {
+              date: initial.date,
+              type: initial.type || 'full',
+              reason: initial.reason || '',
+              status: initial.status || 'approved',
+            }
+          : { date: todayLocalIsoDate(), type: 'full', reason: '', status: 'approved' }
+      );
+    }
   }, [isOpen, initial]);
 
   if (!isOpen) return null;

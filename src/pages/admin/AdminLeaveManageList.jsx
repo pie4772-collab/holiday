@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowDown, ArrowUp, ChevronsUpDown, Search } from 'lucide-react';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
@@ -8,6 +8,20 @@ import { Panel } from '../../components/ui/Panel';
 import { Badge } from '../../components/ui/Badge';
 import { useEmployees } from '../../hooks/useLeaveData';
 import { formatDate } from '../../utils/leaveCalculations';
+
+const FILTER_STORAGE_KEY = 'admin-leave-manage-filters';
+
+function loadSavedFilters() {
+  try {
+    const raw = sessionStorage.getItem(FILTER_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
 
 function phaseBadge(summary) {
   if (summary.isFirstYear) return <Badge variant="warning">첫해</Badge>;
@@ -72,11 +86,30 @@ function SortButton({ label, column, sort, onSort, className = '' }) {
 
 export function AdminLeaveManageList() {
   const { data: employees, isLoading, isError, refetch } = useEmployees();
-  const [query, setQuery] = useState('');
-  const [workplace, setWorkplace] = useState('');
-  const [department, setDepartment] = useState('');
-  const [status, setStatus] = useState('');
-  const [sort, setSort] = useState({ key: 'name', dir: 'asc' });
+  const savedFilters = useMemo(() => loadSavedFilters(), []);
+  const [query, setQuery] = useState(() => String(savedFilters?.query || ''));
+  const [workplace, setWorkplace] = useState(() => String(savedFilters?.workplace || ''));
+  const [department, setDepartment] = useState(() => String(savedFilters?.department || ''));
+  const [status, setStatus] = useState(() => String(savedFilters?.status || ''));
+  const [sort, setSort] = useState(() => {
+    const key = savedFilters?.sort?.key;
+    const dir = savedFilters?.sort?.dir;
+    if (typeof key === 'string' && (dir === 'asc' || dir === 'desc')) {
+      return { key, dir };
+    }
+    return { key: 'name', dir: 'asc' };
+  });
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(
+        FILTER_STORAGE_KEY,
+        JSON.stringify({ query, workplace, department, status, sort })
+      );
+    } catch {
+      // ignore quota / private mode errors
+    }
+  }, [query, workplace, department, status, sort]);
 
   const workplaces = useMemo(() => {
     return [...new Set((employees || []).map((emp) => emp.workplace).filter(Boolean))].sort((a, b) =>

@@ -19,6 +19,7 @@ import { useAppStore } from '../store/useAppStore';
 import { useCurrentEmployee } from '../hooks/useLeaveData';
 import { setAuthToken } from '../api/client';
 import { leaveApi } from '../api/leaveApi';
+import { BrandLockup } from './BrandLockup';
 
 const employeeNav = [
   { to: '/employee', icon: LayoutDashboard, label: 'Home', end: true },
@@ -121,19 +122,15 @@ export function Layout() {
       {/* Mobile top bar */}
       <header className="md:hidden fixed top-0 inset-x-0 z-50 bg-stripe-sidebar border-b border-white/10 safe-top">
         <div className="flex items-center justify-between px-4 h-14">
-          <Link to={homePath} className="flex items-center gap-2.5 min-w-0 hover:opacity-90">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-500 text-white text-sm font-bold">
-              동
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-sm font-semibold text-white tracking-tight truncate">동양철관 연차관리</h1>
-              {currentEmployee && (
-                <p className="text-[11px] text-stripe-sidebar-muted truncate">
-                  {currentEmployee.name}
-                  {role === 'admin' ? ' · 관리자' : ` · ${currentEmployee.department}`}
-                </p>
-              )}
-            </div>
+          <Link to={homePath} className="min-w-0 hover:opacity-90">
+            <BrandLockup
+              subtitle={
+                currentEmployee
+                  ? `${currentEmployee.name}${role === 'admin' ? ' · 관리자' : ` · ${currentEmployee.department}`}`
+                  : '연차관리'
+              }
+              markClassName="h-8 w-8"
+            />
           </Link>
           <div className="w-[108px] shrink-0 ml-2">
             {canAdmin && (
@@ -163,14 +160,8 @@ export function Layout() {
       {/* Desktop sidebar */}
       <aside className="hidden md:flex w-[240px] bg-stripe-sidebar flex-col fixed h-full z-40">
         <div className="px-5 py-5 border-b border-white/10">
-          <Link to={homePath} className="flex items-center gap-2.5 hover:opacity-90">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary-500 text-white text-sm font-bold">
-              동
-            </div>
-            <div>
-              <h1 className="text-sm font-semibold text-white tracking-tight">동양철관</h1>
-              <p className="text-[11px] text-stripe-sidebar-muted">연차관리</p>
-            </div>
+          <Link to={homePath} className="hover:opacity-90">
+            <BrandLockup markClassName="h-9 w-9" />
           </Link>
         </div>
 

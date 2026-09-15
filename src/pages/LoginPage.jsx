@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
+import { BrandMark } from '../components/BrandLockup';
 import { getAuthToken, setAuthToken } from '../api/client';
 import { leaveApi } from '../api/leaveApi';
 import { useAppStore } from '../store/useAppStore';
@@ -70,47 +71,52 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-stripe-bg flex items-center justify-center px-4">
-      <div className="w-full max-w-sm stripe-panel p-6">
-        <div className="flex items-center gap-2.5 mb-6">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary-500 text-white text-sm font-bold">
-            동
-          </div>
-          <div>
-            <h1 className="text-base font-semibold text-stripe-text">동양철관 연차관리</h1>
-            <p className="text-xs text-stripe-muted">사번으로 로그인</p>
-          </div>
-        </div>
+    <div className="min-h-screen bg-stripe-bg flex items-center justify-center px-4 py-8">
+      <div className="w-full max-w-3xl stripe-panel overflow-hidden">
+        <div className="flex flex-col md:flex-row md:items-stretch">
+          <aside className="flex items-center justify-center px-6 py-12 md:w-[44%] md:border-r border-b md:border-b-0 border-stripe-border bg-[#fafbfc]">
+            <div className="flex items-start gap-4">
+              <BrandMark className="h-12 w-12 mt-1.5" />
+              <div className="min-w-0">
+                <h1 className="text-3xl leading-[2.75rem] font-semibold text-stripe-text tracking-tight">
+                  KBI 동양철관
+                </h1>
+                <p className="text-lg text-stripe-muted mt-1.5">연차관리</p>
+              </div>
+            </div>
+          </aside>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="stripe-label">사번 (유저 ID)</label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-              required
-              className="stripe-input font-mono"
-              placeholder="예: 2016017"
-            />
-          </div>
-          <div>
-            <label className="stripe-label">비밀번호</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              required
-              className="stripe-input"
-            />
-          </div>
-          {error && <p className="text-sm text-[#df1b41]">{error}</p>}
-          <Button type="submit" className="w-full" disabled={isSubmitting}>
-            {isSubmitting ? '로그인 중…' : '로그인'}
-          </Button>
-        </form>
+          <form onSubmit={handleSubmit} className="flex flex-1 flex-col justify-center px-6 py-8 space-y-4">
+            <p className="text-sm text-stripe-muted -mt-1 mb-1">사번으로 로그인</p>
+            <div>
+              <label className="stripe-label">사번 (유저 ID)</label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="username"
+                required
+                className="stripe-input font-mono"
+                placeholder="예: 2016017"
+              />
+            </div>
+            <div>
+              <label className="stripe-label">비밀번호</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+                className="stripe-input"
+              />
+            </div>
+            {error && <p className="text-sm text-[#df1b41]">{error}</p>}
+            <Button type="submit" className="w-full" disabled={isSubmitting}>
+              {isSubmitting ? '로그인 중…' : '로그인'}
+            </Button>
+          </form>
+        </div>
       </div>
     </div>
   );

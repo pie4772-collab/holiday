@@ -78,11 +78,27 @@ export function AdminEmployeeDetail() {
                 label: '당해 누적 사용',
                 value: `${leaveSummary.usedDays ?? 0}일`,
               },
-              { label: '잔여 연차', value: `${leaveSummary.remaining}일`, accent: true },
-            ].map(({ label, value, accent }) => (
+              ...(leaveSummary.carryInDays > 0
+                ? [{ label: '전기 초과이월', value: `${leaveSummary.carryInDays}일` }]
+                : []),
+              {
+                label: '잔여 연차',
+                value: `${leaveSummary.remaining}일`,
+                accent: true,
+                danger: leaveSummary.remaining < 0,
+              },
+            ].map(({ label, value, accent, danger }) => (
               <div key={label}>
                 <dt className="text-[11px] font-semibold uppercase tracking-wide text-stripe-muted">{label}</dt>
-                <dd className={`mt-1 font-medium ${accent ? 'text-[#09825d] text-lg' : 'text-stripe-text'}`}>
+                <dd
+                  className={`mt-1 font-medium ${
+                    danger
+                      ? 'text-[#df1b41] text-lg'
+                      : accent
+                        ? 'text-[#09825d] text-lg'
+                        : 'text-stripe-text'
+                  }`}
+                >
                   {value}
                 </dd>
               </div>
@@ -123,8 +139,12 @@ export function AdminEmployeeDetail() {
         />
         <LeaveSummaryCard
           title="정규 연차"
-          value={leaveSummary.annualLeave || 0}
-          subtitle="기본 15일 + 근속 가산"
+          value={leaveSummary.accruedThisYear}
+          subtitle={
+            leaveSummary.carryInDays > 0
+              ? `부여 ${leaveSummary.grossAccruedThisYear ?? leaveSummary.annualLeave} − 전기초과 ${leaveSummary.carryInDays}`
+              : '기본 15일 + 근속 가산'
+          }
         />
       </div>
 

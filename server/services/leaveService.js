@@ -201,6 +201,8 @@ function buildLeaveSummary(row, options = {}) {
       : getManualAccrualTotal(dbId, displayYear),
     consumptionAsOf,
     skipSettledDeduction: Boolean(options.skipSettledDeduction),
+    // 스냅샷 구간: 엑셀 잔여에 전기 초과가 이미 반영된 것으로 보고 이월 생략
+    // 스냅샷 해제(다음 주기) 시에는 아래 스냅샷 인식 이월로 재계산
     skipCarryIn: Boolean(options.skipCarryIn) || useSnapshot,
   });
 
@@ -219,7 +221,7 @@ function buildLeaveSummary(row, options = {}) {
     const rawRemaining = Math.round(
       (Number(row.remaining || 0) + extraAccrued + manualTotal - extraUsed) * 10
     ) / 10;
-    const remaining = getPayableLeaveDays(rawRemaining);
+    const remaining = rawRemaining;
     const overusedDays = getOverusedLeaveDays(rawRemaining);
 
     return {
@@ -242,12 +244,52 @@ function buildLeaveSummary(row, options = {}) {
     };
   }
 
+  // 엔진 이월은 스냅샷 잔여를 모르는 경우가 있어, 직전 주기 요약을 다시 봐 초과분을 확정
+  const carryInDays = options.skipCarryIn
+    ? 0
+    : getSnapshotAwareCarryInDays(row, asOf, {
+        ...options,
+        consumptionAsOf,
+      });
+  const grossAccrued = Number(
+    calculated.grossAccruedThisYear ??
+      (Number(calculated.accruedThisYear || 0) + Number(calculated.carryInDays || 0))
+  );
+  const netAccrued = Math.round((grossAccrued - carryInDays) * 10) / 10;
+  const remaining = Math.round(
+    (netAccrued - Number(calculated.usedDays || 0) - Number(calculated.settledDeduction || 0)) * 10
+  ) / 10;
+
   return {
     employeeId: toApiId(dbId),
     ...calculated,
+    carryInDays,
+    grossAccruedThisYear: Math.round(grossAccrued * 10) / 10,
+    accruedThisYear: netAccrued,
+    totalGranted: netAccrued,
+    remaining,
+    rawRemaining: remaining,
+    overusedDays: getOverusedLeaveDays(remaining),
     manualAccrualTotal: getManualAccrualTotal(dbId, displayYear),
     usingSnapshot: false,
   };
+}
+
+/** 직전 주기 종료일 기준 초과사용 → 이번 주기 발생 차감 (스냅샷 잔여 반영) */
+function getSnapshotAwareCarryInDays(row, asOfDate, options = {}) {
+  const periodStart = getLeavePeriodStart(row.hire_date, asOfDate);
+  const periodStartKey = toDateKey(periodStart);
+  const hireKey = toDateKey(row.hire_date);
+  if (!periodStartKey || !hireKey || periodStartKey <= hireKey) return 0;
+
+  const priorAsOf = getPreviousDate(periodStart);
+  const prior = buildLeaveSummary(row, {
+    ...options,
+    asOfDate: priorAsOf,
+    consumptionAsOf: priorAsOf,
+    skipCarryIn: false,
+  });
+  return Number(prior.overusedDays) || 0;
 }
 
 function buildAutoAccrualLogs(employee, balance) {
@@ -528,7 +570,7 @@ export function getMonthlyLeaveReport(year, month) {
     asOfDate: range.monthEnd,
     consumptionAsOf: range.nextMonthStart,
     standard: 'IFRS IAS 19',
-    note: '월말 미사용 연차(잔여)는 단기종업원급여 부채 산정 기초입니다. 금액은 일급을 곱해 회계에서 계산합니다.',
+    note: '월말 잔여는 발생−사용 기준이며 초과 사용 시 음수로 표시됩니다. IFRS 부채 금액은 잔여를 0 이상으로만 반영합니다.',
     totals,
     workplaces,
     saved: saved

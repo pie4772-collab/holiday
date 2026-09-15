@@ -1,7 +1,9 @@
+import kbiMarkUrl from '../assets/kbi-mark.png';
+
 export function BrandMark({ className = 'h-8 w-8' }) {
   return (
     <img
-      src="/kbi-mark.png"
+      src={kbiMarkUrl}
       alt=""
       className={`shrink-0 object-contain ${className}`}
       aria-hidden="true"

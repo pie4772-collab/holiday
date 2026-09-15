@@ -319,9 +319,11 @@ export function filterUsagesByYear(usages, year) {
 /** 현재 연차 주기(입사~일사일 / 일사일~다음 1/1 / 회계연도) 사용분만 집계 */
 export function filterUsagesInCurrentPeriod(usages, hireDate, asOfDate = new Date()) {
   const periodStart = startOfDay(getLeavePeriodStart(hireDate, asOfDate));
+  const asOf = startOfDay(asOfDate);
   return usages.filter((u) => {
     const usageDate = parseUsageDate(u.date);
-    return !isBefore(usageDate, periodStart);
+    // 주기 시작 이상 · 기준일 이하 (다음 주기 사용분이 전기에 섞이지 않도록)
+    return !isBefore(usageDate, periodStart) && !isAfter(usageDate, asOf);
   });
 }
 
@@ -450,8 +452,8 @@ export function getSettlementEvents(hireDate, asOfDate = new Date()) {
 
 /**
  * 올해 기준 잔여 연차 계산
- * 잔여(표시/부채) = max(0, 순잔여)
- * 초과사용 = max(0, -순잔여) → 다음 주기 이월 차감
+ * - 직전 주기 초과사용(carryIn)은 이번 주기 발생분에서 차감
+ * - 잔여는 음수 허용(표시용). IFRS 부채는 getPayableLeaveDays로 0 하한
  */
 export function calculateLeaveBalance(hireDate, usages = [], asOfDate = new Date(), options = {}) {
   const {
@@ -511,10 +513,11 @@ export function calculateLeaveBalance(hireDate, usages = [], asOfDate = new Date
         manualAccrualTotal,
         consumptionAsOf,
       });
-  const totalAccrued = accruedThisYear + manualAccrualTotal;
-
-  const rawRemaining = Math.round((totalAccrued - usedDays - settledDeduction - carryInDays) * 10) / 10;
-  const remaining = Math.max(0, rawRemaining);
+  const grossAccrued = Math.round((accruedThisYear + manualAccrualTotal) * 10) / 10;
+  // 차년도(다음 주기) 발생분에서 전기 초과사용분 차감
+  const netAccrued = Math.round((grossAccrued - carryInDays) * 10) / 10;
+  const rawRemaining = Math.round((netAccrued - usedDays - settledDeduction) * 10) / 10;
+  const remaining = rawRemaining;
   const overusedDays = Math.max(0, Math.round((-rawRemaining) * 10) / 10);
 
   const settlementInYear = yearSettlements.find((e) => e.type === 'first_year');
@@ -529,13 +532,14 @@ export function calculateLeaveBalance(hireDate, usages = [], asOfDate = new Date
     rawRemaining,
     overusedDays,
     carryInDays,
-    accruedThisYear: Math.round((accruedThisYear + manualAccrualTotal) * 10) / 10,
+    grossAccruedThisYear: grossAccrued,
+    accruedThisYear: netAccrued,
     firstYearMonthly,
     proratedLeave,
     annualLeave,
     usedDays,
     scheduledDays: Math.round(scheduledDays * 10) / 10,
-    totalGranted: Math.round(totalAccrued * 10) / 10,
+    totalGranted: netAccrued,
     settledDeduction,
     settlements: yearSettlements,
     firstYearMonthlySettlement: {
@@ -576,7 +580,8 @@ export function getPriorPeriodOveruseCarryIn(hireDate, asOfDate, usages = [], op
 
   const prior = calculateLeaveBalance(hireDate, usages, priorAsOf, {
     ...options,
-    // 직전 주기 자체 이월은 재귀로 반영. 무한루프 방지를 위해 skip은 쓰지 않음.
+    // 전기 잔여는 전기 말일 기준으로만 소비·집계 (현재 기준일을 그대로 넘기면 차년도 사용이 전기에 잡힘)
+    consumptionAsOf: priorAsOf,
   });
   return prior.overusedDays || 0;
 }

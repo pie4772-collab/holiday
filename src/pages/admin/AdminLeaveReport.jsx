@@ -39,7 +39,7 @@ function downloadCsv(report, workplaceFilter) {
       '발생',
       '월중사용',
       '누적사용',
-      '잔여(IFRS)',
+      '잔여',
       '당월 승인대기',
     ],
   ];
@@ -216,13 +216,14 @@ export function AdminLeaveReport() {
         <LeaveSummaryCard
           title="미사용 잔여"
           value={visibleTotals.remaining}
-          subtitle="IFRS 부채 산정 기초(일수)"
+          subtitle="초과 사용 시 음수 · IFRS 부채는 별도 화면에서 0 하한"
           highlight
         />
       </div>
 
       <p className="text-[13px] text-stripe-muted mb-6">
-        {report.note} 잔여는 말일 사용분을 포함한 월말 잔여입니다. 금액(일급 × 잔여)은 회계에서 적용합니다.
+        {report.note} 잔여는 말일 사용분을 포함한 월말 잔여이며, 사용이 발생을 초과하면 음수로 표시됩니다.
+        IFRS 연차부채 화면에서는 잔여를 0 이상으로만 반영합니다.
       </p>
 
       {visibleGroups.length === 0 ? (
@@ -272,7 +273,7 @@ export function AdminLeaveReport() {
                     </div>
                     <div>
                       <p className="mobile-card-label">잔여</p>
-                      <p className="text-sm tabular-nums font-medium text-[#09825d]">{emp.remaining}</p>
+                      <p className={`text-sm tabular-nums font-medium ${emp.remaining < 0 ? 'text-[#df1b41]' : 'text-[#09825d]'}`}>{emp.remaining}</p>
                     </div>
                   </div>
                 </div>
@@ -328,7 +329,7 @@ export function AdminLeaveReport() {
                       <td className="tabular-nums text-right">{emp.accrued}</td>
                       <td className="tabular-nums text-right">{emp.usedInMonth}</td>
                       <td className="tabular-nums text-right muted">{emp.usedToDate}</td>
-                      <td className="tabular-nums text-right font-medium text-[#09825d]">{emp.remaining}</td>
+                      <td className={`tabular-nums text-right font-medium ${emp.remaining < 0 ? 'text-[#df1b41]' : 'text-[#09825d]'}`}>{emp.remaining}</td>
                       <td className="tabular-nums text-right muted">
                         {emp.pendingInMonth ? emp.pendingInMonth : '—'}
                       </td>

@@ -14,6 +14,7 @@ export const leaveKeys = {
   leaveReport: (year, month, saved) => ['admin', 'leave-report', year, month, saved],
   leaveSettlement: (year, month, saved) => ['admin', 'leave-settlement', year, month, saved],
   leaveEventSettlement: (year, saved) => ['admin', 'leave-event-settlement', year, saved],
+  leaveApprovalHistory: (filters) => ['admin', 'leave-approval-logs', filters],
 };
 
 function invalidateEmployeeData(queryClient, employeeId) {
@@ -204,7 +205,15 @@ export function useDecideLeaveRequest() {
       queryClient.invalidateQueries({ queryKey: leaveKeys.adminStats });
       queryClient.invalidateQueries({ queryKey: ['leave'] });
       queryClient.invalidateQueries({ queryKey: leaveKeys.currentEmployee });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'leave-approval-logs'] });
     },
+  });
+}
+
+export function useLeaveApprovalHistory(filters = {}) {
+  return useQuery({
+    queryKey: leaveKeys.leaveApprovalHistory(filters),
+    queryFn: () => leaveApi.getLeaveApprovalHistory(filters),
   });
 }
 

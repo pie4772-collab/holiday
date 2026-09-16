@@ -112,6 +112,163 @@ function mapUsageRow(row) {
   };
 }
 
+const APPROVAL_ACTION_LABELS = {
+  submit: '신청',
+  auto_approve: '본인승인',
+  step_approve: '단계승인',
+  approve: '최종승인',
+  reject: '반려',
+};
+
+function recordApprovalLog({ usage, employee, actor, action, step = null, note = null, createdAt = null }) {
+  if (!usage || !employee || !action) return;
+  getDb()
+    .prepare(
+      `INSERT INTO leave_approval_logs (
+         leave_usage_id, employee_id, actor_id, action, step, note,
+         usage_date, usage_type, days, reason,
+         employee_emp_no, employee_name, workplace, workplace_code, department, position,
+         actor_emp_no, actor_name, actor_position, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now', 'localtime')))`
+    )
+    .run(
+      usage.id ?? null,
+      employee.id,
+      actor?.id ?? null,
+      action,
+      step,
+      note,
+      usage.usage_date || usage.date,
+      usage.usage_type || usage.type || 'full',
+      usage.days ?? (usage.type === 'half' || usage.usage_type === 'half' ? 0.5 : 1),
+      usage.reason || null,
+      employee.emp_no || '',
+      employee.name,
+      employee.workplace || '',
+      employee.workplace_code || '',
+      employee.department || '',
+      employee.position || '',
+      actor?.emp_no || '',
+      actor?.name || '',
+      actor?.position || '',
+      createdAt
+    );
+}
+
+function mapApprovalLogRow(row) {
+  return {
+    id: String(row.id),
+    leaveUsageId: row.leave_usage_id ? String(row.leave_usage_id) : null,
+    employeeId: String(row.employee_id),
+    actorId: row.actor_id ? String(row.actor_id) : null,
+    action: row.action,
+    actionLabel: APPROVAL_ACTION_LABELS[row.action] || row.action,
+    step: row.step || null,
+    note: row.note || null,
+    usageDate: row.usage_date,
+    usageType: row.usage_type,
+    days: row.days,
+    reason: row.reason || '',
+    employeeEmpNo: row.employee_emp_no || '',
+    employeeName: row.employee_name,
+    workplace: row.workplace || '',
+    workplaceCode: row.workplace_code || '',
+    department: row.department || '',
+    position: row.position || '',
+    actorEmpNo: row.actor_emp_no || '',
+    actorName: row.actor_name || '',
+    actorPosition: row.actor_position || '',
+    createdAt: row.created_at,
+  };
+}
+
+export function getLeaveApprovalHistory(filters = {}) {
+  const clauses = [];
+  const params = [];
+
+  const year = filters.year ? Number(filters.year) : null;
+  if (Number.isInteger(year) && year >= 2000 && year <= 2100) {
+    clauses.push(`substr(l.created_at, 1, 4) = ?`);
+    params.push(String(year));
+  }
+
+  const workplace = String(filters.workplace || '').trim();
+  if (workplace && workplace !== 'all') {
+    clauses.push(`l.workplace = ?`);
+    params.push(workplace);
+  }
+
+  const action = String(filters.action || '').trim();
+  if (action && action !== 'all') {
+    clauses.push(`l.action = ?`);
+    params.push(action);
+  }
+
+  const query = String(filters.query || '').trim().toLowerCase();
+  if (query) {
+    clauses.push(
+      `(lower(IFNULL(l.employee_name,'')) LIKE ? OR lower(IFNULL(l.employee_emp_no,'')) LIKE ? OR lower(IFNULL(l.actor_name,'')) LIKE ? OR lower(IFNULL(l.department,'')) LIKE ?)`
+    );
+    const like = `%${query}%`;
+    params.push(like, like, like, like);
+  }
+
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  const rows = getDb()
+    .prepare(
+      `SELECT l.*
+       FROM leave_approval_logs l
+       ${where}
+       ORDER BY l.created_at DESC, l.id DESC
+       LIMIT 2000`
+    )
+    .all(...params);
+
+  const items = rows.map(mapApprovalLogRow);
+  const workplaces = [
+    ...new Set(
+      getDb()
+        .prepare(
+          `SELECT DISTINCT workplace FROM leave_approval_logs
+           WHERE workplace IS NOT NULL AND trim(workplace) != ''
+           ORDER BY workplace`
+        )
+        .all()
+        .map((r) => r.workplace)
+    ),
+  ];
+
+  const yearRows = getDb()
+    .prepare(
+      `SELECT DISTINCT substr(created_at, 1, 4) AS y
+       FROM leave_approval_logs
+       WHERE created_at IS NOT NULL
+       ORDER BY y DESC`
+    )
+    .all();
+  const years = yearRows.map((r) => Number(r.y)).filter((y) => Number.isInteger(y));
+
+  const summary = items.reduce(
+    (acc, item) => {
+      acc.total += 1;
+      if (item.action === 'submit') acc.submitted += 1;
+      if (item.action === 'approve' || item.action === 'auto_approve') acc.approved += 1;
+      if (item.action === 'step_approve') acc.stepApproved += 1;
+      if (item.action === 'reject') acc.rejected += 1;
+      return acc;
+    },
+    { total: 0, submitted: 0, approved: 0, stepApproved: 0, rejected: 0 }
+  );
+
+  return {
+    items,
+    workplaces,
+    years: years.length ? years : [new Date().getFullYear()],
+    summary,
+    actions: Object.entries(APPROVAL_ACTION_LABELS).map(([value, label]) => ({ value, label })),
+  };
+}
+
 function mapAccrualRow(row) {
   return {
     id: String(row.id),
@@ -1552,9 +1709,32 @@ export function submitLeaveRequest(data) {
     const result = autoApprove
       ? insertApproved.run(dbId, date, type, daysPerDate, reason, dbId)
       : insertPending.run(dbId, date, type, daysPerDate, reason, firstStep);
-    return mapUsageRow(
-      getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(result.lastInsertRowid)
-    );
+    const usageRow = getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(result.lastInsertRowid);
+    if (autoApprove) {
+      recordApprovalLog({
+        usage: usageRow,
+        employee,
+        actor: employee,
+        action: 'submit',
+        step: null,
+      });
+      recordApprovalLog({
+        usage: usageRow,
+        employee,
+        actor: employee,
+        action: 'auto_approve',
+        step: null,
+      });
+    } else {
+      recordApprovalLog({
+        usage: usageRow,
+        employee,
+        actor: employee,
+        action: 'submit',
+        step: firstStep,
+      });
+    }
+    return mapUsageRow(usageRow);
   });
 
   const dateLabel = describeLeaveDates(dates);
@@ -1618,6 +1798,10 @@ export function decideLeaveRequest(usageId, approverId, action, rejectReason) {
     throw Object.assign(new Error('이 신청을 승인할 권한이 없습니다.'), { status: 403 });
   }
 
+  const requester = getDb().prepare('SELECT * FROM employees WHERE id = ?').get(row.employee_id);
+  const approver = getDb().prepare('SELECT * FROM employees WHERE id = ?').get(approverDbId);
+  const currentStep = row.approval_step || null;
+
   if (action === 'reject') {
     getDb()
       .prepare(
@@ -1627,8 +1811,15 @@ export function decideLeaveRequest(usageId, approverId, action, rejectReason) {
          WHERE id = ?`
       )
       .run(approverDbId, rejectReason || '', row.id);
+    recordApprovalLog({
+      usage: row,
+      employee: requester,
+      actor: approver,
+      action: 'reject',
+      step: currentStep,
+      note: rejectReason || '',
+    });
   } else {
-    const requester = getDb().prepare('SELECT * FROM employees WHERE id = ?').get(row.employee_id);
     const nextStep = approvalService.nextApprovalStep(requester, row.approval_step);
     if (nextStep) {
       getDb()
@@ -1639,6 +1830,14 @@ export function decideLeaveRequest(usageId, approverId, action, rejectReason) {
            WHERE id = ?`
         )
         .run(nextStep, approverDbId, row.id);
+      recordApprovalLog({
+        usage: row,
+        employee: requester,
+        actor: approver,
+        action: 'step_approve',
+        step: currentStep,
+        note: `다음 결재: ${nextStep}`,
+      });
     } else {
       getDb()
         .prepare(
@@ -1648,12 +1847,17 @@ export function decideLeaveRequest(usageId, approverId, action, rejectReason) {
            WHERE id = ?`
         )
         .run(approverDbId, row.id);
+      recordApprovalLog({
+        usage: row,
+        employee: requester,
+        actor: approver,
+        action: 'approve',
+        step: currentStep,
+      });
     }
   }
 
   const updated = getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(row.id);
-  const requester = getDb().prepare('SELECT * FROM employees WHERE id = ?').get(row.employee_id);
-  const approver = getDb().prepare('SELECT * FROM employees WHERE id = ?').get(approverDbId);
   const mapped = mapUsageRow(updated);
   const approvalHint =
     updated.status === 'pending' ? approvalService.approvalHintFor(requester, updated.approval_step) : null;

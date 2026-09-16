@@ -447,6 +447,142 @@ function migrate(database) {
   `);
 
   database.exec(`
+    CREATE TABLE IF NOT EXISTS leave_approval_logs (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      leave_usage_id    INTEGER REFERENCES leave_usages(id) ON DELETE SET NULL,
+      employee_id       INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+      actor_id          INTEGER REFERENCES employees(id) ON DELETE SET NULL,
+      action            TEXT NOT NULL CHECK (action IN ('submit', 'auto_approve', 'step_approve', 'approve', 'reject')),
+      step              TEXT,
+      note              TEXT,
+      usage_date        TEXT NOT NULL,
+      usage_type        TEXT NOT NULL,
+      days              REAL NOT NULL,
+      reason            TEXT,
+      employee_emp_no   TEXT,
+      employee_name     TEXT NOT NULL,
+      workplace         TEXT,
+      workplace_code    TEXT,
+      department        TEXT,
+      position          TEXT,
+      actor_emp_no      TEXT,
+      actor_name        TEXT,
+      actor_position    TEXT,
+      created_at        TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+  `);
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_leave_approval_logs_created ON leave_approval_logs(created_at);
+    CREATE INDEX IF NOT EXISTS idx_leave_approval_logs_employee ON leave_approval_logs(employee_id);
+    CREATE INDEX IF NOT EXISTS idx_leave_approval_logs_action ON leave_approval_logs(action);
+  `);
+
+  const approvalLogSeeded = database
+    .prepare(`SELECT value FROM app_meta WHERE key = 'leave_approval_logs_backfill_v1'`)
+    .get();
+  if (!approvalLogSeeded) {
+    database.exec(`
+      INSERT INTO leave_approval_logs (
+        leave_usage_id, employee_id, actor_id, action, step, note,
+        usage_date, usage_type, days, reason,
+        employee_emp_no, employee_name, workplace, workplace_code, department, position,
+        actor_emp_no, actor_name, actor_position, created_at
+      )
+      SELECT
+        u.id,
+        u.employee_id,
+        u.approved_by,
+        CASE
+          WHEN u.status = 'rejected' THEN 'reject'
+          WHEN u.status = 'approved' AND u.created_by = 'employee'
+               AND u.approved_by IS NOT NULL AND u.approved_by = u.employee_id THEN 'auto_approve'
+          WHEN u.status = 'approved' THEN 'approve'
+          ELSE 'submit'
+        END,
+        u.approval_step,
+        u.reject_reason,
+        u.usage_date,
+        u.usage_type,
+        u.days,
+        u.reason,
+        e.emp_no,
+        e.name,
+        e.workplace,
+        e.workplace_code,
+        e.department,
+        e.position,
+        a.emp_no,
+        a.name,
+        a.position,
+        COALESCE(u.approved_at, u.created_at)
+      FROM leave_usages u
+      JOIN employees e ON e.id = u.employee_id
+      LEFT JOIN employees a ON a.id = u.approved_by
+      WHERE u.status IN ('approved', 'rejected')
+        AND NOT EXISTS (
+          SELECT 1 FROM leave_approval_logs l WHERE l.leave_usage_id = u.id
+        );
+    `);
+    // pending: also log initial submit using created_at
+    database.exec(`
+      INSERT INTO leave_approval_logs (
+        leave_usage_id, employee_id, actor_id, action, step, note,
+        usage_date, usage_type, days, reason,
+        employee_emp_no, employee_name, workplace, workplace_code, department, position,
+        actor_emp_no, actor_name, actor_position, created_at
+      )
+      SELECT
+        u.id, u.employee_id, u.employee_id, 'submit', u.approval_step, NULL,
+        u.usage_date, u.usage_type, u.days, u.reason,
+        e.emp_no, e.name, e.workplace, e.workplace_code, e.department, e.position,
+        e.emp_no, e.name, e.position, u.created_at
+      FROM leave_usages u
+      JOIN employees e ON e.id = u.employee_id
+      WHERE u.status = 'pending'
+        AND NOT EXISTS (
+          SELECT 1 FROM leave_approval_logs l
+          WHERE l.leave_usage_id = u.id AND l.action = 'submit'
+        );
+    `);
+    database
+      .prepare(`INSERT OR REPLACE INTO app_meta (key, value) VALUES ('leave_approval_logs_backfill_v1', '1')`)
+      .run();
+  }
+
+  const approvalLogSubmitSeeded = database
+    .prepare(`SELECT value FROM app_meta WHERE key = 'leave_approval_logs_submit_backfill_v1'`)
+    .get();
+  if (!approvalLogSubmitSeeded) {
+    database.exec(`
+      INSERT INTO leave_approval_logs (
+        leave_usage_id, employee_id, actor_id, action, step, note,
+        usage_date, usage_type, days, reason,
+        employee_emp_no, employee_name, workplace, workplace_code, department, position,
+        actor_emp_no, actor_name, actor_position, created_at
+      )
+      SELECT
+        u.id, u.employee_id, u.employee_id, 'submit',
+        CASE WHEN u.status = 'pending' THEN u.approval_step ELSE NULL END,
+        NULL,
+        u.usage_date, u.usage_type, u.days, u.reason,
+        e.emp_no, e.name, e.workplace, e.workplace_code, e.department, e.position,
+        e.emp_no, e.name, e.position, u.created_at
+      FROM leave_usages u
+      JOIN employees e ON e.id = u.employee_id
+      WHERE u.created_by = 'employee'
+        AND NOT EXISTS (
+          SELECT 1 FROM leave_approval_logs l
+          WHERE l.leave_usage_id = u.id AND l.action = 'submit'
+        );
+    `);
+    database
+      .prepare(
+        `INSERT OR REPLACE INTO app_meta (key, value) VALUES ('leave_approval_logs_submit_backfill_v1', '1')`
+      )
+      .run();
+  }
+
+  database.exec(`
     CREATE TABLE IF NOT EXISTS leave_month_reports (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       year          INTEGER NOT NULL,

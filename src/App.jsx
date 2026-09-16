@@ -17,6 +17,7 @@ import { AdminLeaveManageList } from './pages/admin/AdminLeaveManageList';
 import { AdminLeaveManage } from './pages/admin/AdminLeaveManage';
 import { EmployeeApprovals } from './pages/employee/EmployeeApprovals';
 import { AdminApprovalLines } from './pages/admin/AdminApprovalLines';
+import { AdminApprovalHistory } from './pages/admin/AdminApprovalHistory';
 import { AdminLeaveReport } from './pages/admin/AdminLeaveReport';
 import { AdminLeaveSettlement } from './pages/admin/AdminLeaveSettlement';
 import { AdminLeaveEventSettlement } from './pages/admin/AdminLeaveEventSettlement';
@@ -115,6 +116,7 @@ function AppRoutes() {
         <Route path="admin" element={<RequireAdmin />}>
           <Route index element={<AdminDashboard />} />
           <Route path="approvals" element={<EmployeeApprovals />} />
+          <Route path="approval-history" element={<AdminApprovalHistory />} />
           <Route path="roster" element={<AdminEmployeeRoster />} />
           <Route path="approval-lines" element={<AdminApprovalLines />} />
           <Route path="employees" element={<Navigate to="/admin/leave-manage" replace />} />

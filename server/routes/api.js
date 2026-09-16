@@ -331,6 +331,21 @@ router.get('/leave/approvals', requireAuth, (req, res, next) => {
   }
 });
 
+router.get('/admin/leave-approval-logs', requireAdmin, (req, res, next) => {
+  try {
+    res.json(
+      leaveService.getLeaveApprovalHistory({
+        year: req.query.year,
+        workplace: req.query.workplace,
+        action: req.query.action,
+        query: req.query.query || req.query.q,
+      })
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.post('/leave/usages/:id/approve', requireAuth, (req, res, next) => {
   try {
     res.json(leaveService.decideLeaveRequest(req.params.id, req.user.employeeId, 'approve'));

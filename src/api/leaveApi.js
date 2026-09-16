@@ -179,6 +179,16 @@ export const leaveApi = {
     return apiClient('/leave/approvals');
   },
 
+  async getLeaveApprovalHistory({ year, workplace, action, query } = {}) {
+    const params = new URLSearchParams();
+    if (year) params.set('year', String(year));
+    if (workplace) params.set('workplace', workplace);
+    if (action) params.set('action', action);
+    if (query) params.set('query', query);
+    const qs = params.toString();
+    return apiClient(`/admin/leave-approval-logs${qs ? `?${qs}` : ''}`);
+  },
+
   async approveLeaveRequest(id) {
     if (USE_MOCK) {
       await delay(300);

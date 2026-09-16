@@ -107,6 +107,35 @@ CREATE TABLE IF NOT EXISTS leave_usages (
 CREATE INDEX IF NOT EXISTS idx_leave_usages_employee ON leave_usages(employee_id);
 CREATE INDEX IF NOT EXISTS idx_leave_usages_date ON leave_usages(usage_date);
 
+-- 연차 신청·승인·반려 감사 이력 (근로감독 대비)
+CREATE TABLE IF NOT EXISTS leave_approval_logs (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  leave_usage_id    INTEGER REFERENCES leave_usages(id) ON DELETE SET NULL,
+  employee_id       INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  actor_id          INTEGER REFERENCES employees(id) ON DELETE SET NULL,
+  action            TEXT NOT NULL CHECK (action IN ('submit', 'auto_approve', 'step_approve', 'approve', 'reject')),
+  step              TEXT,
+  note              TEXT,
+  usage_date        TEXT NOT NULL,
+  usage_type        TEXT NOT NULL,
+  days              REAL NOT NULL,
+  reason            TEXT,
+  employee_emp_no   TEXT,
+  employee_name     TEXT NOT NULL,
+  workplace         TEXT,
+  workplace_code    TEXT,
+  department        TEXT,
+  position          TEXT,
+  actor_emp_no      TEXT,
+  actor_name        TEXT,
+  actor_position    TEXT,
+  created_at        TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_leave_approval_logs_created ON leave_approval_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_leave_approval_logs_employee ON leave_approval_logs(employee_id);
+CREATE INDEX IF NOT EXISTS idx_leave_approval_logs_action ON leave_approval_logs(action);
+
 CREATE TABLE IF NOT EXISTS leave_month_reports (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   year          INTEGER NOT NULL,

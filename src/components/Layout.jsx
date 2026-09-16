@@ -13,6 +13,7 @@ import {
   FileSpreadsheet,
   Wallet,
   Scale,
+  ScrollText,
   Mail,
 } from 'lucide-react';
 import { useAppStore } from '../store/useAppStore';
@@ -32,6 +33,7 @@ const adminNav = [
   { to: '/admin', icon: BarChart3, label: 'Home', end: true },
   { to: '/admin/leave-manage', icon: CalendarDays, label: '연차 관리' },
   { to: '/admin/approvals', icon: ClipboardCheck, label: '연차 승인' },
+  { to: '/admin/approval-history', icon: ScrollText, label: '승인·반려 이력' },
   { to: '/admin/roster', icon: ClipboardList, label: '사원 명부' },
   { to: '/admin/approval-lines', icon: GitBranch, label: '결재 라인' },
   { to: '/admin/leave-reports', icon: FileSpreadsheet, label: '연차 보고서' },

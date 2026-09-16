@@ -622,14 +622,14 @@ export function getSavedMonthlyLeaveReport(year, month) {
   }
 }
 
-/** 월 통상임금 → 일급: 월통상임금 ÷ 209(월 소정근로시간) × 8(일 소정근로시간) */
+/** 월 통상임금 → 일급: 월통상임금 ÷ 209(월 소정근로시간) × 8(일 소정근로시간), 원 미만 절사 */
 export const ORDINARY_WAGE_HOURS = 209;
 export const ORDINARY_DAILY_HOURS = 8;
 
 export function calculateOrdinaryDailyRate(ordinaryWage) {
   const wage = Number(ordinaryWage);
   if (!Number.isFinite(wage) || wage <= 0) return null;
-  return Math.round(((wage / ORDINARY_WAGE_HOURS) * ORDINARY_DAILY_HOURS) * 100) / 100;
+  return Math.floor((wage / ORDINARY_WAGE_HOURS) * ORDINARY_DAILY_HOURS);
 }
 
 function roundMoney(value) {
@@ -895,7 +895,7 @@ export function getLeavePaySettlement(year, month) {
     asOfDate: range.monthEnd,
     wageHours: ORDINARY_WAGE_HOURS,
     dailyHours: ORDINARY_DAILY_HOURS,
-    formula: `연차부채 = (월 통상임금 ÷ ${ORDINARY_WAGE_HOURS} × ${ORDINARY_DAILY_HOURS}) × max(0, 잔여일수)`,
+    formula: `연차부채 = floor(월 통상임금 ÷ ${ORDINARY_WAGE_HOURS} × ${ORDINARY_DAILY_HOURS}) × max(0, 잔여일수)`,
     note: '월말 미사용 연차가 0보다 작으면 부채 일수는 0으로 둡니다. 초과 사용분은 연차 정산에서 다음 주기로 이월 차감합니다.',
     totals,
     workplaces,
@@ -1233,7 +1233,7 @@ export function getLeaveEventSettlement(year) {
     asOfDate: yearEnd,
     wageHours: ORDINARY_WAGE_HOURS,
     dailyHours: ORDINARY_DAILY_HOURS,
-    formula: `연차수당 = (월 통상임금 ÷ ${ORDINARY_WAGE_HOURS} × ${ORDINARY_DAILY_HOURS}) × max(0, 전기 잔여)`,
+    formula: `연차수당 = floor(월 통상임금 ÷ ${ORDINARY_WAGE_HOURS} × ${ORDINARY_DAILY_HOURS}) × max(0, 전기 잔여)`,
     note: '정산일수는 해당 시점에 새로 발생하는 부여일이 아니라, 전년도·이전 주기에 사용하고 남은 잔여입니다. 잔여가 0 미만이면 수당 0, 초과분은 다음 주기로 이월 차감됩니다. 입사 1년 정산은 일사일 다음 달 8일(급여일)까지 계산할 수 있고, 회계기준 전환·회계기준일은 현재 이후 도래 대상만 표시합니다. 중도 퇴사는 과거 연도도 조회할 수 있습니다.',
     availableYears: listEventSettlementYears(),
     eventTypes: [

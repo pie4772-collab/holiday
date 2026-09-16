@@ -29,6 +29,7 @@ export function EmployeeRequest() {
   const recent = (usages || [])
     .filter((u) => u.status !== 'pending')
     .slice(0, 8);
+  const leaveExempt = Boolean(employee.leaveSummary?.leaveExempt);
 
   return (
     <div>
@@ -52,19 +53,27 @@ export function EmployeeRequest() {
             </div>
             <div>
               <h2 className="text-base font-semibold text-stripe-text">연차 신청하기</h2>
-              <p className="text-sm text-stripe-muted mt-1">
-                잔여{' '}
-                <span className="font-semibold text-stripe-text tabular-nums">
-                  {employee.leaveSummary.remaining}일
-                </span>
-                <span className="text-stripe-muted/70"> · {employee.leaveSummary.displayYear}년</span>
-              </p>
-              <p className="text-[13px] text-stripe-muted mt-2">
-                예: 1일부터 3일까지 → 한 번에 신청됩니다. 잔여는 사용일이 지난 뒤에 차감됩니다.
-              </p>
+              {leaveExempt ? (
+                <p className="text-sm text-stripe-muted mt-1">
+                  임원(이사·상무·전무·대표이사)은 연차 발생·신청 대상이 아닙니다.
+                </p>
+              ) : (
+                <>
+                  <p className="text-sm text-stripe-muted mt-1">
+                    잔여{' '}
+                    <span className="font-semibold text-stripe-text tabular-nums">
+                      {employee.leaveSummary.remaining}일
+                    </span>
+                    <span className="text-stripe-muted/70"> · {employee.leaveSummary.displayYear}년</span>
+                  </p>
+                  <p className="text-[13px] text-stripe-muted mt-2">
+                    예: 1일부터 3일까지 → 한 번에 신청됩니다. 잔여는 사용일이 지난 뒤에 차감됩니다.
+                  </p>
+                </>
+              )}
             </div>
-            <Button className="w-full" onClick={() => openRequestModal()}>
-              신청하기
+            <Button className="w-full" onClick={() => openRequestModal()} disabled={leaveExempt}>
+              {leaveExempt ? '신청 불가' : '신청하기'}
             </Button>
           </div>
 
@@ -76,7 +85,7 @@ export function EmployeeRequest() {
               <li>연속 연차는 시작일~종료일의 평일만 신청됩니다 (주말·공휴일 제외)</li>
               <li>반차는 평일 하루만 신청할 수 있습니다</li>
               <li>신청·승인 직후에는 잔여가 줄지 않고, 사용일이 지난 뒤에 차감됩니다</li>
-              <li>팀원 신청은 팀장 승인, 경영전략실은 박지은 승인</li>
+              <li>팀원 신청은 팀장 승인, 공장장은 본인 신청으로 승인, 경영전략실은 지정 담당자 승인</li>
             </ul>
           </div>
         </PanelBody>

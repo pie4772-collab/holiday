@@ -546,7 +546,7 @@ function migrate(database) {
     WHERE position IS NULL
        OR trim(position) = ''
        OR position = '-'
-       OR position NOT IN ('팀원', '팀장', '공장장', '임원', '대표이사')
+       OR position NOT IN ('팀원', '팀장', '공장장', '이사', '상무', '전무', '임원', '대표이사')
   `);
 
   importRosterSeed(database);

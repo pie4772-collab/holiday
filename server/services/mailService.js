@@ -83,6 +83,7 @@ function uniqueEmails(employees) {
   const seen = new Set();
   const result = [];
   for (const emp of employees || []) {
+    if (!emp) continue;
     const email = String(emp.email || '').trim();
     if (!email || seen.has(email.toLowerCase())) continue;
     seen.add(email.toLowerCase());
@@ -304,46 +305,60 @@ export async function notifyLeaveAdvanced(employee, usage, approvalHint) {
   return notifyLeaveSubmitted(employee, [usage], approvalHint);
 }
 
-export async function notifyLeaveFinal(employee, usage, decision, rejectReason) {
+export async function notifyLeaveFinal(employee, usage, decision, rejectReason, approver = null, options = {}) {
   try {
     const settings = rowToPublic(getRow(), true);
     if (!settings.enabled) return;
     const typeLabel = usage.type === 'half' || usage.usage_type === 'half' ? '반차' : '연차';
     const date = usage.date || usage.usage_date;
-    const approved = decision === 'approve' || usage.status === 'approved';
-    const resultLabel = approved ? '최종 승인' : '반려';
+    const approved = decision === 'approve' || usage.status === 'approved' || options.intermediate;
+    const resultLabel = !approved
+      ? '반려'
+      : options.intermediate
+        ? '단계 승인'
+        : '최종 승인';
+    const approverName = approver?.name ? String(approver.name) : '';
+    const nextHint = options.approvalHint ? `<br/>다음 결재: ${escapeHtml(options.approvalHint)}` : '';
     const body = `
       <p>${escapeHtml(employee.name)}님의 ${escapeHtml(typeLabel)} 신청이 <strong>${escapeHtml(resultLabel)}</strong>되었습니다.</p>
       <p>사용일: ${escapeHtml(date)}<br/>사유: ${escapeHtml(usage.reason || '-')}
-      ${!approved && rejectReason ? `<br/>반려 사유: ${escapeHtml(rejectReason)}` : ''}</p>
+      ${approverName ? `<br/>승인자: ${escapeHtml(approverName)}` : ''}
+      ${!approved && rejectReason ? `<br/>반려 사유: ${escapeHtml(rejectReason)}` : ''}
+      ${nextHint}</p>
     `;
     const subject = `[Holiday] ${employee.name} 연차 ${resultLabel} (${date})`;
     const html = htmlLayout(
       `연차 ${resultLabel}`,
       body,
-      'Holiday 열기',
-      `${settings.appUrl || DEFAULTS.appUrl}/login?next=${encodeURIComponent('/employee/history')}`
+      options.intermediate ? '승인 현황 보기' : 'Holiday 열기',
+      options.intermediate
+        ? approvalUrl(settings, false)
+        : `${settings.appUrl || DEFAULTS.appUrl}/login?next=${encodeURIComponent('/employee/history')}`
     );
 
-    const applicant = uniqueEmails([employee]);
-    if (applicant.length) {
-      await sendMail(applicant.map((a) => a.email), subject, html);
+    if (!approved) {
+      const applicant = uniqueEmails([employee]);
+      if (applicant.length) {
+        await sendMail(applicant.map((a) => a.email), subject, html);
+      }
+      return;
     }
 
-    if (approved) {
-      const admins = uniqueEmails(approvalService.listAdminEmployees()).filter(
-        (admin) => admin.email.toLowerCase() !== String(employee.email || '').trim().toLowerCase()
-      );
-      if (admins.length) {
-        const adminHtml = htmlLayout(
-          `연차 ${resultLabel} 알림`,
-          body,
-          '관리 화면 열기',
-          approvalUrl(settings, true)
-        );
-        await sendMail(admins.map((a) => a.email), subject, adminHtml);
-      }
+    // 승인 시: 신청자 · 승인자 · 해당 사업장 관리자
+    const recipients = uniqueEmails([
+      employee,
+      approver,
+      ...approvalService.listWorkplaceAdminEmployees(employee),
+    ]);
+    if (!recipients.length) {
+      console.warn('[mail] no approval recipients for', employee.name);
+      return;
     }
+    await sendMail(
+      recipients.map((r) => r.email),
+      subject,
+      html
+    );
   } catch (error) {
     console.error('[mail] notifyLeaveFinal failed:', error.message);
   }

@@ -29,6 +29,7 @@ import {
   MAX_LEAVE_RANGE_DAYS,
 } from '../../src/utils/leaveRequestDates.js';
 import { getDb, parseEmployeeId } from '../db.js';
+import { isLeaveExemptPosition } from '../../src/constants/hr.js';
 import * as approvalService from './approvalService.js';
 import * as mailService from './mailService.js';
 
@@ -188,8 +189,47 @@ function buildLeaveSummary(row, options = {}) {
   const dbId = row.id;
   const asOf = options.asOfDate || getBalanceAsOf();
   const consumptionAsOf = options.consumptionAsOf || getConsumptionAsOf();
-  const approvedUsages = getApprovedUsages(dbId);
   const displayYear = getCurrentDisplayYear(asOf);
+
+  // 이사·상무·전무·대표이사·임원: 연차 발생·지급 대상 제외
+  if (isLeaveExemptPosition(row.position)) {
+    return {
+      employeeId: toApiId(dbId),
+      displayYear,
+      phase: 'exempt',
+      isFirstYear: false,
+      isProratedTarget: false,
+      remaining: 0,
+      rawRemaining: 0,
+      overusedDays: 0,
+      carryInDays: 0,
+      grossAccruedThisYear: 0,
+      accruedThisYear: 0,
+      firstYearMonthly: 0,
+      proratedLeave: 0,
+      annualLeave: 0,
+      usedDays: 0,
+      scheduledDays: 0,
+      totalGranted: 0,
+      settledDeduction: 0,
+      settlements: [],
+      fiscalSettlements: [],
+      firstYearMonthlySettlement: {
+        totalMonths: 0,
+        totalDays: 0,
+        settled: false,
+        settledThisYear: false,
+        settledDate: null,
+        settledDays: 0,
+        basis: 'exempt',
+      },
+      leaveExempt: true,
+      usingSnapshot: false,
+      manualAccrualTotal: 0,
+    };
+  }
+
+  const approvedUsages = getApprovedUsages(dbId);
   const useSnapshot =
     !options.skipSnapshot && shouldUseImportedSnapshot(row, row.hire_date, asOf);
   const snapshotAsOf = useSnapshot ? String(row.as_of_date).slice(0, 10) : null;
@@ -241,6 +281,7 @@ function buildLeaveSummary(row, options = {}) {
       snapshotRemaining: row.remaining,
       extraAccruedAfterSnapshot: extraAccrued,
       usingSnapshot: true,
+      leaveExempt: false,
     };
   }
 
@@ -272,6 +313,7 @@ function buildLeaveSummary(row, options = {}) {
     overusedDays: getOverusedLeaveDays(remaining),
     manualAccrualTotal: getManualAccrualTotal(dbId, displayYear),
     usingSnapshot: false,
+    leaveExempt: false,
   };
 }
 
@@ -477,7 +519,9 @@ export function getMonthlyLeaveReport(year, month) {
     )
     .all(range.monthEnd, range.monthEnd, range.monthStart, range.monthEnd);
 
-  const employees = rows.map((row) => {
+  const employees = rows
+    .filter((row) => !isLeaveExemptPosition(row.position))
+    .map((row) => {
     const base = toEmployeeBase(row);
     const summary = buildLeaveSummary(row, {
       asOfDate: range.asOf,
@@ -915,7 +959,9 @@ export function getLeavePaySettlement(year, month) {
     )
     .all(range.monthEnd, range.monthEnd);
 
-  const employees = rows.map((row) => {
+  const employees = rows
+    .filter((row) => !isLeaveExemptPosition(row.position))
+    .map((row) => {
     const base = toEmployeeBase(row);
     const summary = buildLeaveSummary(row, {
       asOfDate: range.asOf,
@@ -1152,6 +1198,7 @@ export function getLeaveEventSettlement(year) {
   const settlementWageMap = getSettlementOrdinaryWageMap();
 
   for (const row of rows) {
+    if (isLeaveExemptPosition(row.position)) continue;
     const workplaceName = row.workplace || '미지정';
     if (!workplaceCatalog.has(workplaceName)) {
       workplaceCatalog.set(workplaceName, {
@@ -1433,6 +1480,9 @@ export function submitLeaveRequest(data) {
   if (!dbId) throw httpError('유효하지 않은 직원 ID입니다.');
   const employee = getDb().prepare('SELECT * FROM employees WHERE id = ? AND is_active = 1').get(dbId);
   if (!employee) throw httpError('직원을 찾을 수 없습니다.');
+  if (isLeaveExemptPosition(employee.position)) {
+    throw httpError('임원(이사·상무·전무·대표이사)은 연차 신청 대상이 아닙니다.');
+  }
 
   const type = data.type === 'half' ? 'half' : data.type === 'full' ? 'full' : null;
   if (!type) throw httpError('연차 유형을 선택해주세요.');
@@ -1483,23 +1533,48 @@ export function submitLeaveRequest(data) {
   }
 
   const daysPerDate = type === 'half' ? 0.5 : 1;
-  const firstStep = approvalService.getApprovalChain(employee)[0]?.role || '팀장';
-  const insert = getDb().prepare(
+  const chain = approvalService.getApprovalChain(employee);
+  const autoApprove = chain.length === 0;
+  const firstStep = autoApprove ? null : chain[0]?.role || '팀장';
+
+  const insertPending = getDb().prepare(
     `INSERT INTO leave_usages (employee_id, usage_date, usage_type, days, reason, status, created_by, approval_step)
      VALUES (?, ?, ?, ?, ?, 'pending', 'employee', ?)`
   );
+  const insertApproved = getDb().prepare(
+    `INSERT INTO leave_usages (
+       employee_id, usage_date, usage_type, days, reason, status, created_by, approval_step,
+       approved_by, approved_at
+     ) VALUES (?, ?, ?, ?, ?, 'approved', 'employee', NULL, ?, datetime('now', 'localtime'))`
+  );
 
   const items = dates.map((date) => {
-    const result = insert.run(dbId, date, type, daysPerDate, reason, firstStep);
+    const result = autoApprove
+      ? insertApproved.run(dbId, date, type, daysPerDate, reason, dbId)
+      : insertPending.run(dbId, date, type, daysPerDate, reason, firstStep);
     return mapUsageRow(
       getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(result.lastInsertRowid)
     );
   });
 
-  const approvalHint = approvalService.approvalHintFor(employee);
   const dateLabel = describeLeaveDates(dates);
   const countLabel = type === 'half' ? '반차 0.5일' : `${dates.length}일`;
 
+  if (autoApprove) {
+    mailService.notifyLeaveFinal(employee, items[0], 'approve', null, employee).catch((error) => {
+      console.error('[mail] notifyLeaveFinal:', error.message);
+    });
+    return {
+      ...items[0],
+      dates,
+      items,
+      count: items.length,
+      approvalHint: null,
+      message: `${countLabel} 연차 신청이 본인 승인으로 확정되었습니다. ${dateLabel}`,
+    };
+  }
+
+  const approvalHint = approvalService.approvalHintFor(employee);
   mailService.notifyLeaveSubmitted(employee, items, approvalHint).catch((error) => {
     console.error('[mail] notifyLeaveSubmitted:', error.message);
   });
@@ -1578,19 +1653,25 @@ export function decideLeaveRequest(usageId, approverId, action, rejectReason) {
 
   const updated = getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(row.id);
   const requester = getDb().prepare('SELECT * FROM employees WHERE id = ?').get(row.employee_id);
+  const approver = getDb().prepare('SELECT * FROM employees WHERE id = ?').get(approverDbId);
   const mapped = mapUsageRow(updated);
   const approvalHint =
     updated.status === 'pending' ? approvalService.approvalHintFor(requester, updated.approval_step) : null;
 
   if (updated.status === 'rejected') {
-    mailService.notifyLeaveFinal(requester, mapped, 'reject', updated.reject_reason).catch((error) => {
+    mailService.notifyLeaveFinal(requester, mapped, 'reject', updated.reject_reason, approver).catch((error) => {
       console.error('[mail] notifyLeaveFinal:', error.message);
     });
   } else if (updated.status === 'approved') {
-    mailService.notifyLeaveFinal(requester, mapped, 'approve').catch((error) => {
+    mailService.notifyLeaveFinal(requester, mapped, 'approve', null, approver).catch((error) => {
       console.error('[mail] notifyLeaveFinal:', error.message);
     });
   } else if (updated.status === 'pending') {
+    mailService.notifyLeaveFinal(requester, mapped, 'approve', null, approver, { intermediate: true, approvalHint }).catch(
+      (error) => {
+        console.error('[mail] notifyLeaveFinal intermediate:', error.message);
+      }
+    );
     mailService.notifyLeaveAdvanced(requester, mapped, approvalHint).catch((error) => {
       console.error('[mail] notifyLeaveAdvanced:', error.message);
     });

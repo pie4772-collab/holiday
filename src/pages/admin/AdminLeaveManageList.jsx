@@ -24,12 +24,14 @@ function loadSavedFilters() {
 }
 
 function phaseBadge(summary) {
+  if (summary.leaveExempt || summary.phase === 'exempt') return <Badge variant="default">임원제외</Badge>;
   if (summary.isFirstYear) return <Badge variant="warning">첫해</Badge>;
   if (summary.isProratedTarget) return <Badge variant="purple">비례</Badge>;
   return <Badge variant="success">정규</Badge>;
 }
 
 function phaseKey(summary) {
+  if (summary.leaveExempt || summary.phase === 'exempt') return 'exempt';
   if (summary.isFirstYear) return 'first';
   if (summary.isProratedTarget) return 'prorated';
   return 'regular';
@@ -217,6 +219,7 @@ export function AdminLeaveManageList() {
           <option value="first">첫해</option>
           <option value="prorated">비례</option>
           <option value="regular">정규</option>
+          <option value="exempt">임원제외</option>
         </select>
       </div>
 

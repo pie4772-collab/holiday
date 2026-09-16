@@ -52,6 +52,9 @@ function GlobalRequestModal() {
   }
 
   async function handleSubmit(data) {
+    if (employee?.leaveSummary?.leaveExempt) {
+      throw new Error('임원(이사·상무·전무·대표이사)은 연차 신청 대상이 아닙니다.');
+    }
     const result = await leaveRequest.mutateAsync(data);
     setLastRequestMessage(
       result?.message ||

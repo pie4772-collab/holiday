@@ -1,4 +1,4 @@
-import { EXECUTIVE_POSITIONS, LEAD_POSITIONS, SEOUL_WORKPLACE_CODE } from '../../src/constants/hr.js';
+import { EXECUTIVE_POSITIONS, LEAD_POSITIONS, SEOUL_WORKPLACE_CODE, isOfficerPosition } from '../../src/constants/hr.js';
 import { getDb, parseEmployeeId } from '../db.js';
 
 function code(value) {
@@ -17,7 +17,7 @@ function getEmployee(id) {
 
 function requesterTier(emp) {
   if (emp.position === '대표이사') return '대표이사';
-  if (emp.position === '임원') return '임원';
+  if (isOfficerPosition(emp.position)) return '임원';
   if (emp.position === '공장장') return '공장장';
   if (emp.position === '팀장') return '팀장';
   return '팀원';
@@ -99,7 +99,8 @@ export function getApprovalChain(employee) {
     return [{ role: '임원' }, { role: '대표이사' }];
   }
   if (tier === '팀장') return [{ role: '공장장' }];
-  if (tier === '공장장') return [{ role: '임원' }];
+  // 공장장: 본인 신청만으로 최종 승인
+  if (tier === '공장장') return [];
   if (tier === '임원') return [{ role: '대표이사' }];
   return [{ role: '관리자' }];
 }
@@ -165,6 +166,19 @@ export function listAdminEmployees() {
   return getDb()
     .prepare('SELECT * FROM employees WHERE is_active = 1 AND is_admin = 1 ORDER BY name')
     .all();
+}
+
+/** 신청자 사업장(workplace_code)의 관리자 */
+export function listWorkplaceAdminEmployees(employee) {
+  const workplaceCode = code(employee?.workplace_code);
+  if (!workplaceCode) return listAdminEmployees();
+  return getDb()
+    .prepare(
+      `SELECT * FROM employees
+       WHERE is_active = 1 AND is_admin = 1 AND workplace_code = ?
+       ORDER BY name`
+    )
+    .all(workplaceCode);
 }
 
 export function canApproveRequests(employeeId) {

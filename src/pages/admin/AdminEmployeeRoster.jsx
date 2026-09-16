@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { UserPlus } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Search, UserPlus } from 'lucide-react';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
@@ -16,18 +16,65 @@ import {
 } from '../../hooks/useEmployeeRoster';
 import { formatDate } from '../../utils/leaveCalculations';
 
+function matchesKeyword(emp, keyword) {
+  if (!keyword) return true;
+  const haystack = [emp.name, emp.empNo, emp.workplace, emp.department, emp.position]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes(keyword);
+}
+
 export function AdminEmployeeRoster() {
-  const [includeInactive, setIncludeInactive] = useState(true);
+  const [query, setQuery] = useState('');
+  const [workplace, setWorkplace] = useState('');
+  const [department, setDepartment] = useState('');
+  const [status, setStatus] = useState('');
   const [modal, setModal] = useState(null);
 
-  const { data: roster, isLoading, isError, refetch } = useEmployeeRoster(includeInactive);
+  // 상태 필터에서 퇴사 조회가 가능하도록 항상 퇴사자 포함 조회
+  const { data: roster, isLoading, isError, refetch } = useEmployeeRoster(true);
   const createEmployee = useCreateEmployee();
   const updateEmployee = useUpdateEmployee();
   const terminateEmployee = useTerminateEmployee();
   const reactivateEmployee = useReactivateEmployee();
 
-  const activeCount = roster?.filter((e) => e.isActive).length ?? 0;
-  const inactiveCount = roster?.filter((e) => !e.isActive).length ?? 0;
+  const workplaces = useMemo(() => {
+    return [...new Set((roster || []).map((emp) => emp.workplace).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, 'ko')
+    );
+  }, [roster]);
+
+  const departments = useMemo(() => {
+    return [
+      ...new Set(
+        (roster || [])
+          .filter((emp) => !workplace || emp.workplace === workplace)
+          .map((emp) => emp.department)
+          .filter(Boolean)
+      ),
+    ].sort((a, b) => a.localeCompare(b, 'ko'));
+  }, [roster, workplace]);
+
+  const filtered = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    return (roster || []).filter((emp) => {
+      if (workplace && emp.workplace !== workplace) return false;
+      if (department && emp.department !== department) return false;
+      if (status === 'active' && !emp.isActive) return false;
+      if (status === 'inactive' && emp.isActive) return false;
+      return matchesKeyword(emp, keyword);
+    });
+  }, [roster, query, workplace, department, status]);
+
+  const activeCount = filtered.filter((e) => e.isActive).length;
+  const inactiveCount = filtered.filter((e) => !e.isActive).length;
+  const total = roster?.length ?? 0;
+
+  function handleWorkplace(value) {
+    setWorkplace(value);
+    setDepartment('');
+  }
 
   async function handleSubmit(data) {
     if (modal?.mode === 'create') {
@@ -67,7 +114,9 @@ export function AdminEmployeeRoster() {
     <div>
       <PageHeader
         title="사원 명부"
-        description={`재직 ${activeCount}명${inactiveCount > 0 ? ` · 퇴사 ${inactiveCount}명` : ''}`}
+        description={`재직 ${activeCount}명${inactiveCount > 0 ? ` · 퇴사 ${inactiveCount}명` : ''}${
+          filtered.length !== total ? ` · 검색 ${filtered.length}/${total}명` : ''
+        }`}
         actions={
           <Button onClick={() => setModal({ mode: 'create' })}>
             <UserPlus className="h-4 w-4" />
@@ -76,98 +125,121 @@ export function AdminEmployeeRoster() {
         }
       />
 
-      <div className="mb-4 flex items-center gap-3">
-        <label className="flex items-center gap-2 text-sm text-stripe-muted cursor-pointer">
+      <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="relative sm:col-span-2 lg:col-span-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stripe-muted" />
           <input
-            type="checkbox"
-            checked={includeInactive}
-            onChange={(e) => setIncludeInactive(e.target.checked)}
-            className="rounded border-stripe-border"
+            className="stripe-input stripe-input-search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="이름, 사번, 부서 검색"
           />
-          퇴사자 포함
-        </label>
+        </div>
+        <select className="stripe-input" value={workplace} onChange={(e) => handleWorkplace(e.target.value)}>
+          <option value="">사업장 전체</option>
+          {workplaces.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+        <select className="stripe-input" value={department} onChange={(e) => setDepartment(e.target.value)}>
+          <option value="">부서 전체</option>
+          {departments.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+        <select className="stripe-input" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="">상태 전체</option>
+          <option value="active">재직</option>
+          <option value="inactive">퇴사</option>
+        </select>
       </div>
 
       <Panel>
-        {/* Mobile card list */}
         <div className="settlement-cards mobile-card-list">
-          {roster?.map((emp) => (
-            <div key={emp.id} className={`mobile-card-item ${!emp.isActive ? 'opacity-60' : ''}`}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-stripe-text">{emp.name}</p>
-                  <p className="text-xs font-mono text-stripe-muted mt-0.5">{emp.empNo || '-'}</p>
+          {filtered.length === 0 ? (
+            <p className="py-12 text-center text-sm text-stripe-muted">검색 결과가 없습니다.</p>
+          ) : (
+            filtered.map((emp) => (
+              <div key={emp.id} className={`mobile-card-item ${!emp.isActive ? 'opacity-60' : ''}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-stripe-text">{emp.name}</p>
+                    <p className="text-xs font-mono text-stripe-muted mt-0.5">{emp.empNo || '-'}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {emp.isAdmin && <Badge variant="purple">관리자</Badge>}
+                    {emp.isActive ? (
+                      <Badge variant="success">재직</Badge>
+                    ) : (
+                      <Badge variant="default">퇴사</Badge>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  {emp.isAdmin && <Badge variant="purple">관리자</Badge>}
+                <div className="mt-3 space-y-1.5">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-stripe-muted">사업장 · 부서</span>
+                    <span className="text-stripe-text">
+                      {[emp.workplace, emp.department].filter(Boolean).join(' · ') || '-'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-stripe-muted">직급</span>
+                    <span className="text-stripe-text">{emp.position || '-'}</span>
+                  </div>
+                  {(emp.concurrentDept || emp.concurrentPosition) && (
+                    <div className="flex justify-between text-xs">
+                      <span className="text-stripe-muted">겸직</span>
+                      <span className="text-stripe-text">
+                        {[emp.concurrentDept, emp.concurrentPosition].filter(Boolean).join(' · ')}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-xs">
+                    <span className="text-stripe-muted">입사일</span>
+                    <span className="font-mono text-stripe-text">{formatDate(emp.hireDate)}</span>
+                  </div>
+                  {emp.terminatedDate && (
+                    <div className="flex justify-between text-xs">
+                      <span className="text-stripe-muted">퇴사일</span>
+                      <span className="font-mono text-stripe-text">{formatDate(emp.terminatedDate)}</span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-2 mt-3 pt-3 border-t border-[#f0f3f7]">
                   {emp.isActive ? (
-                    <Badge variant="success">재직</Badge>
+                    <>
+                      <button
+                        onClick={() => setModal({ mode: 'edit', employee: emp })}
+                        className="flex-1 text-[13px] font-medium text-primary-500 py-2 rounded-md bg-primary-50"
+                      >
+                        수정
+                      </button>
+                      <button
+                        onClick={() => setModal({ mode: 'terminate', employee: emp })}
+                        className="flex-1 text-[13px] text-[#df1b41] py-2 rounded-md bg-[#fee2e2]"
+                      >
+                        퇴사
+                      </button>
+                    </>
                   ) : (
-                    <Badge variant="default">퇴사</Badge>
+                    <button
+                      onClick={() => handleReactivate(emp)}
+                      className="flex-1 text-[13px] font-medium text-primary-500 py-2 rounded-md bg-primary-50"
+                      disabled={reactivateEmployee.isPending}
+                    >
+                      재직 처리
+                    </button>
                   )}
                 </div>
               </div>
-              <div className="mt-3 space-y-1.5">
-                <div className="flex justify-between text-xs">
-                  <span className="text-stripe-muted">사업장 · 부서</span>
-                  <span className="text-stripe-text">
-                    {[emp.workplace, emp.department].filter(Boolean).join(' · ') || '-'}
-                  </span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-stripe-muted">직급</span>
-                  <span className="text-stripe-text">{emp.position || '-'}</span>
-                </div>
-                {(emp.concurrentDept || emp.concurrentPosition) && (
-                  <div className="flex justify-between text-xs">
-                    <span className="text-stripe-muted">겸직</span>
-                    <span className="text-stripe-text">
-                      {[emp.concurrentDept, emp.concurrentPosition].filter(Boolean).join(' · ')}
-                    </span>
-                  </div>
-                )}
-                <div className="flex justify-between text-xs">
-                  <span className="text-stripe-muted">입사일</span>
-                  <span className="font-mono text-stripe-text">{formatDate(emp.hireDate)}</span>
-                </div>
-                {emp.terminatedDate && (
-                  <div className="flex justify-between text-xs">
-                    <span className="text-stripe-muted">퇴사일</span>
-                    <span className="font-mono text-stripe-text">{formatDate(emp.terminatedDate)}</span>
-                  </div>
-                )}
-              </div>
-              <div className="flex gap-2 mt-3 pt-3 border-t border-[#f0f3f7]">
-                {emp.isActive ? (
-                  <>
-                    <button
-                      onClick={() => setModal({ mode: 'edit', employee: emp })}
-                      className="flex-1 text-[13px] font-medium text-primary-500 py-2 rounded-md bg-primary-50"
-                    >
-                      수정
-                    </button>
-                    <button
-                      onClick={() => setModal({ mode: 'terminate', employee: emp })}
-                      className="flex-1 text-[13px] text-[#df1b41] py-2 rounded-md bg-[#fee2e2]"
-                    >
-                      퇴사
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={() => handleReactivate(emp)}
-                    className="flex-1 text-[13px] font-medium text-primary-500 py-2 rounded-md bg-primary-50"
-                    disabled={reactivateEmployee.isPending}
-                  >
-                    재직 처리
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
 
-        {/* Desktop / web: one row per employee */}
         <div className="settlement-table stripe-table-fit-wrap">
           <table className="stripe-table stripe-table-fit w-full">
             <thead>
@@ -186,61 +258,69 @@ export function AdminEmployeeRoster() {
               </tr>
             </thead>
             <tbody>
-              {roster?.map((emp) => (
-                <tr key={emp.id} className={!emp.isActive ? 'opacity-60' : ''}>
-                  <td className="font-medium whitespace-nowrap">{emp.name}</td>
-                  <td className="font-mono text-[13px] muted whitespace-nowrap">{emp.empNo || '-'}</td>
-                  <td className="muted whitespace-nowrap">{emp.workplace || '-'}</td>
-                  <td className="muted whitespace-nowrap">{emp.department || '-'}</td>
-                  <td className="muted whitespace-nowrap">{emp.position || '-'}</td>
-                  <td className="muted whitespace-nowrap">
-                    {emp.concurrentDept || emp.concurrentPosition
-                      ? [emp.concurrentDept, emp.concurrentPosition].filter(Boolean).join(' · ')
-                      : '-'}
-                  </td>
-                  <td className="font-mono text-[13px] muted whitespace-nowrap">{formatDate(emp.hireDate)}</td>
-                  <td className="font-mono text-[13px] muted whitespace-nowrap">
-                    {emp.terminatedDate ? formatDate(emp.terminatedDate) : '-'}
-                  </td>
-                  <td>
-                    {emp.isAdmin ? <Badge variant="purple">관리자</Badge> : <span className="muted">-</span>}
-                  </td>
-                  <td>
-                    {emp.isActive ? (
-                      <Badge variant="success">재직</Badge>
-                    ) : (
-                      <Badge variant="default">퇴사</Badge>
-                    )}
-                  </td>
-                  <td className="text-right whitespace-nowrap">
-                    {emp.isActive ? (
-                      <>
-                        <button
-                          onClick={() => setModal({ mode: 'edit', employee: emp })}
-                          className="text-[13px] font-medium text-primary-500 hover:text-primary-600"
-                        >
-                          수정
-                        </button>
-                        <span className="text-[#e3e8ee] mx-2">|</span>
-                        <button
-                          onClick={() => setModal({ mode: 'terminate', employee: emp })}
-                          className="text-[13px] text-[#df1b41] hover:text-[#c91839]"
-                        >
-                          퇴사
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => handleReactivate(emp)}
-                        className="text-[13px] font-medium text-primary-500 hover:text-primary-600"
-                        disabled={reactivateEmployee.isPending}
-                      >
-                        재직 처리
-                      </button>
-                    )}
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={11} className="py-12 text-center text-sm text-stripe-muted">
+                    검색 결과가 없습니다.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filtered.map((emp) => (
+                  <tr key={emp.id} className={!emp.isActive ? 'opacity-60' : ''}>
+                    <td className="font-medium whitespace-nowrap">{emp.name}</td>
+                    <td className="font-mono text-[13px] muted whitespace-nowrap">{emp.empNo || '-'}</td>
+                    <td className="muted whitespace-nowrap">{emp.workplace || '-'}</td>
+                    <td className="muted whitespace-nowrap">{emp.department || '-'}</td>
+                    <td className="muted whitespace-nowrap">{emp.position || '-'}</td>
+                    <td className="muted whitespace-nowrap">
+                      {emp.concurrentDept || emp.concurrentPosition
+                        ? [emp.concurrentDept, emp.concurrentPosition].filter(Boolean).join(' · ')
+                        : '-'}
+                    </td>
+                    <td className="font-mono text-[13px] muted whitespace-nowrap">{formatDate(emp.hireDate)}</td>
+                    <td className="font-mono text-[13px] muted whitespace-nowrap">
+                      {emp.terminatedDate ? formatDate(emp.terminatedDate) : '-'}
+                    </td>
+                    <td>
+                      {emp.isAdmin ? <Badge variant="purple">관리자</Badge> : <span className="muted">-</span>}
+                    </td>
+                    <td>
+                      {emp.isActive ? (
+                        <Badge variant="success">재직</Badge>
+                      ) : (
+                        <Badge variant="default">퇴사</Badge>
+                      )}
+                    </td>
+                    <td className="text-right whitespace-nowrap">
+                      {emp.isActive ? (
+                        <>
+                          <button
+                            onClick={() => setModal({ mode: 'edit', employee: emp })}
+                            className="text-[13px] font-medium text-primary-500 hover:text-primary-600"
+                          >
+                            수정
+                          </button>
+                          <span className="text-[#e3e8ee] mx-2">|</span>
+                          <button
+                            onClick={() => setModal({ mode: 'terminate', employee: emp })}
+                            className="text-[13px] text-[#df1b41] hover:text-[#c91839]"
+                          >
+                            퇴사
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => handleReactivate(emp)}
+                          className="text-[13px] font-medium text-primary-500 hover:text-primary-600"
+                          disabled={reactivateEmployee.isPending}
+                        >
+                          재직 처리
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

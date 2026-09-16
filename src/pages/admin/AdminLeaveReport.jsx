@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Download, Save } from 'lucide-react';
+import { Download, Save, Search } from 'lucide-react';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
@@ -21,10 +21,16 @@ function csvCell(value) {
   return text;
 }
 
-function downloadCsv(report, workplaceFilter) {
-  const groups = workplaceFilter
-    ? report.workplaces.filter((group) => group.workplace === workplaceFilter)
-    : report.workplaces;
+function matchesKeyword(emp, keyword) {
+  if (!keyword) return true;
+  const haystack = [emp.name, emp.empNo, emp.workplace, emp.department, emp.position]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes(keyword);
+}
+
+function downloadCsv(report, groups) {
   const rows = [
     [
       '기준연월',
@@ -69,9 +75,8 @@ function downloadCsv(report, workplaceFilter) {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  const suffix = workplaceFilter ? `-${workplaceFilter}` : '';
   link.href = url;
-  link.download = `연차보고서-${report.year}${String(report.month).padStart(2, '0')}${suffix}.csv`;
+  link.download = `연차보고서-${report.year}${String(report.month).padStart(2, '0')}.csv`;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -80,7 +85,10 @@ export function AdminLeaveReport() {
   const initial = previousMonth();
   const [year, setYear] = useState(initial.year);
   const [month, setMonth] = useState(initial.month);
-  const [workplace, setWorkplace] = useState('all');
+  const [query, setQuery] = useState('');
+  const [workplace, setWorkplace] = useState('');
+  const [department, setDepartment] = useState('');
+  const [status, setStatus] = useState('');
   const { data: report, isLoading, isError, refetch } = useLeaveReport(year, month);
   const saveReport = useSaveLeaveReport();
 
@@ -89,11 +97,44 @@ export function AdminLeaveReport() {
     return [current - 1, current, current + 1];
   }, []);
 
+  const workplaces = useMemo(() => {
+    return (report?.workplaces || []).map((group) => group.workplace).filter(Boolean);
+  }, [report]);
+
+  const departments = useMemo(() => {
+    const rows = (report?.workplaces || [])
+      .filter((group) => !workplace || group.workplace === workplace)
+      .flatMap((group) => group.employees);
+    return [...new Set(rows.map((emp) => emp.department).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, 'ko')
+    );
+  }, [report, workplace]);
+
   const visibleGroups = useMemo(() => {
     if (!report) return [];
-    if (workplace === 'all') return report.workplaces;
-    return report.workplaces.filter((group) => group.workplace === workplace);
-  }, [report, workplace]);
+    const keyword = query.trim().toLowerCase();
+    return report.workplaces
+      .filter((group) => !workplace || group.workplace === workplace)
+      .map((group) => {
+        const employees = group.employees.filter((emp) => {
+          if (department && emp.department !== department) return false;
+          if (status && emp.status !== status) return false;
+          return matchesKeyword(emp, keyword);
+        });
+        const accrued = employees.reduce((sum, emp) => sum + (emp.accrued || 0), 0);
+        const usedInMonth = employees.reduce((sum, emp) => sum + (emp.usedInMonth || 0), 0);
+        const remaining = employees.reduce((sum, emp) => sum + (emp.remaining || 0), 0);
+        return {
+          ...group,
+          employees,
+          employeeCount: employees.length,
+          accrued: Math.round(accrued * 10) / 10,
+          usedInMonth: Math.round(usedInMonth * 10) / 10,
+          remaining: Math.round(remaining * 10) / 10,
+        };
+      })
+      .filter((group) => group.employeeCount > 0);
+  }, [report, query, workplace, department, status]);
 
   const visibleTotals = useMemo(() => {
     return visibleGroups.reduce(
@@ -106,6 +147,11 @@ export function AdminLeaveReport() {
       { employeeCount: 0, accrued: 0, usedInMonth: 0, remaining: 0 }
     );
   }, [visibleGroups]);
+
+  function handleWorkplace(value) {
+    setWorkplace(value);
+    setDepartment('');
+  }
 
   if (isLoading && !report) {
     return (
@@ -134,10 +180,7 @@ export function AdminLeaveReport() {
         description={`${report.asOfDate} 말일 기준 · ${report.standard} 미사용 연차 자료`}
         actions={
           <>
-            <Button
-              variant="secondary"
-              onClick={() => downloadCsv(report, workplace === 'all' ? '' : workplace)}
-            >
+            <Button variant="secondary" onClick={() => downloadCsv(report, visibleGroups)}>
               <Download className="h-4 w-4" />
               CSV 받기
             </Button>
@@ -152,7 +195,7 @@ export function AdminLeaveReport() {
         }
       />
 
-      <div className="flex flex-wrap items-end gap-3 mb-6">
+      <div className="flex flex-wrap items-end gap-3 mb-4">
         <label className="text-sm w-full sm:w-auto">
           <span className="stripe-label">연도</span>
           <select
@@ -181,21 +224,39 @@ export function AdminLeaveReport() {
             ))}
           </select>
         </label>
-        <label className="text-sm w-full sm:w-auto sm:min-w-[160px]">
-          <span className="stripe-label">사업장</span>
-          <select
-            className="stripe-input"
-            value={workplace}
-            onChange={(e) => setWorkplace(e.target.value)}
-          >
-            <option value="all">전체 사업장</option>
-            {report.workplaces.map((group) => (
-              <option key={group.workplace} value={group.workplace}>
-                {group.workplace}
-              </option>
-            ))}
-          </select>
-        </label>
+      </div>
+
+      <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="relative sm:col-span-2 lg:col-span-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stripe-muted" />
+          <input
+            className="stripe-input stripe-input-search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="이름, 사번, 부서 검색"
+          />
+        </div>
+        <select className="stripe-input" value={workplace} onChange={(e) => handleWorkplace(e.target.value)}>
+          <option value="">사업장 전체</option>
+          {workplaces.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+        <select className="stripe-input" value={department} onChange={(e) => setDepartment(e.target.value)}>
+          <option value="">부서 전체</option>
+          {departments.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+        <select className="stripe-input" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="">상태 전체</option>
+          <option value="재직">재직</option>
+          <option value="당월 퇴사">당월 퇴사</option>
+        </select>
       </div>
 
       {report.saved && (
@@ -232,114 +293,126 @@ export function AdminLeaveReport() {
         </Panel>
       ) : (
         visibleGroups.map((group) => (
-        <Panel key={group.workplace} className="mb-6">
-          <PanelHeader
-            title={group.workplace}
-            description={`${group.employeeCount}명 · 잔여 ${group.remaining}일 · 당월 사용 ${group.usedInMonth}일`}
-            actions={<Badge variant="primary">{group.remaining}일</Badge>}
-          />
-          <PanelBody noPadding>
-            <div className="settlement-cards mobile-card-list">
-              {group.employees.map((emp) => (
-                <div key={emp.id} className="mobile-card-item">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-stripe-text">{emp.name}</p>
-                      <p className="text-xs text-stripe-muted mt-0.5">
-                        {emp.empNo && <span className="font-mono mr-1.5">{emp.empNo}</span>}
-                        입사 {emp.hireDate || '—'} · {emp.department} · {emp.position}
-                        {emp.pendingInMonth ? ` · 승인대기 ${emp.pendingInMonth}일` : ''}
-                      </p>
+          <Panel key={group.workplace} className="mb-6">
+            <PanelHeader
+              title={group.workplace}
+              description={`${group.employeeCount}명 · 잔여 ${group.remaining}일 · 당월 사용 ${group.usedInMonth}일`}
+              actions={<Badge variant="primary">{group.remaining}일</Badge>}
+            />
+            <PanelBody noPadding>
+              <div className="settlement-cards mobile-card-list">
+                {group.employees.map((emp) => (
+                  <div key={emp.id} className="mobile-card-item">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-stripe-text">{emp.name}</p>
+                        <p className="text-xs text-stripe-muted mt-0.5">
+                          {emp.empNo && <span className="font-mono mr-1.5">{emp.empNo}</span>}
+                          입사 {emp.hireDate || '—'} · {emp.department} · {emp.position}
+                          {emp.pendingInMonth ? ` · 승인대기 ${emp.pendingInMonth}일` : ''}
+                        </p>
+                      </div>
+                      <Badge
+                        variant={emp.status === '재직' ? 'success' : 'warning'}
+                        className="whitespace-nowrap text-[11px] px-1.5 py-0 leading-5"
+                      >
+                        {emp.status}
+                      </Badge>
                     </div>
-                    <Badge
-                      variant={emp.status === '재직' ? 'success' : 'warning'}
-                      className="whitespace-nowrap text-[11px] px-1.5 py-0 leading-5"
-                    >
-                      {emp.status}
-                    </Badge>
-                  </div>
-                  <div className="grid grid-cols-4 gap-2 mt-3 text-center">
-                    <div>
-                      <p className="mobile-card-label">발생</p>
-                      <p className="text-sm tabular-nums">{emp.accrued}</p>
-                    </div>
-                    <div>
-                      <p className="mobile-card-label">당월</p>
-                      <p className="text-sm tabular-nums">{emp.usedInMonth}</p>
-                    </div>
-                    <div>
-                      <p className="mobile-card-label">누적</p>
-                      <p className="text-sm tabular-nums">{emp.usedToDate}</p>
-                    </div>
-                    <div>
-                      <p className="mobile-card-label">잔여</p>
-                      <p className={`text-sm tabular-nums font-medium ${emp.remaining < 0 ? 'text-[#df1b41]' : 'text-[#09825d]'}`}>{emp.remaining}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="settlement-table stripe-table-fit-wrap">
-              <table className="stripe-table stripe-table-fit w-full">
-                <colgroup>
-                  <col style={{ width: '9%' }} />
-                  <col style={{ width: '9%' }} />
-                  <col style={{ width: '11%' }} />
-                  <col style={{ width: '12%' }} />
-                  <col style={{ width: '8%' }} />
-                  <col style={{ width: '8%' }} />
-                  <col style={{ width: '8%' }} />
-                  <col style={{ width: '9%' }} />
-                  <col style={{ width: '9%' }} />
-                  <col style={{ width: '9%' }} />
-                  <col style={{ width: '8%' }} />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th>이름</th>
-                    <th>사번</th>
-                    <th>입사일</th>
-                    <th>부서</th>
-                    <th>직급</th>
-                    <th>상태</th>
-                    <th className="text-right">발생</th>
-                    <th className="text-right">당월사용</th>
-                    <th className="text-right">누적사용</th>
-                    <th className="text-right">잔여</th>
-                    <th className="text-right">승인대기</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {group.employees.map((emp) => (
-                    <tr key={emp.id}>
-                      <td className="font-medium whitespace-nowrap">{emp.name}</td>
-                      <td className="font-mono text-[13px]">{emp.empNo || '-'}</td>
-                      <td className="font-mono text-[13px] whitespace-nowrap">{emp.hireDate || '—'}</td>
-                      <td className="muted whitespace-nowrap">{emp.department}</td>
-                      <td className="muted whitespace-nowrap">{emp.position}</td>
-                      <td>
-                        <Badge
-                          variant={emp.status === '재직' ? 'success' : 'warning'}
-                          className="whitespace-nowrap text-[11px] px-1.5 py-0 leading-5"
+                    <div className="grid grid-cols-4 gap-2 mt-3 text-center">
+                      <div>
+                        <p className="mobile-card-label">발생</p>
+                        <p className="text-sm tabular-nums">{emp.accrued}</p>
+                      </div>
+                      <div>
+                        <p className="mobile-card-label">당월</p>
+                        <p className="text-sm tabular-nums">{emp.usedInMonth}</p>
+                      </div>
+                      <div>
+                        <p className="mobile-card-label">누적</p>
+                        <p className="text-sm tabular-nums">{emp.usedToDate}</p>
+                      </div>
+                      <div>
+                        <p className="mobile-card-label">잔여</p>
+                        <p
+                          className={`text-sm tabular-nums font-medium ${
+                            emp.remaining < 0 ? 'text-[#df1b41]' : 'text-[#09825d]'
+                          }`}
                         >
-                          {emp.status}
-                        </Badge>
-                      </td>
-                      <td className="tabular-nums text-right">{emp.accrued}</td>
-                      <td className="tabular-nums text-right">{emp.usedInMonth}</td>
-                      <td className="tabular-nums text-right muted">{emp.usedToDate}</td>
-                      <td className={`tabular-nums text-right font-medium ${emp.remaining < 0 ? 'text-[#df1b41]' : 'text-[#09825d]'}`}>{emp.remaining}</td>
-                      <td className="tabular-nums text-right muted">
-                        {emp.pendingInMonth ? emp.pendingInMonth : '—'}
-                      </td>
+                          {emp.remaining}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="settlement-table stripe-table-fit-wrap">
+                <table className="stripe-table stripe-table-fit w-full">
+                  <colgroup>
+                    <col style={{ width: '9%' }} />
+                    <col style={{ width: '9%' }} />
+                    <col style={{ width: '11%' }} />
+                    <col style={{ width: '12%' }} />
+                    <col style={{ width: '8%' }} />
+                    <col style={{ width: '8%' }} />
+                    <col style={{ width: '8%' }} />
+                    <col style={{ width: '9%' }} />
+                    <col style={{ width: '9%' }} />
+                    <col style={{ width: '9%' }} />
+                    <col style={{ width: '8%' }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>이름</th>
+                      <th>사번</th>
+                      <th>입사일</th>
+                      <th>부서</th>
+                      <th>직급</th>
+                      <th>상태</th>
+                      <th className="text-right">발생</th>
+                      <th className="text-right">당월사용</th>
+                      <th className="text-right">누적사용</th>
+                      <th className="text-right">잔여</th>
+                      <th className="text-right">승인대기</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </PanelBody>
-        </Panel>
+                  </thead>
+                  <tbody>
+                    {group.employees.map((emp) => (
+                      <tr key={emp.id}>
+                        <td className="font-medium whitespace-nowrap">{emp.name}</td>
+                        <td className="font-mono text-[13px]">{emp.empNo || '-'}</td>
+                        <td className="font-mono text-[13px] whitespace-nowrap">{emp.hireDate || '—'}</td>
+                        <td className="muted whitespace-nowrap">{emp.department}</td>
+                        <td className="muted whitespace-nowrap">{emp.position}</td>
+                        <td>
+                          <Badge
+                            variant={emp.status === '재직' ? 'success' : 'warning'}
+                            className="whitespace-nowrap text-[11px] px-1.5 py-0 leading-5"
+                          >
+                            {emp.status}
+                          </Badge>
+                        </td>
+                        <td className="tabular-nums text-right">{emp.accrued}</td>
+                        <td className="tabular-nums text-right">{emp.usedInMonth}</td>
+                        <td className="tabular-nums text-right muted">{emp.usedToDate}</td>
+                        <td
+                          className={`tabular-nums text-right font-medium ${
+                            emp.remaining < 0 ? 'text-[#df1b41]' : 'text-[#09825d]'
+                          }`}
+                        >
+                          {emp.remaining}
+                        </td>
+                        <td className="tabular-nums text-right muted">
+                          {emp.pendingInMonth ? emp.pendingInMonth : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </PanelBody>
+          </Panel>
         ))
       )}
     </div>

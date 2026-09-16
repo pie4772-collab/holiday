@@ -119,7 +119,15 @@ CREATE TABLE IF NOT EXISTS leave_month_reports (
 );
 
 -- 월 통상임금(원). 일급 = floor(통상임금 / 209 × 8), 연차수당 = 일급 × 잔여일수
--- employees.ordinary_wage 컬럼은 migrate에서 추가
+-- employees.ordinary_wage: IFRS 연차부채용
+-- leave_settlement_ordinary_wages: 연차 정산 전용 (부채와 분리, 관리자 직접 입력)
+
+CREATE TABLE IF NOT EXISTS leave_settlement_ordinary_wages (
+  employee_id   INTEGER PRIMARY KEY,
+  ordinary_wage REAL,
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+  FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
+);
 
 CREATE TABLE IF NOT EXISTS leave_pay_settlements (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,

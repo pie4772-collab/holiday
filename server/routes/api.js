@@ -150,7 +150,8 @@ router.post('/admin/leave-event-settlements', requireAdmin, (req, res, next) => 
 
 router.put('/admin/employees/:id/ordinary-wage', requireAdmin, (req, res, next) => {
   try {
-    res.json(leaveService.updateEmployeeOrdinaryWage(req.params.id, req.body.ordinaryWage));
+    const purpose = req.body.purpose === 'settlement' ? 'settlement' : 'liability';
+    res.json(leaveService.updateEmployeeOrdinaryWage(req.params.id, req.body.ordinaryWage, purpose));
   } catch (e) {
     next(e);
   }
@@ -158,7 +159,8 @@ router.put('/admin/employees/:id/ordinary-wage', requireAdmin, (req, res, next) 
 
 router.get('/admin/ordinary-wages/template', requireAdmin, (req, res, next) => {
   try {
-    const template = leaveService.getOrdinaryWageTemplate();
+    const purpose = req.query.purpose === 'settlement' ? 'settlement' : 'liability';
+    const template = leaveService.getOrdinaryWageTemplate(purpose);
     const escape = (value) => {
       const text = value == null ? '' : String(value);
       if (/[",\r\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
@@ -173,8 +175,12 @@ router.get('/admin/ordinary-wages/template', requireAdmin, (req, res, next) => {
       ),
     ];
     const csv = `\uFEFF${lines.join('\r\n')}`;
+    const filename =
+      purpose === 'settlement'
+        ? 'settlement-ordinary-wage-template.csv'
+        : 'ordinary-wage-template.csv';
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename="ordinary-wage-template.csv"');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(csv);
   } catch (e) {
     next(e);
@@ -183,7 +189,20 @@ router.get('/admin/ordinary-wages/template', requireAdmin, (req, res, next) => {
 
 router.post('/admin/ordinary-wages/upload', requireAdmin, (req, res, next) => {
   try {
-    res.json(leaveService.bulkUpdateOrdinaryWagesByEmpNo(req.body.rows || req.body.items || []));
+    const purpose = req.body.purpose === 'settlement' ? 'settlement' : 'liability';
+    res.json(
+      leaveService.bulkUpdateOrdinaryWagesByEmpNo(req.body.rows || req.body.items || [], purpose)
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/ordinary-wages/load-previous-month', requireAdmin, (req, res, next) => {
+  try {
+    res.json(
+      leaveService.loadLiabilityOrdinaryWagesFromPreviousMonth(req.body.year, req.body.month)
+    );
   } catch (e) {
     next(e);
   }

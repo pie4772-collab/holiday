@@ -5,22 +5,26 @@ import { leaveApi } from '../api/leaveApi';
 import { useUploadOrdinaryWages } from '../hooks/useLeaveData';
 import { parseOrdinaryWageCsv } from '../utils/ordinaryWageCsv';
 
-export function OrdinaryWageCsvActions({ onMessage, onError }) {
+export function OrdinaryWageCsvActions({ purpose = 'liability', onMessage, onError }) {
   const fileRef = useRef(null);
   const uploadWages = useUploadOrdinaryWages();
   const [busy, setBusy] = useState(false);
+  const purposeLabel = purpose === 'settlement' ? '정산' : '부채';
 
   async function handleDownloadTemplate() {
     try {
       setBusy(true);
-      const blob = await leaveApi.downloadOrdinaryWageTemplate();
+      const blob = await leaveApi.downloadOrdinaryWageTemplate(purpose);
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = '통상임금업로드양식.csv';
+      link.download =
+        purpose === 'settlement' ? '정산통상임금업로드양식.csv' : '통상임금업로드양식.csv';
       link.click();
       URL.revokeObjectURL(url);
-      onMessage?.('통상임금 업로드 양식을 내려받았습니다. 사번·월통상임금만 채운 뒤 업로드하세요.');
+      onMessage?.(
+        `${purposeLabel} 통상임금 업로드 양식을 내려받았습니다. 사번·월통상임금만 채운 뒤 업로드하세요.`
+      );
     } catch (error) {
       onError?.(error.message || '양식 다운로드에 실패했습니다.');
     } finally {
@@ -37,8 +41,8 @@ export function OrdinaryWageCsvActions({ onMessage, onError }) {
       setBusy(true);
       const text = await file.text();
       const rows = parseOrdinaryWageCsv(text);
-      const result = await uploadWages.mutateAsync(rows);
-      const parts = [`통상임금 ${result.updatedCount}명 반영`];
+      const result = await uploadWages.mutateAsync({ rows, purpose });
+      const parts = [`${purposeLabel} 통상임금 ${result.updatedCount}명 반영`];
       if (result.missingCount) parts.push(`미존재 사번 ${result.missingCount}`);
       if (result.errorCount) parts.push(`오류 ${result.errorCount}`);
       if (result.skippedCount) parts.push(`건너뜀 ${result.skippedCount}`);

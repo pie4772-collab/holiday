@@ -438,6 +438,15 @@ function migrate(database) {
   addColumn(database, 'leave_usages', 'approval_step TEXT');
 
   database.exec(`
+    CREATE TABLE IF NOT EXISTS leave_settlement_ordinary_wages (
+      employee_id   INTEGER PRIMARY KEY,
+      ordinary_wage REAL,
+      updated_at    TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
+    );
+  `);
+
+  database.exec(`
     CREATE TABLE IF NOT EXISTS leave_month_reports (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       year          INTEGER NOT NULL,

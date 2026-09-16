@@ -642,7 +642,7 @@ function getSavedPaySettlement(year, month) {
     .get(year, month);
 }
 
-export function updateEmployeeOrdinaryWage(employeeId, ordinaryWage) {
+export function updateEmployeeOrdinaryWage(employeeId, ordinaryWage, purpose = 'liability') {
   const dbId = parseEmployeeId(employeeId);
   if (!dbId) throw Object.assign(new Error('유효하지 않은 직원 ID입니다.'), { status: 400 });
   const emp = getDb().prepare('SELECT id FROM employees WHERE id = ?').get(dbId);
@@ -653,17 +653,27 @@ export function updateEmployeeOrdinaryWage(employeeId, ordinaryWage) {
     throw Object.assign(new Error('통상임금은 0 이상의 숫자로 입력해주세요.'), { status: 400 });
   }
 
-  getDb()
-    .prepare(
+  const db = getDb();
+  if (purpose === 'settlement') {
+    db.prepare(
+      `INSERT INTO leave_settlement_ordinary_wages (employee_id, ordinary_wage, updated_at)
+       VALUES (?, ?, datetime('now', 'localtime'))
+       ON CONFLICT(employee_id) DO UPDATE SET
+         ordinary_wage = excluded.ordinary_wage,
+         updated_at = excluded.updated_at`
+    ).run(dbId, wage);
+  } else {
+    db.prepare(
       `UPDATE employees
        SET ordinary_wage = ?, updated_at = datetime('now', 'localtime')
        WHERE id = ?`
-    )
-    .run(wage, dbId);
+    ).run(wage, dbId);
+  }
 
   return {
     id: String(dbId),
     ordinaryWage: wage,
+    purpose: purpose === 'settlement' ? 'settlement' : 'liability',
   };
 }
 
@@ -684,18 +694,37 @@ function parseOrdinaryWageValue(value) {
   return { skip: false, wage };
 }
 
-/** 통상임금 업로드 양식 (사번 기준) */
-export function getOrdinaryWageTemplate() {
+function getSettlementOrdinaryWageMap() {
+  const rows = getDb()
+    .prepare('SELECT employee_id, ordinary_wage FROM leave_settlement_ordinary_wages')
+    .all();
+  const map = new Map();
+  for (const row of rows) {
+    map.set(row.employee_id, row.ordinary_wage == null ? null : Number(row.ordinary_wage));
+  }
+  return map;
+}
+
+/** 통상임금 업로드 양식 (사번 기준). purpose=settlement|liability */
+export function getOrdinaryWageTemplate(purpose = 'liability') {
+  const forSettlement = purpose === 'settlement';
   const rows = getDb()
     .prepare(
-      `SELECT emp_no, name, ordinary_wage, workplace, department, is_active
-       FROM employees
-       WHERE emp_no IS NOT NULL AND TRIM(emp_no) != ''
-       ORDER BY is_active DESC, workplace, name`
+      forSettlement
+        ? `SELECT e.emp_no, e.name, s.ordinary_wage, e.workplace, e.department, e.is_active
+           FROM employees e
+           LEFT JOIN leave_settlement_ordinary_wages s ON s.employee_id = e.id
+           WHERE e.emp_no IS NOT NULL AND TRIM(e.emp_no) != ''
+           ORDER BY e.is_active DESC, e.workplace, e.name`
+        : `SELECT emp_no, name, ordinary_wage, workplace, department, is_active
+           FROM employees
+           WHERE emp_no IS NOT NULL AND TRIM(emp_no) != ''
+           ORDER BY is_active DESC, workplace, name`
     )
     .all();
 
   return {
+    purpose: forSettlement ? 'settlement' : 'liability',
     headers: ['사번', '이름', '월통상임금', '사업장', '부서', '재직'],
     rows: rows.map((row) => ({
       empNo: row.emp_no,
@@ -710,21 +739,31 @@ export function getOrdinaryWageTemplate() {
 
 /**
  * 사번 기준 통상임금 일괄 반영
+ * - purpose=liability: employees.ordinary_wage (IFRS 부채)
+ * - purpose=settlement: leave_settlement_ordinary_wages (연차 정산 전용)
  * - 월통상임금 칸이 비어 있으면 해당 행은 건너뜀
  */
-export function bulkUpdateOrdinaryWagesByEmpNo(items = []) {
+export function bulkUpdateOrdinaryWagesByEmpNo(items = [], purpose = 'liability') {
   if (!Array.isArray(items) || items.length === 0) {
     throw Object.assign(new Error('업로드할 행이 없습니다.'), { status: 400 });
   }
 
+  const forSettlement = purpose === 'settlement';
   const db = getDb();
   const findByEmpNo = db.prepare(
     `SELECT id, emp_no, name FROM employees WHERE lower(emp_no) = lower(?) LIMIT 1`
   );
-  const updateWage = db.prepare(
+  const updateLiability = db.prepare(
     `UPDATE employees
      SET ordinary_wage = ?, updated_at = datetime('now', 'localtime')
      WHERE id = ?`
+  );
+  const updateSettlement = db.prepare(
+    `INSERT INTO leave_settlement_ordinary_wages (employee_id, ordinary_wage, updated_at)
+     VALUES (?, ?, datetime('now', 'localtime'))
+     ON CONFLICT(employee_id) DO UPDATE SET
+       ordinary_wage = excluded.ordinary_wage,
+       updated_at = excluded.updated_at`
   );
 
   const updated = [];
@@ -766,7 +805,9 @@ export function bulkUpdateOrdinaryWagesByEmpNo(items = []) {
       continue;
     }
 
-    updateWage.run(parsed.wage, emp.id);
+    if (forSettlement) updateSettlement.run(emp.id, parsed.wage);
+    else updateLiability.run(parsed.wage, emp.id);
+
     updated.push({
       id: String(emp.id),
       empNo: emp.emp_no,
@@ -782,6 +823,7 @@ export function bulkUpdateOrdinaryWagesByEmpNo(items = []) {
   }
 
   return {
+    purpose: forSettlement ? 'settlement' : 'liability',
     updatedCount: updated.length,
     skippedCount: skipped.length,
     missingCount: missing.length,
@@ -793,6 +835,67 @@ export function bulkUpdateOrdinaryWagesByEmpNo(items = []) {
   };
 }
 
+/**
+ * IFRS 연차부채: 지난달 월말 확정 페이로드의 통상임금을 현재 부채용 임금으로 복사
+ */
+export function loadLiabilityOrdinaryWagesFromPreviousMonth(year, month) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!Number.isInteger(y) || y < 2000 || y > 2100 || !Number.isInteger(m) || m < 1 || m > 12) {
+    throw Object.assign(new Error('연월을 확인해주세요.'), { status: 400 });
+  }
+
+  const prevMonth = m === 1 ? 12 : m - 1;
+  const prevYear = m === 1 ? y - 1 : y;
+  const saved = getSavedPaySettlement(prevYear, prevMonth);
+  if (!saved?.payload) {
+    throw Object.assign(
+      new Error(`${prevYear}년 ${prevMonth}월 월말 확정 자료가 없습니다. 지난달 부채를 먼저 확정해주세요.`),
+      { status: 404 }
+    );
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(saved.payload);
+  } catch {
+    throw Object.assign(new Error('지난달 확정 자료를 읽을 수 없습니다.'), { status: 500 });
+  }
+
+  const db = getDb();
+  const updateWage = db.prepare(
+    `UPDATE employees
+     SET ordinary_wage = ?, updated_at = datetime('now', 'localtime')
+     WHERE id = ?`
+  );
+
+  let updatedCount = 0;
+  let skippedCount = 0;
+  for (const group of payload.workplaces || []) {
+    for (const emp of group.employees || []) {
+      const wage = emp.ordinaryWage;
+      if (wage == null || wage === '' || !Number.isFinite(Number(wage))) {
+        skippedCount += 1;
+        continue;
+      }
+      const empId = parseEmployeeId(emp.id);
+      if (!empId) {
+        skippedCount += 1;
+        continue;
+      }
+      updateWage.run(Number(wage), empId);
+      updatedCount += 1;
+    }
+  }
+
+  return {
+    sourceYear: prevYear,
+    sourceMonth: prevMonth,
+    updatedCount,
+    skippedCount,
+  };
+}
+
 export function getLeavePaySettlement(year, month) {
   const y = Number(year);
   const m = Number(month);
@@ -801,17 +904,16 @@ export function getLeavePaySettlement(year, month) {
   }
 
   const range = getReportMonthRange(y, m);
+  // IFRS 연차부채: 월말 재직자만 (당월 퇴사·퇴직자 제외 — 정산 화면에서 별도 처리)
   const rows = getDb()
     .prepare(
       `${EMPLOYEE_SNAPSHOT_SELECT}
        WHERE e.hire_date <= ?
-         AND (
-           (e.is_active = 1 AND (e.terminated_date IS NULL OR e.terminated_date > ?))
-           OR (e.terminated_date IS NOT NULL AND e.terminated_date >= ? AND e.terminated_date <= ?)
-         )
+         AND e.is_active = 1
+         AND (e.terminated_date IS NULL OR e.terminated_date > ?)
        ORDER BY e.workplace, e.name`
     )
-    .all(range.monthEnd, range.monthEnd, range.monthStart, range.monthEnd);
+    .all(range.monthEnd, range.monthEnd);
 
   const employees = rows.map((row) => {
     const base = toEmployeeBase(row);
@@ -825,9 +927,6 @@ export function getLeavePaySettlement(year, month) {
     const dailyRate = calculateOrdinaryDailyRate(ordinaryWage);
     const allowance =
       dailyRate != null ? roundMoney(dailyRate * remaining) : ordinaryWage != null ? 0 : null;
-    const terminatedInMonth = Boolean(
-      row.terminated_date && row.terminated_date >= range.monthStart && row.terminated_date <= range.monthEnd
-    );
 
     return {
       id: base.id,
@@ -839,7 +938,7 @@ export function getLeavePaySettlement(year, month) {
       position: base.position,
       hireDate: base.hireDate,
       terminatedDate: row.terminated_date || null,
-      status: terminatedInMonth ? '당월 퇴사' : '재직',
+      status: '재직',
       remaining: round1(remaining),
       overusedDays: round1(overusedDays),
       carryInDays: round1(summary.carryInDays || 0),
@@ -1049,6 +1148,8 @@ export function getLeaveEventSettlement(year) {
 
   const items = [];
   const workplaceCatalog = new Map();
+  // 정산 통상임금은 부채(employees.ordinary_wage)와 분리 — 관리자 직접 입력분만 사용
+  const settlementWageMap = getSettlementOrdinaryWageMap();
 
   for (const row of rows) {
     const workplaceName = row.workplace || '미지정';
@@ -1059,7 +1160,9 @@ export function getLeaveEventSettlement(year) {
       });
     }
     const base = toEmployeeBase(row);
-    const ordinaryWage = row.ordinary_wage == null ? null : Number(row.ordinary_wage);
+    const ordinaryWage = settlementWageMap.has(row.id)
+      ? settlementWageMap.get(row.id)
+      : null;
     const dailyRate = calculateOrdinaryDailyRate(ordinaryWage);
     const terminatedDate = row.terminated_date ? String(row.terminated_date).slice(0, 10) : null;
 

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Download, Save } from 'lucide-react';
+import { Download, History, Save, Search } from 'lucide-react';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
@@ -10,6 +10,7 @@ import { LeaveSummaryCard } from '../../components/LeaveSummaryCard';
 import { OrdinaryWageCsvActions } from '../../components/OrdinaryWageCsvActions';
 import {
   useLeaveSettlement,
+  useLoadPreviousMonthOrdinaryWages,
   useSaveLeaveSettlement,
   useUpdateOrdinaryWage,
 } from '../../hooks/useLeaveData';
@@ -31,10 +32,16 @@ function formatWon(value) {
   return `${Math.round(Number(value)).toLocaleString('ko-KR')}원`;
 }
 
-function downloadCsv(settlement, workplaceFilter) {
-  const groups = workplaceFilter
-    ? settlement.workplaces.filter((group) => group.workplace === workplaceFilter)
-    : settlement.workplaces;
+function matchesKeyword(emp, keyword) {
+  if (!keyword) return true;
+  const haystack = [emp.name, emp.empNo, emp.workplace, emp.department, emp.position]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes(keyword);
+}
+
+function downloadCsv(settlement, groups) {
   const rows = [
     [
       '기준연월',
@@ -79,9 +86,8 @@ function downloadCsv(settlement, workplaceFilter) {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  const suffix = workplaceFilter ? `-${workplaceFilter}` : '';
   link.href = url;
-  link.download = `IFRS연차부채-${settlement.year}${String(settlement.month).padStart(2, '0')}${suffix}.csv`;
+  link.download = `IFRS연차부채-${settlement.year}${String(settlement.month).padStart(2, '0')}.csv`;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -90,24 +96,61 @@ export function AdminLeaveSettlement() {
   const initial = previousMonth();
   const [year, setYear] = useState(initial.year);
   const [month, setMonth] = useState(initial.month);
-  const [workplace, setWorkplace] = useState('all');
+  const [query, setQuery] = useState('');
+  const [workplace, setWorkplace] = useState('');
+  const [department, setDepartment] = useState('');
+  const [status, setStatus] = useState('');
   const [draftWages, setDraftWages] = useState({});
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const { data: settlement, isLoading, isError, refetch } = useLeaveSettlement(year, month);
   const saveSettlement = useSaveLeaveSettlement();
   const updateWage = useUpdateOrdinaryWage();
+  const loadPreviousWages = useLoadPreviousMonthOrdinaryWages();
 
   const years = useMemo(() => {
     const current = new Date().getFullYear();
     return [current - 1, current, current + 1];
   }, []);
 
+  const workplaces = useMemo(() => {
+    return (settlement?.workplaces || []).map((group) => group.workplace).filter(Boolean);
+  }, [settlement]);
+
+  const departments = useMemo(() => {
+    const rows = (settlement?.workplaces || [])
+      .filter((group) => !workplace || group.workplace === workplace)
+      .flatMap((group) => group.employees);
+    return [...new Set(rows.map((emp) => emp.department).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, 'ko')
+    );
+  }, [settlement, workplace]);
+
   const visibleGroups = useMemo(() => {
     if (!settlement) return [];
-    if (workplace === 'all') return settlement.workplaces;
-    return settlement.workplaces.filter((group) => group.workplace === workplace);
-  }, [settlement, workplace]);
+    const keyword = query.trim().toLowerCase();
+    return settlement.workplaces
+      .filter((group) => !workplace || group.workplace === workplace)
+      .map((group) => {
+        const employees = group.employees.filter((emp) => {
+          if (department && emp.department !== department) return false;
+          if (status && emp.status !== status) return false;
+          return matchesKeyword(emp, keyword);
+        });
+        const remaining = employees.reduce((sum, emp) => sum + (emp.remaining || 0), 0);
+        const allowance = employees.reduce((sum, emp) => sum + (emp.allowance || 0), 0);
+        const wageMissingCount = employees.filter((emp) => emp.wageMissing).length;
+        return {
+          ...group,
+          employees,
+          employeeCount: employees.length,
+          remaining: Math.round(remaining * 10) / 10,
+          allowance: Math.round(allowance),
+          wageMissingCount,
+        };
+      })
+      .filter((group) => group.employeeCount > 0);
+  }, [settlement, query, workplace, department, status]);
 
   const visibleTotals = useMemo(() => {
     return visibleGroups.reduce(
@@ -121,6 +164,11 @@ export function AdminLeaveSettlement() {
     );
   }, [visibleGroups]);
 
+  function handleWorkplace(value) {
+    setWorkplace(value);
+    setDepartment('');
+  }
+
   function wageValue(emp) {
     if (Object.prototype.hasOwnProperty.call(draftWages, emp.id)) return draftWages[emp.id];
     return emp.ordinaryWage == null ? '' : String(emp.ordinaryWage);
@@ -133,14 +181,30 @@ export function AdminLeaveSettlement() {
       setMessage('통상임금은 0 이상의 숫자로 입력해주세요.');
       return;
     }
-    await updateWage.mutateAsync({ id: emp.id, ordinaryWage });
+    await updateWage.mutateAsync({ id: emp.id, ordinaryWage, purpose: 'liability' });
     setDraftWages((prev) => {
       const next = { ...prev };
       delete next[emp.id];
       return next;
     });
-    setMessage(`${emp.name} 통상임금을 저장했습니다.`);
+    setMessage(`${emp.name} 통상임금을 계산·저장했습니다.`);
     setTimeout(() => setMessage(''), 3000);
+  }
+
+  async function handleLoadPreviousMonthWages() {
+    try {
+      setErrorMessage('');
+      const result = await loadPreviousWages.mutateAsync({ year, month });
+      setDraftWages({});
+      setMessage(
+        `${result.sourceYear}년 ${result.sourceMonth}월 확정 통상임금 ${result.updatedCount}명 반영` +
+          (result.skippedCount ? ` · 건너뜀 ${result.skippedCount}` : '')
+      );
+      setTimeout(() => setMessage(''), 5000);
+    } catch (error) {
+      setMessage('');
+      setErrorMessage(error.message || '지난달 통상임금 불러오기에 실패했습니다.');
+    }
   }
 
   if (isLoading && !settlement) {
@@ -163,6 +227,7 @@ export function AdminLeaveSettlement() {
         actions={
           <>
             <OrdinaryWageCsvActions
+              purpose="liability"
               onMessage={(text) => {
                 setErrorMessage('');
                 setMessage(text);
@@ -173,9 +238,15 @@ export function AdminLeaveSettlement() {
               }}
             />
             <Button
+              type="button"
               variant="secondary"
-              onClick={() => downloadCsv(settlement, workplace === 'all' ? '' : workplace)}
+              disabled={loadPreviousWages.isPending}
+              onClick={handleLoadPreviousMonthWages}
             >
+              <History className="h-4 w-4" />
+              {loadPreviousWages.isPending ? '불러오는 중…' : '지난달 통상임금 불러오기'}
+            </Button>
+            <Button variant="secondary" onClick={() => downloadCsv(settlement, visibleGroups)}>
               <Download className="h-4 w-4" />
               CSV 받기
             </Button>
@@ -190,7 +261,7 @@ export function AdminLeaveSettlement() {
         }
       />
 
-      <div className="flex flex-wrap items-end gap-3 mb-6">
+      <div className="flex flex-wrap items-end gap-3 mb-4">
         <label className="text-sm w-full sm:w-auto">
           <span className="stripe-label">연도</span>
           <select className="stripe-input" value={year} onChange={(e) => setYear(Number(e.target.value))}>
@@ -211,17 +282,38 @@ export function AdminLeaveSettlement() {
             ))}
           </select>
         </label>
-        <label className="text-sm w-full sm:w-auto sm:min-w-[160px]">
-          <span className="stripe-label">사업장</span>
-          <select className="stripe-input" value={workplace} onChange={(e) => setWorkplace(e.target.value)}>
-            <option value="all">전체 사업장</option>
-            {settlement.workplaces.map((group) => (
-              <option key={group.workplace} value={group.workplace}>
-                {group.workplace}
-              </option>
-            ))}
-          </select>
-        </label>
+      </div>
+
+      <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="relative sm:col-span-2 lg:col-span-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stripe-muted" />
+          <input
+            className="stripe-input stripe-input-search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="이름, 사번, 부서 검색"
+          />
+        </div>
+        <select className="stripe-input" value={workplace} onChange={(e) => handleWorkplace(e.target.value)}>
+          <option value="">사업장 전체</option>
+          {workplaces.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+        <select className="stripe-input" value={department} onChange={(e) => setDepartment(e.target.value)}>
+          <option value="">부서 전체</option>
+          {departments.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+        <select className="stripe-input" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="">상태 전체</option>
+          <option value="재직">재직</option>
+        </select>
       </div>
 
       {message && (
@@ -246,7 +338,7 @@ export function AdminLeaveSettlement() {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <LeaveSummaryCard title="대상 인원" value={visibleTotals.employeeCount} unit="명" subtitle="월말 재직 + 당월 퇴사" />
+        <LeaveSummaryCard title="대상 인원" value={visibleTotals.employeeCount} unit="명" subtitle="월말 재직자만 (퇴직자 제외)" />
         <LeaveSummaryCard title="잔여 합계" value={visibleTotals.remaining} subtitle="월말 미사용(음수는 0)" />
         <LeaveSummaryCard
           title="부채 합계"
@@ -264,138 +356,144 @@ export function AdminLeaveSettlement() {
       </div>
 
       <p className="text-[13px] text-stripe-muted mb-6">
-        {settlement.note} 통상임금은 양식을 내려받아 사번 기준으로 업로드할 수 있습니다.
+        {settlement.note} 통상임금은 양식 업로드 또는 「지난달 통상임금 불러오기」로 반영한 뒤 「계산/저장」하세요.
       </p>
 
-      {visibleGroups.map((group) => (
-        <Panel key={group.workplace} className="mb-6">
-          <PanelHeader
-            title={group.workplace}
-            description={`${group.employeeCount}명 · 잔여 ${group.remaining}일 · 수당 ${formatWon(group.allowance)}`}
-            actions={<Badge variant="primary">{formatWon(group.allowance)}</Badge>}
-          />
-          <PanelBody noPadding>
-            <div className="settlement-cards mobile-card-list">
-              {group.employees.map((emp) => (
-                <div key={emp.id} className="mobile-card-item">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-stripe-text">{emp.name}</p>
-                      <p className="text-xs text-stripe-muted mt-0.5">
-                        {emp.empNo && <span className="font-mono mr-1.5">{emp.empNo}</span>}
-                        입사 {emp.hireDate || '—'} · {emp.department} · 잔여 {emp.remaining}일
-                      </p>
-                    </div>
-                    <Badge variant={emp.wageMissing ? 'warning' : 'success'}>
-                      {emp.wageMissing ? '미입력' : formatWon(emp.allowance)}
-                    </Badge>
-                  </div>
-                  <div className="mt-3 flex gap-2">
-                    <input
-                      className="stripe-input flex-1"
-                      type="number"
-                      min="0"
-                      step="1"
-                      placeholder="월 통상임금"
-                      value={wageValue(emp)}
-                      onChange={(e) =>
-                        setDraftWages((prev) => ({ ...prev, [emp.id]: e.target.value }))
-                      }
-                    />
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={updateWage.isPending}
-                      onClick={() => handleSaveWage(emp)}
-                    >
-                      저장
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="settlement-table stripe-table-fit-wrap">
-              <table className="stripe-table stripe-table-fit w-full">
-                <colgroup>
-                  <col style={{ width: '9%' }} />
-                  <col style={{ width: '8%' }} />
-                  <col style={{ width: '10%' }} />
-                  <col style={{ width: '10%' }} />
-                  <col style={{ width: '7%' }} />
-                  <col style={{ width: '6%' }} />
-                  <col style={{ width: '7%' }} />
-                  <col style={{ width: '14%' }} />
-                  <col style={{ width: '10%' }} />
-                  <col style={{ width: '12%' }} />
-                  <col style={{ width: '7%' }} />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th>이름</th>
-                    <th>사번</th>
-                    <th>입사일</th>
-                    <th>부서</th>
-                    <th>상태</th>
-                    <th className="text-right">잔여</th>
-                    <th className="text-right">초과이월</th>
-                    <th>월 통상임금</th>
-                    <th className="text-right">일급</th>
-                    <th className="text-right">부채금액</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {group.employees.map((emp) => (
-                    <tr key={emp.id}>
-                      <td className="font-medium whitespace-nowrap">{emp.name}</td>
-                      <td className="font-mono text-[13px]">{emp.empNo || '-'}</td>
-                      <td className="font-mono text-[13px] whitespace-nowrap">{emp.hireDate || '—'}</td>
-                      <td className="muted whitespace-nowrap">{emp.department}</td>
-                      <td>
-                        <Badge variant={emp.status === '재직' ? 'success' : 'warning'}>{emp.status}</Badge>
-                      </td>
-                      <td className="tabular-nums text-right">{emp.remaining}</td>
-                      <td className="tabular-nums text-right muted whitespace-nowrap">
-                        {emp.overusedDays ? emp.overusedDays : '—'}
-                      </td>
-                      <td>
-                        <input
-                          className="stripe-input font-mono text-[12px]"
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={wageValue(emp)}
-                          onChange={(e) =>
-                            setDraftWages((prev) => ({ ...prev, [emp.id]: e.target.value }))
-                          }
-                          placeholder="원"
-                        />
-                      </td>
-                      <td className="tabular-nums text-right muted whitespace-nowrap">
-                        {emp.dailyRate == null ? '—' : formatWon(emp.dailyRate)}
-                      </td>
-                      <td className="tabular-nums text-right font-medium whitespace-nowrap">
-                        {emp.allowance == null ? '—' : formatWon(emp.allowance)}
-                      </td>
-                      <td className="text-right">
-                        <button
-                          type="button"
-                          className="text-[13px] font-medium text-primary-500 hover:text-primary-600"
-                          disabled={updateWage.isPending}
-                          onClick={() => handleSaveWage(emp)}
-                        >
-                          저장
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </PanelBody>
+      {visibleGroups.length === 0 ? (
+        <Panel>
+          <p className="py-12 text-center text-sm text-stripe-muted">해당 조건의 부채 대상이 없습니다.</p>
         </Panel>
-      ))}
+      ) : (
+        visibleGroups.map((group) => (
+          <Panel key={group.workplace} className="mb-6">
+            <PanelHeader
+              title={group.workplace}
+              description={`${group.employeeCount}명 · 잔여 ${group.remaining}일 · 수당 ${formatWon(group.allowance)}`}
+              actions={<Badge variant="primary">{formatWon(group.allowance)}</Badge>}
+            />
+            <PanelBody noPadding>
+              <div className="settlement-cards mobile-card-list">
+                {group.employees.map((emp) => (
+                  <div key={emp.id} className="mobile-card-item">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-stripe-text">{emp.name}</p>
+                        <p className="text-xs text-stripe-muted mt-0.5">
+                          {emp.empNo && <span className="font-mono mr-1.5">{emp.empNo}</span>}
+                          입사 {emp.hireDate || '—'} · {emp.department} · 잔여 {emp.remaining}일
+                        </p>
+                      </div>
+                      <Badge variant={emp.wageMissing ? 'warning' : 'success'}>
+                        {emp.wageMissing ? '미입력' : formatWon(emp.allowance)}
+                      </Badge>
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <input
+                        className="stripe-input flex-1"
+                        type="number"
+                        min="0"
+                        step="1"
+                        placeholder="월 통상임금"
+                        value={wageValue(emp)}
+                        onChange={(e) =>
+                          setDraftWages((prev) => ({ ...prev, [emp.id]: e.target.value }))
+                        }
+                      />
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={updateWage.isPending}
+                        onClick={() => handleSaveWage(emp)}
+                      >
+                        계산/저장
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="settlement-table stripe-table-fit-wrap">
+                <table className="stripe-table stripe-table-fit w-full">
+                  <colgroup>
+                    <col style={{ width: '9%' }} />
+                    <col style={{ width: '8%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '7%' }} />
+                    <col style={{ width: '6%' }} />
+                    <col style={{ width: '7%' }} />
+                    <col style={{ width: '14%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '12%' }} />
+                    <col style={{ width: '7%' }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>이름</th>
+                      <th>사번</th>
+                      <th>입사일</th>
+                      <th>부서</th>
+                      <th>상태</th>
+                      <th className="text-right">잔여</th>
+                      <th className="text-right">초과이월</th>
+                      <th>월 통상임금</th>
+                      <th className="text-right">일급</th>
+                      <th className="text-right">부채금액</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.employees.map((emp) => (
+                      <tr key={emp.id}>
+                        <td className="font-medium whitespace-nowrap">{emp.name}</td>
+                        <td className="font-mono text-[13px]">{emp.empNo || '-'}</td>
+                        <td className="font-mono text-[13px] whitespace-nowrap">{emp.hireDate || '—'}</td>
+                        <td className="muted whitespace-nowrap">{emp.department}</td>
+                        <td>
+                          <Badge variant={emp.status === '재직' ? 'success' : 'warning'}>{emp.status}</Badge>
+                        </td>
+                        <td className="tabular-nums text-right">{emp.remaining}</td>
+                        <td className="tabular-nums text-right muted whitespace-nowrap">
+                          {emp.overusedDays ? emp.overusedDays : '—'}
+                        </td>
+                        <td>
+                          <input
+                            className="stripe-input font-mono text-[12px]"
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={wageValue(emp)}
+                            onChange={(e) =>
+                              setDraftWages((prev) => ({ ...prev, [emp.id]: e.target.value }))
+                            }
+                            placeholder="원"
+                          />
+                        </td>
+                        <td className="tabular-nums text-right muted whitespace-nowrap">
+                          {emp.dailyRate == null ? '—' : formatWon(emp.dailyRate)}
+                        </td>
+                        <td className="tabular-nums text-right font-medium whitespace-nowrap">
+                          {emp.allowance == null ? '—' : formatWon(emp.allowance)}
+                        </td>
+                        <td className="text-right">
+                          <button
+                            type="button"
+                            className="text-[13px] font-medium text-primary-500 hover:text-primary-600"
+                            disabled={updateWage.isPending}
+                            onClick={() => handleSaveWage(emp)}
+                          >
+                            계산/저장
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </PanelBody>
+          </Panel>
+        ))
+      )}
     </div>
   );
 }

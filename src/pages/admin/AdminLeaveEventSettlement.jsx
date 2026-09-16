@@ -256,13 +256,13 @@ export function AdminLeaveEventSettlement() {
       setMessage('통상임금은 0 이상의 숫자로 입력해주세요.');
       return;
     }
-    await updateWage.mutateAsync({ id: emp.employeeId, ordinaryWage });
+    await updateWage.mutateAsync({ id: emp.employeeId, ordinaryWage, purpose: 'settlement' });
     setDraftWages((prev) => {
       const next = { ...prev };
       delete next[emp.employeeId];
       return next;
     });
-    setMessage(`${emp.name} 통상임금을 저장했습니다.`);
+    setMessage(`${emp.name} 통상임금을 계산·저장했습니다.`);
     setTimeout(() => setMessage(''), 3000);
   }
 
@@ -300,6 +300,7 @@ export function AdminLeaveEventSettlement() {
         actions={
           <>
             <OrdinaryWageCsvActions
+              purpose="settlement"
               onMessage={(text) => {
                 setErrorMessage('');
                 setMessage(text);
@@ -416,7 +417,8 @@ export function AdminLeaveEventSettlement() {
       </div>
 
       <p className="text-[13px] text-stripe-muted mb-6">
-        {settlement.note} 통상임금은 양식을 내려받아 사번 기준으로 업로드할 수 있습니다.
+        {settlement.note} 정산 통상임금은 부채와 별도로 관리됩니다. 정산 시점에 직접 입력하거나 양식으로 업로드한 뒤
+        「계산/저장」하세요.
       </p>
 
       {visibleGroups.length === 0 ? (
@@ -472,7 +474,7 @@ export function AdminLeaveEventSettlement() {
                         disabled={updateWage.isPending}
                         onClick={() => handleSaveWage(emp)}
                       >
-                        저장
+                        계산/저장
                       </Button>
                     </div>
                     <p className="text-sm tabular-nums mt-2 text-right font-medium">
@@ -595,7 +597,7 @@ export function AdminLeaveEventSettlement() {
                             disabled={updateWage.isPending}
                             onClick={() => handleSaveWage(emp)}
                           >
-                            저장
+                            계산/저장
                           </button>
                         </td>
                       </tr>

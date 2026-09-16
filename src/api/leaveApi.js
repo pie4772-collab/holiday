@@ -96,17 +96,18 @@ export const leaveApi = {
     return apiClient('/admin/leave-event-settlements', { method: 'POST', body: { year } });
   },
 
-  async updateOrdinaryWage(id, ordinaryWage) {
+  async updateOrdinaryWage(id, ordinaryWage, purpose = 'liability') {
     return apiClient(`/admin/employees/${id}/ordinary-wage`, {
       method: 'PUT',
-      body: { ordinaryWage },
+      body: { ordinaryWage, purpose },
     });
   },
 
-  async downloadOrdinaryWageTemplate() {
+  async downloadOrdinaryWageTemplate(purpose = 'liability') {
     const API_BASE = import.meta.env.VITE_API_BASE || '/api';
     const token = getAuthToken();
-    const response = await fetch(`${API_BASE}/admin/ordinary-wages/template`, {
+    const qs = purpose === 'settlement' ? '?purpose=settlement' : '';
+    const response = await fetch(`${API_BASE}/admin/ordinary-wages/template${qs}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!response.ok) {
@@ -116,10 +117,17 @@ export const leaveApi = {
     return response.blob();
   },
 
-  async uploadOrdinaryWages(rows) {
+  async uploadOrdinaryWages(rows, purpose = 'liability') {
     return apiClient('/admin/ordinary-wages/upload', {
       method: 'POST',
-      body: { rows },
+      body: { rows, purpose },
+    });
+  },
+
+  async loadPreviousMonthOrdinaryWages(year, month) {
+    return apiClient('/admin/ordinary-wages/load-previous-month', {
+      method: 'POST',
+      body: { year, month },
     });
   },
 

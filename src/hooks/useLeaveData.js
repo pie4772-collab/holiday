@@ -107,11 +107,15 @@ export function useSaveLeaveSettlement() {
 export function useUpdateOrdinaryWage() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ordinaryWage }) => leaveApi.updateOrdinaryWage(id, ordinaryWage),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'leave-settlement'] });
-      queryClient.invalidateQueries({ queryKey: ['admin', 'leave-event-settlement'] });
-      queryClient.invalidateQueries({ queryKey: leaveKeys.employees });
+    mutationFn: ({ id, ordinaryWage, purpose = 'liability' }) =>
+      leaveApi.updateOrdinaryWage(id, ordinaryWage, purpose),
+    onSuccess: (_data, variables) => {
+      if (variables?.purpose === 'settlement') {
+        queryClient.invalidateQueries({ queryKey: ['admin', 'leave-event-settlement'] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['admin', 'leave-settlement'] });
+        queryClient.invalidateQueries({ queryKey: leaveKeys.employees });
+      }
     },
   });
 }
@@ -119,10 +123,24 @@ export function useUpdateOrdinaryWage() {
 export function useUploadOrdinaryWages() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (rows) => leaveApi.uploadOrdinaryWages(rows),
+    mutationFn: ({ rows, purpose = 'liability' }) => leaveApi.uploadOrdinaryWages(rows, purpose),
+    onSuccess: (_data, variables) => {
+      if (variables?.purpose === 'settlement') {
+        queryClient.invalidateQueries({ queryKey: ['admin', 'leave-event-settlement'] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['admin', 'leave-settlement'] });
+        queryClient.invalidateQueries({ queryKey: leaveKeys.employees });
+      }
+    },
+  });
+}
+
+export function useLoadPreviousMonthOrdinaryWages() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ year, month }) => leaveApi.loadPreviousMonthOrdinaryWages(year, month),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'leave-settlement'] });
-      queryClient.invalidateQueries({ queryKey: ['admin', 'leave-event-settlement'] });
       queryClient.invalidateQueries({ queryKey: leaveKeys.employees });
     },
   });

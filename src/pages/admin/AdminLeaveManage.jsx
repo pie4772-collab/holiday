@@ -8,6 +8,8 @@ import { PageHeader } from '../../components/ui/PageHeader';
 import { Panel, PanelHeader } from '../../components/ui/Panel';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import { SortButton } from '../../components/ui/SortButton';
+import { useTableSort } from '../../hooks/useTableSort';
 import {
   useEmployee,
   useAdminAccruals,
@@ -29,6 +31,20 @@ const typeBadgeVariant = {
   settlement: 'orange',
 };
 
+const USAGE_STATUS_LABEL = { approved: '승인', rejected: '반려', pending: '대기' };
+
+function accrualSortValue(item, key) {
+  if (key === 'type') return formatLeaveType(item.type);
+  if (key === 'amount') return Number(item.amount);
+  return item[key];
+}
+
+function usageSortValue(item, key) {
+  if (key === 'type') return formatLeaveType(item.type);
+  if (key === 'status') return USAGE_STATUS_LABEL[item.status] || '대기';
+  return item[key];
+}
+
 export function AdminLeaveManage() {
   const { id } = useParams();
   const { data: employee, isLoading, isError, refetch } = useEmployee(id);
@@ -45,6 +61,8 @@ export function AdminLeaveManage() {
   const [accrualModal, setAccrualModal] = useState({ open: false, item: null });
   const [usageModal, setUsageModal] = useState({ open: false, item: null });
   const [message, setMessage] = useState('');
+  const accrualSort = useTableSort(accruals, accrualSortValue);
+  const usageSort = useTableSort(usages, usageSortValue);
 
   if (isLoading) {
     return (
@@ -135,15 +153,15 @@ export function AdminLeaveManage() {
             <table className="stripe-table stripe-table-fit w-full">
               <thead>
                 <tr>
-                  <th>발생일</th>
-                  <th>유형</th>
-                  <th className="text-right">일수</th>
-                  <th>설명</th>
+                  <th><SortButton label="발생일" column="date" {...accrualSort} /></th>
+                  <th><SortButton label="유형" column="type" {...accrualSort} /></th>
+                  <th className="text-right"><SortButton label="일수" column="amount" {...accrualSort} /></th>
+                  <th><SortButton label="설명" column="description" {...accrualSort} /></th>
                   <th className="text-center">관리</th>
                 </tr>
               </thead>
               <tbody>
-                {accruals.map((item) => (
+                {accrualSort.sorted.map((item) => (
                   <tr key={item.id}>
                     <td className="font-mono text-[13px]">{formatDate(item.date)}</td>
                     <td>
@@ -205,15 +223,15 @@ export function AdminLeaveManage() {
             <table className="stripe-table stripe-table-fit w-full">
               <thead>
                 <tr>
-                  <th>사용일</th>
-                  <th>유형</th>
-                  <th>사유</th>
-                  <th className="text-center">상태</th>
+                  <th><SortButton label="사용일" column="date" {...usageSort} /></th>
+                  <th><SortButton label="유형" column="type" {...usageSort} /></th>
+                  <th><SortButton label="사유" column="reason" {...usageSort} /></th>
+                  <th className="text-center"><SortButton label="상태" column="status" {...usageSort} /></th>
                   <th className="text-center">관리</th>
                 </tr>
               </thead>
               <tbody>
-                {usages.map((item) => (
+                {usageSort.sorted.map((item) => (
                   <tr key={item.id}>
                     <td className="font-mono text-[13px] font-medium">{item.date}</td>
                     <td>

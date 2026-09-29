@@ -7,7 +7,22 @@ import { Panel } from '../../components/ui/Panel';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { LeaveSummaryCard } from '../../components/LeaveSummaryCard';
+import { SortButton } from '../../components/ui/SortButton';
 import { useLeaveApprovalHistory } from '../../hooks/useLeaveData';
+import { useTableSort } from '../../hooks/useTableSort';
+
+function historySortValue(item, key) {
+  switch (key) {
+    case 'workplace':
+      return [item.workplace, item.department].filter(Boolean).join(' ');
+    case 'usageType':
+      return item.usageType === 'half' ? '반차' : '연차';
+    case 'note':
+      return [item.reason, item.note].filter(Boolean).join(' ');
+    default:
+      return item[key];
+  }
+}
 
 function csvCell(value) {
   const text = value == null ? '' : String(value);
@@ -98,6 +113,7 @@ export function AdminApprovalHistory() {
   const years = data?.years?.length ? data.years : [currentYear];
   const workplaces = data?.workplaces || [];
   const actions = data?.actions || [];
+  const { sorted, sort, onSort } = useTableSort(items, historySortValue);
 
   if (isLoading && !data) {
     return (
@@ -117,7 +133,7 @@ export function AdminApprovalHistory() {
         title="승인·반려 이력"
         description="연차 신청·단계승인·최종승인·반려 기록을 보관합니다. 근로감독 등 증빙용으로 CSV 내려받기가 가능합니다."
         actions={
-          <Button variant="secondary" onClick={() => downloadCsv(items, year)}>
+          <Button variant="secondary" onClick={() => downloadCsv(sorted, year)}>
             <Download className="h-4 w-4" />
             CSV 받기
           </Button>
@@ -178,7 +194,7 @@ export function AdminApprovalHistory() {
           {items.length === 0 ? (
             <p className="py-12 text-center text-sm text-stripe-muted">조건에 맞는 이력이 없습니다.</p>
           ) : (
-            items.map((item) => (
+            sorted.map((item) => (
               <div key={item.id} className="mobile-card-item">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -210,14 +226,14 @@ export function AdminApprovalHistory() {
           <table className="stripe-table stripe-table-fit w-full">
             <thead>
               <tr>
-                <th>처리일시</th>
-                <th>구분</th>
-                <th>신청자</th>
-                <th>사업장·부서</th>
-                <th>사용일</th>
-                <th>유형</th>
-                <th>처리자</th>
-                <th>비고</th>
+                <th><SortButton label="처리일시" column="createdAt" sort={sort} onSort={onSort} /></th>
+                <th><SortButton label="구분" column="actionLabel" sort={sort} onSort={onSort} /></th>
+                <th><SortButton label="신청자" column="employeeName" sort={sort} onSort={onSort} /></th>
+                <th><SortButton label="사업장·부서" column="workplace" sort={sort} onSort={onSort} /></th>
+                <th><SortButton label="사용일" column="usageDate" sort={sort} onSort={onSort} /></th>
+                <th><SortButton label="유형" column="usageType" sort={sort} onSort={onSort} /></th>
+                <th><SortButton label="처리자" column="actorName" sort={sort} onSort={onSort} /></th>
+                <th><SortButton label="비고" column="note" sort={sort} onSort={onSort} /></th>
               </tr>
             </thead>
             <tbody>
@@ -228,7 +244,7 @@ export function AdminApprovalHistory() {
                   </td>
                 </tr>
               ) : (
-                items.map((item) => (
+                sorted.map((item) => (
                   <tr key={item.id}>
                     <td className="font-mono text-[12px] whitespace-nowrap">{item.createdAt}</td>
                     <td>

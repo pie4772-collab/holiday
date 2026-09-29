@@ -1,5 +1,7 @@
 import { formatLeaveType } from '../utils/leaveCalculations';
 import { Badge } from './ui/Badge';
+import { SortButton } from './ui/SortButton';
+import { useTableSort } from '../hooks/useTableSort';
 
 const STATUS = {
   pending: { label: '대기', variant: 'warning' },
@@ -14,7 +16,22 @@ function daysLabel(usage) {
   return usage.type === 'half' ? 0.5 : 1;
 }
 
+function usageSortValue(usage, key) {
+  switch (key) {
+    case 'type':
+      return formatLeaveType(usage.type);
+    case 'days':
+      return Number(daysLabel(usage));
+    case 'status':
+      return (STATUS[usage.status] || STATUS.pending).label;
+    default:
+      return usage[key];
+  }
+}
+
 export function LeaveUsageTable({ usages, isLoading }) {
+  const { sorted, sort, onSort } = useTableSort(usages, usageSortValue);
+
   if (isLoading) {
     return (
       <div className="animate-pulse space-y-0 p-4">
@@ -34,7 +51,7 @@ export function LeaveUsageTable({ usages, isLoading }) {
   return (
     <>
       <div className="settlement-cards mobile-card-list">
-        {usages.map((usage) => {
+        {sorted.map((usage) => {
           const status = STATUS[usage.status] || STATUS.pending;
           return (
             <div key={usage.id} className="mobile-card-item">
@@ -72,15 +89,15 @@ export function LeaveUsageTable({ usages, isLoading }) {
           </colgroup>
           <thead>
             <tr>
-              <th>사용일</th>
-              <th>유형</th>
-              <th className="text-right">일수</th>
-              <th>상태</th>
-              <th>사유</th>
+              <th><SortButton label="사용일" column="date" sort={sort} onSort={onSort} /></th>
+              <th><SortButton label="유형" column="type" sort={sort} onSort={onSort} /></th>
+              <th className="text-right"><SortButton label="일수" column="days" sort={sort} onSort={onSort} /></th>
+              <th><SortButton label="상태" column="status" sort={sort} onSort={onSort} /></th>
+              <th><SortButton label="사유" column="reason" sort={sort} onSort={onSort} /></th>
             </tr>
           </thead>
           <tbody>
-            {usages.map((usage) => {
+            {sorted.map((usage) => {
               const status = STATUS[usage.status] || STATUS.pending;
               return (
                 <tr key={usage.id}>

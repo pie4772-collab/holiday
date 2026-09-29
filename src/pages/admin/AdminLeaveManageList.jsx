@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowDown, ArrowUp, ChevronsUpDown, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Panel } from '../../components/ui/Panel';
 import { Badge } from '../../components/ui/Badge';
+import { SortButton } from '../../components/ui/SortButton';
 import { useEmployees } from '../../hooks/useLeaveData';
 import { formatDate } from '../../utils/leaveCalculations';
 
@@ -62,28 +63,6 @@ function sortValue(emp, key) {
     default:
       return '';
   }
-}
-
-function SortButton({ label, column, sort, onSort, className = '' }) {
-  const active = sort.key === column;
-  return (
-    <button
-      type="button"
-      onClick={() => onSort(column)}
-      className={`inline-flex items-center gap-1 text-inherit font-inherit ${className}`}
-    >
-      {label}
-      {active ? (
-        sort.dir === 'asc' ? (
-          <ArrowUp className="h-3 w-3" />
-        ) : (
-          <ArrowDown className="h-3 w-3" />
-        )
-      ) : (
-        <ChevronsUpDown className="h-3 w-3 opacity-30" />
-      )}
-    </button>
-  );
 }
 
 export function AdminLeaveManageList() {

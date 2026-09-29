@@ -1,5 +1,7 @@
 import { formatLeaveType, formatDate } from '../utils/leaveCalculations';
 import { Badge } from './ui/Badge';
+import { SortButton } from './ui/SortButton';
+import { useTableSort } from '../hooks/useTableSort';
 
 const typeBadgeVariant = {
   first_year_monthly: 'warning',
@@ -11,7 +13,15 @@ const typeBadgeVariant = {
 
 const compactBadgeClass = 'whitespace-nowrap text-[11px] px-1.5 py-0 leading-5';
 
+function logSortValue(log, key) {
+  if (key === 'type') return formatLeaveType(log.type);
+  if (key === 'amount') return Number(log.amount);
+  return log[key];
+}
+
 export function LeaveHistoryTable({ logs, isLoading }) {
+  const { sorted, sort, onSort } = useTableSort(logs, logSortValue);
+
   if (isLoading) {
     return (
       <div className="animate-pulse space-y-0 p-4">
@@ -33,7 +43,7 @@ export function LeaveHistoryTable({ logs, isLoading }) {
   return (
     <>
       <div className="settlement-cards mobile-card-list">
-        {logs.map((log) => (
+        {sorted.map((log) => (
           <div key={log.id} className="mobile-card-item">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -63,14 +73,14 @@ export function LeaveHistoryTable({ logs, isLoading }) {
           </colgroup>
           <thead>
             <tr>
-              <th>발생일</th>
-              <th>유형</th>
-              <th className="text-right">일수</th>
-              <th>설명</th>
+              <th><SortButton label="발생일" column="date" sort={sort} onSort={onSort} /></th>
+              <th><SortButton label="유형" column="type" sort={sort} onSort={onSort} /></th>
+              <th className="text-right"><SortButton label="일수" column="amount" sort={sort} onSort={onSort} /></th>
+              <th><SortButton label="설명" column="description" sort={sort} onSort={onSort} /></th>
             </tr>
           </thead>
           <tbody>
-            {logs.map((log) => (
+            {sorted.map((log) => (
               <tr key={log.id}>
                 <td className="font-mono text-[13px] whitespace-nowrap">{formatDate(log.date)}</td>
                 <td>

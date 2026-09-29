@@ -8,12 +8,18 @@ import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { LeaveSummaryCard } from '../../components/LeaveSummaryCard';
 import { OrdinaryWageCsvActions } from '../../components/OrdinaryWageCsvActions';
+import { SortButton } from '../../components/ui/SortButton';
+import { sortRows, useSortState } from '../../hooks/useTableSort';
 import {
   useLeaveSettlement,
   useLoadPreviousMonthOrdinaryWages,
   useSaveLeaveSettlement,
   useUpdateOrdinaryWage,
 } from '../../hooks/useLeaveData';
+
+function liabilitySortValue(emp, key) {
+  return emp[key];
+}
 
 function previousMonth() {
   const now = new Date();
@@ -107,6 +113,7 @@ export function AdminLeaveSettlement() {
   const saveSettlement = useSaveLeaveSettlement();
   const updateWage = useUpdateOrdinaryWage();
   const loadPreviousWages = useLoadPreviousMonthOrdinaryWages();
+  const { sort, onSort } = useSortState();
 
   const years = useMemo(() => {
     const current = new Date().getFullYear();
@@ -132,11 +139,15 @@ export function AdminLeaveSettlement() {
     return settlement.workplaces
       .filter((group) => !workplace || group.workplace === workplace)
       .map((group) => {
-        const employees = group.employees.filter((emp) => {
-          if (department && emp.department !== department) return false;
-          if (status && emp.status !== status) return false;
-          return matchesKeyword(emp, keyword);
-        });
+        const employees = sortRows(
+          group.employees.filter((emp) => {
+            if (department && emp.department !== department) return false;
+            if (status && emp.status !== status) return false;
+            return matchesKeyword(emp, keyword);
+          }),
+          sort,
+          liabilitySortValue
+        );
         const remaining = employees.reduce((sum, emp) => sum + (emp.remaining || 0), 0);
         const allowance = employees.reduce((sum, emp) => sum + (emp.allowance || 0), 0);
         const wageMissingCount = employees.filter((emp) => emp.wageMissing).length;
@@ -150,7 +161,7 @@ export function AdminLeaveSettlement() {
         };
       })
       .filter((group) => group.employeeCount > 0);
-  }, [settlement, query, workplace, department, status]);
+  }, [settlement, query, workplace, department, status, sort]);
 
   const visibleTotals = useMemo(() => {
     return visibleGroups.reduce(
@@ -429,16 +440,16 @@ export function AdminLeaveSettlement() {
                   </colgroup>
                   <thead>
                     <tr>
-                      <th>이름</th>
-                      <th>사번</th>
-                      <th>입사일</th>
-                      <th>부서</th>
-                      <th>상태</th>
-                      <th className="text-right">잔여</th>
-                      <th className="text-right">초과이월</th>
-                      <th>월 통상임금</th>
-                      <th className="text-right">일급</th>
-                      <th className="text-right">부채금액</th>
+                      <th><SortButton label="이름" column="name" sort={sort} onSort={onSort} /></th>
+                      <th><SortButton label="사번" column="empNo" sort={sort} onSort={onSort} /></th>
+                      <th><SortButton label="입사일" column="hireDate" sort={sort} onSort={onSort} /></th>
+                      <th><SortButton label="부서" column="department" sort={sort} onSort={onSort} /></th>
+                      <th><SortButton label="상태" column="status" sort={sort} onSort={onSort} /></th>
+                      <th className="text-right"><SortButton label="잔여" column="remaining" sort={sort} onSort={onSort} /></th>
+                      <th className="text-right"><SortButton label="초과이월" column="overusedDays" sort={sort} onSort={onSort} /></th>
+                      <th><SortButton label="월 통상임금" column="ordinaryWage" sort={sort} onSort={onSort} /></th>
+                      <th className="text-right"><SortButton label="일급" column="dailyRate" sort={sort} onSort={onSort} /></th>
+                      <th className="text-right"><SortButton label="부채금액" column="allowance" sort={sort} onSort={onSort} /></th>
                       <th />
                     </tr>
                   </thead>

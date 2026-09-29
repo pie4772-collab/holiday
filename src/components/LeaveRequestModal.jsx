@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { X } from 'lucide-react';
 import { Button } from './ui/Button';
+import { LEAVE_REASON_PRESETS } from '../constants/hr';
 import {
   calendarSpanDays,
   describeLeaveDates,
@@ -148,6 +149,18 @@ export function LeaveRequestModal({
 
           <div>
             <label className="stripe-label">사유</label>
+            <select
+              value={LEAVE_REASON_PRESETS.includes(reason) ? reason : ''}
+              onChange={(e) => e.target.value && setReason(e.target.value)}
+              className="stripe-input mb-2"
+            >
+              <option value="">자주 쓰는 사유 선택 (직접 입력 가능)</option>
+              {LEAVE_REASON_PRESETS.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}

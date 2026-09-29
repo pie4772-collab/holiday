@@ -7,7 +7,13 @@ import { Panel, PanelHeader, PanelBody } from '../../components/ui/Panel';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { LeaveSummaryCard } from '../../components/LeaveSummaryCard';
+import { SortButton } from '../../components/ui/SortButton';
 import { useLeaveReport, useSaveLeaveReport } from '../../hooks/useLeaveData';
+import { sortRows, useSortState } from '../../hooks/useTableSort';
+
+function reportSortValue(emp, key) {
+  return emp[key];
+}
 
 function previousMonth() {
   const now = new Date();
@@ -91,6 +97,7 @@ export function AdminLeaveReport() {
   const [status, setStatus] = useState('');
   const { data: report, isLoading, isError, refetch } = useLeaveReport(year, month);
   const saveReport = useSaveLeaveReport();
+  const { sort, onSort } = useSortState();
 
   const years = useMemo(() => {
     const current = new Date().getFullYear();
@@ -116,11 +123,15 @@ export function AdminLeaveReport() {
     return report.workplaces
       .filter((group) => !workplace || group.workplace === workplace)
       .map((group) => {
-        const employees = group.employees.filter((emp) => {
-          if (department && emp.department !== department) return false;
-          if (status && emp.status !== status) return false;
-          return matchesKeyword(emp, keyword);
-        });
+        const employees = sortRows(
+          group.employees.filter((emp) => {
+            if (department && emp.department !== department) return false;
+            if (status && emp.status !== status) return false;
+            return matchesKeyword(emp, keyword);
+          }),
+          sort,
+          reportSortValue
+        );
         const accrued = employees.reduce((sum, emp) => sum + (emp.accrued || 0), 0);
         const usedInMonth = employees.reduce((sum, emp) => sum + (emp.usedInMonth || 0), 0);
         const remaining = employees.reduce((sum, emp) => sum + (emp.remaining || 0), 0);
@@ -134,7 +145,7 @@ export function AdminLeaveReport() {
         };
       })
       .filter((group) => group.employeeCount > 0);
-  }, [report, query, workplace, department, status]);
+  }, [report, query, workplace, department, status, sort]);
 
   const visibleTotals = useMemo(() => {
     return visibleGroups.reduce(
@@ -364,17 +375,17 @@ export function AdminLeaveReport() {
                   </colgroup>
                   <thead>
                     <tr>
-                      <th>이름</th>
-                      <th>사번</th>
-                      <th>입사일</th>
-                      <th>부서</th>
-                      <th>직급</th>
-                      <th>상태</th>
-                      <th className="text-right">발생</th>
-                      <th className="text-right">당월사용</th>
-                      <th className="text-right">누적사용</th>
-                      <th className="text-right">잔여</th>
-                      <th className="text-right">승인대기</th>
+                      <th><SortButton label="이름" column="name" sort={sort} onSort={onSort} /></th>
+                      <th><SortButton label="사번" column="empNo" sort={sort} onSort={onSort} /></th>
+                      <th><SortButton label="입사일" column="hireDate" sort={sort} onSort={onSort} /></th>
+                      <th><SortButton label="부서" column="department" sort={sort} onSort={onSort} /></th>
+                      <th><SortButton label="직급" column="position" sort={sort} onSort={onSort} /></th>
+                      <th><SortButton label="상태" column="status" sort={sort} onSort={onSort} /></th>
+                      <th className="text-right"><SortButton label="발생" column="accrued" sort={sort} onSort={onSort} /></th>
+                      <th className="text-right"><SortButton label="당월사용" column="usedInMonth" sort={sort} onSort={onSort} /></th>
+                      <th className="text-right"><SortButton label="누적사용" column="usedToDate" sort={sort} onSort={onSort} /></th>
+                      <th className="text-right"><SortButton label="잔여" column="remaining" sort={sort} onSort={onSort} /></th>
+                      <th className="text-right"><SortButton label="승인대기" column="pendingInMonth" sort={sort} onSort={onSort} /></th>
                     </tr>
                   </thead>
                   <tbody>

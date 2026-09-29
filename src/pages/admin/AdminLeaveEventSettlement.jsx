@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, ChevronsUpDown, Download, Save, Search } from 'lucide-react';
+import { Download, Save, Search } from 'lucide-react';
+import { SortButton } from '../../components/ui/SortButton';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
@@ -92,28 +93,6 @@ function compareEmployees(a, b, sort) {
       ? va - vb
       : String(va).localeCompare(String(vb), 'ko', { numeric: true });
   return sort.dir === 'desc' ? -cmp : cmp;
-}
-
-function SortButton({ label, column, sort, onSort, className = '' }) {
-  const active = sort.key === column;
-  return (
-    <button
-      type="button"
-      onClick={() => onSort(column)}
-      className={`inline-flex items-center gap-1 text-inherit font-inherit whitespace-nowrap ${className}`}
-    >
-      {label}
-      {active ? (
-        sort.dir === 'asc' ? (
-          <ArrowUp className="h-3 w-3" />
-        ) : (
-          <ArrowDown className="h-3 w-3" />
-        )
-      ) : (
-        <ChevronsUpDown className="h-3 w-3 opacity-30" />
-      )}
-    </button>
-  );
 }
 
 function downloadCsv(settlement, workplaceFilter, eventTypeFilter, query = '') {

@@ -5,11 +5,27 @@ import { PageHeader } from '../../components/ui/PageHeader';
 import { Panel } from '../../components/ui/Panel';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
+import { SortButton } from '../../components/ui/SortButton';
 import { usePendingApprovals, useDecideLeaveRequest } from '../../hooks/useLeaveData';
+import { useTableSort } from '../../hooks/useTableSort';
+
+function requestSortValue(item, key) {
+  switch (key) {
+    case 'workplace':
+      return `${item.workplace || ''} ${item.department || ''}`.trim();
+    case 'type':
+      return item.type === 'full' ? '연차' : '반차';
+    case 'approval':
+      return item.approvalHint || item.approvalStep || '';
+    default:
+      return item[key];
+  }
+}
 
 export function EmployeeApprovals() {
   const { data: requests, isLoading, isError, refetch } = usePendingApprovals();
   const decide = useDecideLeaveRequest();
+  const { sorted, sort, onSort } = useTableSort(requests, requestSortValue, { key: 'date', dir: 'asc' });
 
   async function handleDecide(item, action) {
     const reason =
@@ -43,7 +59,7 @@ export function EmployeeApprovals() {
         ) : (
           <>
             <div className="settlement-cards mobile-card-list">
-              {requests.map((item) => (
+              {sorted.map((item) => (
                 <div key={item.id} className="mobile-card-item">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -86,17 +102,17 @@ export function EmployeeApprovals() {
               <table className="stripe-table stripe-table-fit w-full">
                 <thead>
                   <tr>
-                    <th>이름</th>
-                    <th>사업장 · 부서</th>
-                    <th>사용일</th>
-                    <th>유형</th>
-                    <th>결재</th>
-                    <th>사유</th>
+                    <th><SortButton label="이름" column="employeeName" sort={sort} onSort={onSort} /></th>
+                    <th><SortButton label="사업장 · 부서" column="workplace" sort={sort} onSort={onSort} /></th>
+                    <th><SortButton label="사용일" column="date" sort={sort} onSort={onSort} /></th>
+                    <th><SortButton label="유형" column="type" sort={sort} onSort={onSort} /></th>
+                    <th><SortButton label="결재" column="approval" sort={sort} onSort={onSort} /></th>
+                    <th><SortButton label="사유" column="reason" sort={sort} onSort={onSort} /></th>
                     <th />
                   </tr>
                 </thead>
                 <tbody>
-                  {requests.map((item) => (
+                  {sorted.map((item) => (
                     <tr key={item.id}>
                       <td className="font-medium whitespace-nowrap">
                         {item.employeeName}

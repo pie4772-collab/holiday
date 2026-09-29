@@ -3,6 +3,8 @@ import { X } from 'lucide-react';
 import { formatLeaveType } from '../../utils/leaveCalculations';
 import { leaveBlockedReason } from '../../utils/leaveRequestDates';
 import { Button } from '../ui/Button';
+import { SelectOrInput } from '../ui/SelectOrInput';
+import { ACCRUAL_DESCRIPTION_PRESETS, LEAVE_REASON_PRESETS } from '../../constants/hr';
 
 const ACCRUAL_TYPES = [
   { value: 'first_year_monthly', label: '첫해 월차' },
@@ -86,12 +88,11 @@ export function LeaveAccrualFormModal({ isOpen, onClose, onSubmit, isSubmitting,
           </div>
           <div>
             <label className="stripe-label">설명</label>
-            <input
-              type="text"
+            <SelectOrInput
               value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="관리자 수동 입력"
-              className="stripe-input"
+              onChange={(description) => setForm((prev) => ({ ...prev, description }))}
+              options={ACCRUAL_DESCRIPTION_PRESETS}
+              emptyLabel="자동 (유형 기준)"
             />
           </div>
           <div className="flex gap-2 pt-1">
@@ -191,12 +192,12 @@ export function LeaveUsageFormModal({ isOpen, onClose, onSubmit, isSubmitting, i
           </div>
           <div>
             <label className="stripe-label">사유</label>
-            <input
-              type="text"
+            <SelectOrInput
               value={form.reason}
-              onChange={(e) => setForm({ ...form, reason: e.target.value })}
+              onChange={(reason) => setForm((prev) => ({ ...prev, reason }))}
+              options={LEAVE_REASON_PRESETS}
+              placeholder="사유 선택"
               required
-              className="stripe-input"
             />
           </div>
           <div>

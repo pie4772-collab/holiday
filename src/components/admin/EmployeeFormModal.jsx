@@ -1,7 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '../ui/Button';
-import { DEFAULT_POSITION, POSITIONS } from '../../constants/hr';
+import { SelectOrInput } from '../ui/SelectOrInput';
+import { DEFAULT_POSITION, JOB_TYPES, POSITIONS } from '../../constants/hr';
+
+function uniqueSorted(values) {
+  return [...new Set(values.map((v) => String(v || '').trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, 'ko', { numeric: true })
+  );
+}
 
 const emptyForm = {
   empNo: '',
@@ -25,8 +32,28 @@ export function EmployeeFormModal({
   isSubmitting,
   initial,
   mode = 'create',
+  employees = [],
 }) {
   const [form, setForm] = useState(emptyForm);
+
+  const workplaceOptions = useMemo(() => uniqueSorted(employees.map((e) => e.workplace)), [employees]);
+  const departmentOptions = useMemo(
+    () =>
+      uniqueSorted(
+        employees
+          .filter((e) => !form.workplace || e.workplace === form.workplace)
+          .map((e) => e.department)
+      ),
+    [employees, form.workplace]
+  );
+  const allDepartmentOptions = useMemo(
+    () => uniqueSorted(employees.flatMap((e) => [e.department, e.concurrentDept])),
+    [employees]
+  );
+  const jobTypeOptions = useMemo(
+    () => uniqueSorted([...JOB_TYPES, ...employees.map((e) => e.jobType)]),
+    [employees]
+  );
   const [terminatedDate, setTerminatedDate] = useState(new Date().toISOString().slice(0, 10));
 
   useEffect(() => {
@@ -146,31 +173,38 @@ export function EmployeeFormModal({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="stripe-label">사업장</label>
-                <input
-                  type="text"
+                <SelectOrInput
                   value={form.workplace}
-                  onChange={(e) => setForm({ ...form, workplace: e.target.value })}
-                  className="stripe-input"
+                  onChange={(workplace) =>
+                    setForm((prev) => {
+                      const deptExists = employees.some(
+                        (e) => e.workplace === workplace && e.department === prev.department
+                      );
+                      return { ...prev, workplace, department: deptExists ? prev.department : '' };
+                    })
+                  }
+                  options={workplaceOptions}
+                  placeholder="사업장 선택"
                 />
               </div>
               <div>
                 <label className="stripe-label">직종</label>
-                <input
-                  type="text"
+                <SelectOrInput
                   value={form.jobType}
-                  onChange={(e) => setForm({ ...form, jobType: e.target.value })}
-                  className="stripe-input"
+                  onChange={(jobType) => setForm((prev) => ({ ...prev, jobType }))}
+                  options={jobTypeOptions}
+                  placeholder="직종 선택"
                 />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="stripe-label">부서</label>
-                <input
-                  type="text"
+                <SelectOrInput
                   value={form.department}
-                  onChange={(e) => setForm({ ...form, department: e.target.value })}
-                  className="stripe-input"
+                  onChange={(department) => setForm((prev) => ({ ...prev, department }))}
+                  options={departmentOptions}
+                  placeholder="부서 선택"
                 />
               </div>
               <div>
@@ -191,11 +225,11 @@ export function EmployeeFormModal({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="stripe-label">겸직부서</label>
-                <input
-                  type="text"
+                <SelectOrInput
                   value={form.concurrentDept}
-                  onChange={(e) => setForm({ ...form, concurrentDept: e.target.value })}
-                  className="stripe-input"
+                  onChange={(concurrentDept) => setForm((prev) => ({ ...prev, concurrentDept }))}
+                  options={allDepartmentOptions}
+                  emptyLabel="없음"
                 />
               </div>
               <div>

@@ -1,5 +1,8 @@
 export const POSITIONS = ['팀원', '팀장', '공장장', '이사', '상무', '전무', '임원', '대표이사'];
 export const DEFAULT_POSITION = '팀원';
+export const JOB_TYPES = ['사무직', '생산직'];
+export const LEAVE_REASON_PRESETS = ['개인 사유', '병원 진료', '가족 행사', '경조사', '휴식', '자녀 돌봄', '공가'];
+export const ACCRUAL_DESCRIPTION_PRESETS = ['관리자 수동 조정', '전년도 이월', '포상 휴가', '연차 정산 차감', '오류 정정'];
 export const DEFAULT_PASSWORD = '123456';
 export const INITIAL_ADMIN_NAMES = ['이재용', '박지은', '이규형', '김춘태', '김남은', '최윤경'];
 

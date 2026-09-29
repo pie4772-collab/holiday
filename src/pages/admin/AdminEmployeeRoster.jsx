@@ -7,6 +7,8 @@ import { Panel } from '../../components/ui/Panel';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { EmployeeFormModal } from '../../components/admin/EmployeeFormModal';
+import { SortButton } from '../../components/ui/SortButton';
+import { useTableSort } from '../../hooks/useTableSort';
 import {
   useEmployeeRoster,
   useCreateEmployee,
@@ -15,6 +17,19 @@ import {
   useReactivateEmployee,
 } from '../../hooks/useEmployeeRoster';
 import { formatDate } from '../../utils/leaveCalculations';
+
+function rosterSortValue(emp, key) {
+  switch (key) {
+    case 'concurrent':
+      return [emp.concurrentDept, emp.concurrentPosition].filter(Boolean).join(' ');
+    case 'isAdmin':
+      return emp.isAdmin ? '관리자' : '';
+    case 'status':
+      return emp.isActive ? '재직' : '퇴사';
+    default:
+      return emp[key];
+  }
+}
 
 function matchesKeyword(emp, keyword) {
   if (!keyword) return true;
@@ -66,6 +81,8 @@ export function AdminEmployeeRoster() {
       return matchesKeyword(emp, keyword);
     });
   }, [roster, query, workplace, department, status]);
+
+  const { sorted, sort, onSort } = useTableSort(filtered, rosterSortValue);
 
   const activeCount = filtered.filter((e) => e.isActive).length;
   const inactiveCount = filtered.filter((e) => !e.isActive).length;
@@ -163,7 +180,7 @@ export function AdminEmployeeRoster() {
           {filtered.length === 0 ? (
             <p className="py-12 text-center text-sm text-stripe-muted">검색 결과가 없습니다.</p>
           ) : (
-            filtered.map((emp) => (
+            sorted.map((emp) => (
               <div key={emp.id} className={`mobile-card-item ${!emp.isActive ? 'opacity-60' : ''}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -244,16 +261,16 @@ export function AdminEmployeeRoster() {
           <table className="stripe-table stripe-table-fit w-full">
             <thead>
               <tr>
-                <th>이름</th>
-                <th>사번</th>
-                <th>사업장</th>
-                <th>부서</th>
-                <th>직급</th>
-                <th>겸직</th>
-                <th>입사일</th>
-                <th>퇴사일</th>
-                <th>권한</th>
-                <th>상태</th>
+                <th><SortButton label="이름" column="name" sort={sort} onSort={onSort} /></th>
+                <th><SortButton label="사번" column="empNo" sort={sort} onSort={onSort} /></th>
+                <th><SortButton label="사업장" column="workplace" sort={sort} onSort={onSort} /></th>
+                <th><SortButton label="부서" column="department" sort={sort} onSort={onSort} /></th>
+                <th><SortButton label="직급" column="position" sort={sort} onSort={onSort} /></th>
+                <th><SortButton label="겸직" column="concurrent" sort={sort} onSort={onSort} /></th>
+                <th><SortButton label="입사일" column="hireDate" sort={sort} onSort={onSort} /></th>
+                <th><SortButton label="퇴사일" column="terminatedDate" sort={sort} onSort={onSort} /></th>
+                <th><SortButton label="권한" column="isAdmin" sort={sort} onSort={onSort} /></th>
+                <th><SortButton label="상태" column="status" sort={sort} onSort={onSort} /></th>
                 <th />
               </tr>
             </thead>
@@ -265,7 +282,7 @@ export function AdminEmployeeRoster() {
                   </td>
                 </tr>
               ) : (
-                filtered.map((emp) => (
+                sorted.map((emp) => (
                   <tr key={emp.id} className={!emp.isActive ? 'opacity-60' : ''}>
                     <td className="font-medium whitespace-nowrap">{emp.name}</td>
                     <td className="font-mono text-[13px] muted whitespace-nowrap">{emp.empNo || '-'}</td>
@@ -333,6 +350,7 @@ export function AdminEmployeeRoster() {
         isSubmitting={isSubmitting}
         initial={modal?.employee}
         mode={modal?.mode || 'create'}
+        employees={roster || []}
       />
     </div>
   );

@@ -1071,7 +1071,9 @@ async function openPostgres() {
   return database;
 }
 
-const USE_POSTGRES = /^(postgres|postgresql|pg|pgsql)$/i.test(process.env.DB_CLIENT || '');
+// Cafe24 AI Space는 콘솔에서 넣은 DB_* 변수를 전달하지 않으므로 APP_DB_CLIENT도 받습니다.
+export const DB_CLIENT_SETTING = process.env.DB_CLIENT || process.env.APP_DB_CLIENT || '';
+const USE_POSTGRES = /^(postgres|postgresql|pg|pgsql)$/i.test(DB_CLIENT_SETTING);
 const db = USE_POSTGRES ? await openPostgres() : await openSqlite();
 
 export function getDb() {

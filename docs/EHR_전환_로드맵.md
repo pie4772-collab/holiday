@@ -66,7 +66,7 @@ E-HR에서 가장 만들기 번거로운 공통 기반이 이미 갖춰져 있�
 - 모든 DB 호출을 비동기(`await`)로 바꿨다. 서비스 코드는 계속 `getDb().prepare(sql).get/all/run` 형태를 쓰고, DB 종류별 차이는 `server/db.js`가 흡수한다.
   - SQLite: 기존 드라이버 그대로. 트랜잭션 중에는 다른 요청의 쿼리가 끝날 때까지 기다린다.
   - PostgreSQL(`server/dbPostgres.js`): 연결 풀 사용. `?` 자리표시자, `datetime('now','localtime')`, NULL 정렬 순서(SQLite는 NULL이 가장 작음), 대소문자 섞인 별칭, INSERT 후 새 id(`RETURNING id`)를 자동으로 맞춰 준다.
-- 선택 방법: 환경변수 `DB_CLIENT=postgres`. 접속 정보는 Cafe24가 자동 주입하는 `DB_HOST`·`DB_PORT`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`(또는 `DATABASE_URL`)를 쓴다. `DB_CLIENT`를 지우면 즉시 SQLite로 돌아간다.
+- 선택 방법: 환경변수 `APP_DB_CLIENT=postgres`(로컬은 `DB_CLIENT`도 가능, Cafe24는 콘솔의 `DB_*` 변수를 전달하지 않음). 접속 정보는 Cafe24가 자동 주입하는 `DB_HOST`·`DB_PORT`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`(또는 `DATABASE_URL`)를 쓴다. `DB_CLIENT`를 지우면 즉시 SQLite로 돌아간다.
 - 스키마: `database/postgres/schema.sql`. 날짜는 SQLite와 같은 문자열 형식, 문자열 정렬은 SQLite와 같은 바이트 순서(`COLLATE "C"`)로 저장한다. 서버 시작 때마다 `IF NOT EXISTS`로 적용한다.
 - 자동 데이터 이전(`server/dbImport.js`): PostgreSQL이 비어 있으면 서버 시작 시 SQLite 파일(`/app/user_data/holiday.db`)의 모든 표를 한 트랜잭션으로 옮기고, 표마다 행 수와 내용 해시를 대조한 뒤에만 커밋한다. 하나라도 다르면 전부 취소되어 PostgreSQL은 빈 채로 남는다. SQLite 파일은 건드리지 않는다. 이전 기록은 `app_meta.sqlite_import`에 남는다.
 - 동시성: 같은 직원의 연차 신청, 같은 신청건의 결재는 PostgreSQL에서 한 번에 하나씩 처리되도록 잠금을 건다.

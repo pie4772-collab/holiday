@@ -5,7 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { loadEnvFile } from './loadEnv.js';
 import apiRouter from './routes/api.js';
-import { getDb, getDbDriverName, getDbPath } from './db.js';
+import { getDb, getDbDriverName, getDbPath, DB_CLIENT_SETTING } from './db.js';
 import { optionalAuth } from './middleware/auth.js';
 import { syncUsersFromEmployees } from './services/authService.js';
 import { getLocalIp, getShareUrl } from './utils/network.js';
@@ -38,7 +38,7 @@ function getEnvDiagnostics() {
     cwd: process.cwd(),
     appRoot,
     envKeys: Object.keys(process.env)
-      .filter((k) => /^(DB_|DATABASE|PG|POSTGRES|MYSQL|AS_OF|CURRENT_EMP|REDIS)/i.test(k))
+      .filter((k) => /^(APP_|DB_|DATABASE|PG|POSTGRES|MYSQL|AS_OF|CURRENT_EMP|REDIS)/i.test(k))
       .sort(),
     envFiles: {
       appRoot: listEnvFiles(appRoot),
@@ -64,7 +64,7 @@ app.get('/health', async (req, res) => {
       employees: count,
       users,
       dbDriver: getDbDriverName(),
-      dbClient: process.env.DB_CLIENT || null,
+      dbClient: DB_CLIENT_SETTING || null,
       node: process.version,
       localIp,
       port: Number(PORT),
@@ -75,7 +75,7 @@ app.get('/health', async (req, res) => {
     res.status(200).json({
       status: 'ok',
       db: 'error',
-      dbClient: process.env.DB_CLIENT || null,
+      dbClient: DB_CLIENT_SETTING || null,
       message: e.message,
       localIp,
       port: Number(PORT),

@@ -26,7 +26,7 @@ Holiday 프로젝트를 **space_02** (Node.js / Express API + 프론트)에 배�
 | `CURRENT_EMPLOYEE_ID` | `13` | 기본 직원 |
 | `AS_OF_DATE` | `2026-07-31` | Excel 연차 대장 스냅샷 기준일 |
 | `DB_PATH` | 영속 스토리지 경로 | SQLite 파일 (재배포 후에도 유지) |
-| `DB_CLIENT` | `postgres` | 설정하면 PostgreSQL 사용. 비우면 SQLite |
+| `APP_DB_CLIENT` | `postgres` | 설정하면 PostgreSQL 사용. 비우면 SQLite. 로컬에서는 `DB_CLIENT`도 됩니다(Cafe24 콘솔의 `DB_*` 변수는 앱에 전달되지 않음) |
 
 `server/.env`도 함께 업로드되지만, **콘솔 환경 변수가 우선**합니다.
 PostgreSQL 접속 정보(`DB_HOST`·`DB_PORT`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`)는 Cafe24가 자동 주입하므로 직접 넣지 않습니다.
@@ -43,13 +43,13 @@ PostgreSQL 접속 정보(`DB_HOST`·`DB_PORT`·`DB_NAME`·`DB_USER`·`DB_PASSWOR
 
 1. **백업**: `backup_project`로 현재 프로젝트(`/app/user_data/holiday.db` 포함)를 백업하고 다운로드 링크를 보관합니다.
 2. **PostgreSQL 연결**: Cafe24 프로젝트에 PostgreSQL을 붙입니다(배포 시 DB `pgsql` 선택). 연결되면 `get_project_status`에 DB 정보가 표시되고 `DB_HOST` 등이 자동 주입됩니다.
-3. **전환**: 환경 변수 `DB_CLIENT=postgres`를 설정하고 재배포합니다.
+3. **전환**: 환경 변수 `APP_DB_CLIENT=postgres`를 설정하고 재배포합니다. `/health`의 `dbClient`에 값이 보이지 않으면 강제 재배포(force)로 컨테이너를 새로 만듭니다.
 4. 서버가 처음 시작될 때 PostgreSQL이 비어 있으면 `/app/user_data/holiday.db`의 데이터를 자동으로 옮깁니다.
    - 표마다 행 수와 내용을 대조해 모두 일치할 때만 저장합니다. 실패하면 PostgreSQL은 빈 채로 남고 서버 로그에 원인이 표시됩니다.
    - 로그 예: `[db] SQLite → PostgreSQL 이전 완료 (/app/user_data/holiday.db): employees=80, users=80, ...`
    - SQLite 파일은 그대로 남습니다.
 5. **확인**: `/health`의 `dbDriver`가 `postgres`, `employees` 수가 기존과 같은지 확인하고, 로그인·연차 신청·결재를 한 번씩 확인합니다.
-6. **되돌리기**: `DB_CLIENT`를 삭제하고 재배포하면 SQLite로 돌아갑니다. 단, 전환 후 PostgreSQL에만 기록된 데이터는 SQLite에 없습니다.
+6. **되돌리기**: `APP_DB_CLIENT`를 삭제하고 재배포하면 SQLite로 돌아갑니다. 단, 전환 후 PostgreSQL에만 기록된 데이터는 SQLite에 없습니다.
 
 > 로컬에서 PostgreSQL로 검증하려면 `powershell -File scripts/run-api-snapshot.ps1 -Driver postgres -PgUrl <접속URL> -Out pg.json` 후
 > `node scripts/api-snapshot.mjs --compare before.json pg.json`으로 SQLite 결과와 비교합니다.

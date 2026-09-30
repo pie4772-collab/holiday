@@ -337,6 +337,22 @@ export const leaveApi = {
     return apiClient('/auth/change-password', { method: 'POST', body: { currentPassword, newPassword } });
   },
 
+  async getTeamMembers() {
+    if (USE_MOCK) {
+      await delay();
+      return [];
+    }
+    return apiClient('/team/members');
+  },
+
+  async setEmployeeRoles(id, roles) {
+    if (USE_MOCK) {
+      await delay(200);
+      return { employeeId: String(id), roles };
+    }
+    return apiClient(`/admin/employees/${id}/roles`, { method: 'PUT', body: { roles } });
+  },
+
   async resetEmployeePassword(id) {
     if (USE_MOCK) {
       await delay(200);

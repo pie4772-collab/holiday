@@ -15,7 +15,9 @@ import {
   Scale,
   ScrollText,
   Mail,
+  Users,
 } from 'lucide-react';
+import { ASSIGNABLE_ROLES, ROLE_LABELS, canAccessAdmin, hasPermission } from '../utils/access';
 import { useAppStore } from '../store/useAppStore';
 import { useCurrentEmployee } from '../hooks/useLeaveData';
 import { setAuthToken } from '../api/client';
@@ -31,16 +33,21 @@ const employeeNav = [
 
 const adminNav = [
   { to: '/admin', icon: BarChart3, label: 'Home', end: true },
-  { to: '/admin/leave-manage', icon: CalendarDays, label: '연차 관리' },
+  { to: '/admin/leave-manage', icon: CalendarDays, label: '연차 관리', permission: 'leave.view' },
   { to: '/admin/approvals', icon: ClipboardCheck, label: '연차 승인' },
-  { to: '/admin/approval-history', icon: ScrollText, label: '승인·반려 이력' },
-  { to: '/admin/roster', icon: ClipboardList, label: '사원 명부' },
-  { to: '/admin/approval-lines', icon: GitBranch, label: '결재 라인' },
-  { to: '/admin/leave-reports', icon: FileSpreadsheet, label: '연차 보고서' },
-  { to: '/admin/leave-settlements', icon: Scale, label: 'IFRS 연차부채' },
-  { to: '/admin/leave-event-settlements', icon: Wallet, label: '연차 정산' },
-  { to: '/admin/mail-settings', icon: Mail, label: '메일 서버' },
+  { to: '/admin/approval-history', icon: ScrollText, label: '승인·반려 이력', permission: 'approvalLogs.view' },
+  { to: '/admin/roster', icon: ClipboardList, label: '사원 명부', permission: 'employees.view' },
+  { to: '/admin/approval-lines', icon: GitBranch, label: '결재 라인', permission: 'approvalLines.manage' },
+  { to: '/admin/leave-reports', icon: FileSpreadsheet, label: '연차 보고서', permission: 'reports.view' },
+  { to: '/admin/leave-settlements', icon: Scale, label: 'IFRS 연차부채', permission: 'payroll' },
+  { to: '/admin/leave-event-settlements', icon: Wallet, label: '연차 정산', permission: 'payroll' },
+  { to: '/admin/mail-settings', icon: Mail, label: '메일 서버', permission: 'mail.manage' },
 ];
+
+function primaryRoleLabel(employee) {
+  const role = ASSIGNABLE_ROLES.find((r) => employee?.roles?.includes(r));
+  return role ? ROLE_LABELS[role] : '관리자';
+}
 
 function NavItems({ items, onNavigate, className = '' }) {
   return (
@@ -90,12 +97,18 @@ export function Layout() {
   const [shareUrl, setShareUrl] = useState('');
   const location = useLocation();
   const navigate = useNavigate();
-  const canAdmin = Boolean(currentEmployee?.isAdmin);
+  const canAdmin = canAccessAdmin(currentEmployee);
   const canApprove = Boolean(currentEmployee?.canApprove);
-  const employeeItems = canApprove
-    ? [...employeeNav, { to: '/employee/approvals', icon: ClipboardCheck, label: '연차 승인' }]
-    : employeeNav;
-  const navItems = role === 'admin' && canAdmin ? adminNav : employeeItems;
+  const employeeItems = [
+    ...employeeNav,
+    ...(canApprove ? [{ to: '/employee/approvals', icon: ClipboardCheck, label: '연차 승인' }] : []),
+    ...(hasPermission(currentEmployee, 'team.view')
+      ? [{ to: '/employee/team', icon: Users, label: '부서원 연차' }]
+      : []),
+  ];
+  const adminItems = adminNav.filter((item) => !item.permission || hasPermission(currentEmployee, item.permission));
+  const navItems = role === 'admin' && canAdmin ? adminItems : employeeItems;
+  const adminLabel = primaryRoleLabel(currentEmployee);
   const homePath = role === 'admin' && canAdmin ? '/admin' : '/employee';
 
   async function handleLogout() {
@@ -128,7 +141,7 @@ export function Layout() {
             <BrandLockup
               subtitle={
                 currentEmployee
-                  ? `${currentEmployee.name}${role === 'admin' ? ' · 관리자' : ` · ${currentEmployee.department}`}`
+                  ? `${currentEmployee.name}${role === 'admin' ? ` · ${adminLabel}` : ` · ${currentEmployee.department}`}`
                   : '연차관리'
               }
               markClassName="h-8 w-8"
@@ -185,7 +198,7 @@ export function Layout() {
                 <p className="text-sm font-medium text-white truncate">{currentEmployee.name}</p>
                 <p className="text-[11px] text-stripe-sidebar-muted">
                   {currentEmployee.empNo ? `${currentEmployee.empNo} · ` : ''}
-                  {role === 'admin' ? '관리자' : currentEmployee.position || currentEmployee.department}
+                  {role === 'admin' ? adminLabel : currentEmployee.position || currentEmployee.department}
                 </p>
               </div>
             </div>

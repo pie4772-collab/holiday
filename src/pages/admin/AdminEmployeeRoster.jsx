@@ -16,16 +16,20 @@ import {
   useTerminateEmployee,
   useReactivateEmployee,
   useResetEmployeePassword,
+  useSetEmployeeRoles,
 } from '../../hooks/useEmployeeRoster';
+import { useCurrentEmployee } from '../../hooks/useLeaveData';
+import { RoleBadges, RoleEditorModal } from '../../components/admin/RoleEditorModal';
 import { DEFAULT_PASSWORD } from '../../constants/hr';
+import { ROLE_LABELS, hasPermission, isScopedPermission } from '../../utils/access';
 import { formatDate } from '../../utils/leaveCalculations';
 
 function rosterSortValue(emp, key) {
   switch (key) {
     case 'concurrent':
       return [emp.concurrentDept, emp.concurrentPosition].filter(Boolean).join(' ');
-    case 'isAdmin':
-      return emp.isAdmin ? '관리자' : '';
+    case 'roles':
+      return (emp.roles || []).map((role) => ROLE_LABELS[role] || role).join(' ');
     case 'status':
       return emp.isActive ? '재직' : '퇴사';
     default:
@@ -56,6 +60,12 @@ export function AdminEmployeeRoster() {
   const terminateEmployee = useTerminateEmployee();
   const reactivateEmployee = useReactivateEmployee();
   const resetPassword = useResetEmployeePassword();
+  const setRoles = useSetEmployeeRoles();
+  const [roleTarget, setRoleTarget] = useState(null);
+  const { data: currentEmployee } = useCurrentEmployee();
+  const canManage = hasPermission(currentEmployee, 'employees.manage');
+  const canManageRoles = hasPermission(currentEmployee, 'roles.manage');
+  const scoped = isScopedPermission(currentEmployee, 'employees.view');
 
   const workplaces = useMemo(() => {
     return [...new Set((roster || []).map((emp) => emp.workplace).filter(Boolean))].sort((a, b) =>
@@ -128,6 +138,20 @@ export function AdminEmployeeRoster() {
     }
   }
 
+  async function handleSaveRoles(roles) {
+    try {
+      await setRoles.mutateAsync({ id: roleTarget.id, roles });
+      setRoleTarget(null);
+    } catch {
+      // 모달 안에 오류 표시
+    }
+  }
+
+  function openRoleEditor(emp) {
+    setRoles.reset();
+    setRoleTarget(emp);
+  }
+
   const isSubmitting =
     createEmployee.isPending ||
     updateEmployee.isPending ||
@@ -150,14 +174,16 @@ export function AdminEmployeeRoster() {
     <div>
       <PageHeader
         title="사원 명부"
-        description={`재직 ${activeCount}명${inactiveCount > 0 ? ` · 퇴사 ${inactiveCount}명` : ''}${
+        description={`${scoped ? '담당 사업장 · ' : ''}재직 ${activeCount}명${inactiveCount > 0 ? ` · 퇴사 ${inactiveCount}명` : ''}${
           filtered.length !== total ? ` · 검색 ${filtered.length}/${total}명` : ''
         }`}
         actions={
-          <Button onClick={() => setModal({ mode: 'create' })}>
-            <UserPlus className="h-4 w-4" />
-            입사 등록
-          </Button>
+          canManage && (
+            <Button onClick={() => setModal({ mode: 'create' })}>
+              <UserPlus className="h-4 w-4" />
+              입사 등록
+            </Button>
+          )
         }
       />
 
@@ -206,8 +232,8 @@ export function AdminEmployeeRoster() {
                     <p className="text-sm font-medium text-stripe-text">{emp.name}</p>
                     <p className="text-xs font-mono text-stripe-muted mt-0.5">{emp.empNo || '-'}</p>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    {emp.isAdmin && <Badge variant="purple">관리자</Badge>}
+                  <div className="flex flex-wrap justify-end items-center gap-1.5">
+                    <RoleBadges roles={emp.roles} empty="" />
                     {emp.isActive ? (
                       <Badge variant="success">재직</Badge>
                     ) : (
@@ -245,8 +271,17 @@ export function AdminEmployeeRoster() {
                     </div>
                   )}
                 </div>
+                {(canManage || (canManageRoles && emp.isActive)) && (
                 <div className="flex gap-2 mt-3 pt-3 border-t border-[#f0f3f7]">
-                  {emp.isActive ? (
+                  {canManageRoles && emp.isActive && (
+                    <button
+                      onClick={() => openRoleEditor(emp)}
+                      className="flex-1 text-[13px] text-stripe-text py-2 rounded-md bg-[#f0f3f7]"
+                    >
+                      역할
+                    </button>
+                  )}
+                  {!canManage ? null : emp.isActive ? (
                     <>
                       <button
                         onClick={() => setModal({ mode: 'edit', employee: emp })}
@@ -278,6 +313,7 @@ export function AdminEmployeeRoster() {
                     </button>
                   )}
                 </div>
+                )}
               </div>
             ))
           )}
@@ -295,7 +331,7 @@ export function AdminEmployeeRoster() {
                 <th><SortButton label="겸직" column="concurrent" sort={sort} onSort={onSort} /></th>
                 <th><SortButton label="입사일" column="hireDate" sort={sort} onSort={onSort} /></th>
                 <th><SortButton label="퇴사일" column="terminatedDate" sort={sort} onSort={onSort} /></th>
-                <th><SortButton label="권한" column="isAdmin" sort={sort} onSort={onSort} /></th>
+                <th><SortButton label="역할" column="roles" sort={sort} onSort={onSort} /></th>
                 <th><SortButton label="상태" column="status" sort={sort} onSort={onSort} /></th>
                 <th />
               </tr>
@@ -325,7 +361,7 @@ export function AdminEmployeeRoster() {
                       {emp.terminatedDate ? formatDate(emp.terminatedDate) : '-'}
                     </td>
                     <td>
-                      {emp.isAdmin ? <Badge variant="purple">관리자</Badge> : <span className="muted">-</span>}
+                      <RoleBadges roles={emp.roles} />
                     </td>
                     <td>
                       {emp.isActive ? (
@@ -335,7 +371,18 @@ export function AdminEmployeeRoster() {
                       )}
                     </td>
                     <td className="text-right whitespace-nowrap">
-                      {emp.isActive ? (
+                      {canManageRoles && emp.isActive && (
+                        <>
+                          <button
+                            onClick={() => openRoleEditor(emp)}
+                            className="text-[13px] text-stripe-muted hover:text-stripe-text"
+                          >
+                            역할
+                          </button>
+                          {canManage && <span className="text-[#e3e8ee] mx-2">|</span>}
+                        </>
+                      )}
+                      {!canManage ? null : emp.isActive ? (
                         <>
                           <button
                             onClick={() => setModal({ mode: 'edit', employee: emp })}
@@ -389,6 +436,14 @@ export function AdminEmployeeRoster() {
         initial={modal?.employee}
         mode={modal?.mode || 'create'}
         employees={roster || []}
+      />
+
+      <RoleEditorModal
+        employee={roleTarget}
+        onClose={() => setRoleTarget(null)}
+        onSubmit={handleSaveRoles}
+        isSubmitting={setRoles.isPending}
+        error={setRoles.isError ? setRoles.error?.message || '역할을 저장하지 못했습니다.' : ''}
       />
     </div>
   );

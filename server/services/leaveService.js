@@ -204,6 +204,18 @@ export async function getLeaveApprovalHistory(filters = {}) {
     params.push(action);
   }
 
+  // workplaceCodes 가 주어지면(사업장 한정 권한) 그 사업장 이력만 봅니다.
+  const scopeCodes = filters.workplaceCodes ? [...filters.workplaceCodes] : null;
+  const scopeClause = scopeCodes
+    ? scopeCodes.length
+      ? `workplace_code IN (${scopeCodes.map(() => '?').join(', ')})`
+      : '1 = 0'
+    : '';
+  if (scopeClause) {
+    clauses.push(`l.${scopeClause}`);
+    params.push(...scopeCodes);
+  }
+
   const query = String(filters.query || '').trim().toLowerCase();
   if (query) {
     clauses.push(
@@ -228,10 +240,10 @@ export async function getLeaveApprovalHistory(filters = {}) {
   const workplaceRows = await getDb()
     .prepare(
       `SELECT DISTINCT workplace FROM leave_approval_logs
-       WHERE workplace IS NOT NULL AND trim(workplace) != ''
+       WHERE workplace IS NOT NULL AND trim(workplace) != ''${scopeClause ? ` AND ${scopeClause}` : ''}
        ORDER BY workplace`
     )
-    .all();
+    .all(...(scopeCodes || []));
   const workplaces = [...new Set(workplaceRows.map((r) => r.workplace))];
 
   const yearRows = await getDb()
@@ -561,13 +573,15 @@ async function buildAccrualLogs(employee, balance) {
   return [...auto, ...manual].sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
-export async function getAllEmployees() {
+/** employeeIds(문자열 id Set)를 주면 그 직원만 계산합니다. */
+export async function getAllEmployees(employeeIds = null) {
   const rows = await getDb()
     .prepare(`${EMPLOYEE_SNAPSHOT_SELECT} WHERE e.is_active = 1 ORDER BY e.name, e.id`)
     .all();
 
   const employees = [];
   for (const row of rows) {
+    if (employeeIds && !employeeIds.has(String(row.id))) continue;
     employees.push({ ...toEmployeeBase(row), leaveSummary: await buildLeaveSummary(row) });
   }
   return employees;
@@ -600,8 +614,8 @@ export async function getCurrentEmployee(employeeId) {
   };
 }
 
-export async function getAdminStats() {
-  const employees = await getAllEmployees();
+export async function getAdminStats(employeeIds = null) {
+  const employees = await getAllEmployees(employeeIds);
   const asOf = getBalanceAsOf();
   const displayYear = getCurrentDisplayYear(asOf);
   const thisMonth = asOf.getMonth();
@@ -611,14 +625,16 @@ export async function getAdminStats() {
   const monthlyUsage = (
     await getDb()
       .prepare(
-        `SELECT usage_type FROM leave_usages
+        `SELECT employee_id, usage_type FROM leave_usages
          WHERE status = 'approved'
            AND usage_date < ?
            AND substr(usage_date, 1, 4) = ?
            AND CAST(substr(usage_date, 6, 2) AS INTEGER) = ?`
       )
       .all(consumedBefore, String(thisYear), thisMonth + 1)
-  ).reduce((sum, u) => sum + (u.usage_type === 'half' ? 0.5 : 1), 0);
+  )
+    .filter((u) => !employeeIds || employeeIds.has(String(u.employee_id)))
+    .reduce((sum, u) => sum + (u.usage_type === 'half' ? 0.5 : 1), 0);
 
   const avgRemaining =
     employees.reduce((sum, e) => sum + e.leaveSummary.remaining, 0) / (employees.length || 1);

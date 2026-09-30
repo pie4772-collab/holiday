@@ -8,7 +8,8 @@ import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { LeaveSummaryCard } from '../../components/LeaveSummaryCard';
 import { SortButton } from '../../components/ui/SortButton';
-import { useLeaveReport, useSaveLeaveReport } from '../../hooks/useLeaveData';
+import { useCurrentEmployee, useLeaveReport, useSaveLeaveReport } from '../../hooks/useLeaveData';
+import { hasPermission } from '../../utils/access';
 import { sortRows, useSortState } from '../../hooks/useTableSort';
 
 function reportSortValue(emp, key) {
@@ -97,6 +98,8 @@ export function AdminLeaveReport() {
   const [status, setStatus] = useState('');
   const { data: report, isLoading, isError, refetch } = useLeaveReport(year, month);
   const saveReport = useSaveLeaveReport();
+  const { data: currentEmployee } = useCurrentEmployee();
+  const canSave = hasPermission(currentEmployee, 'reports.save');
   const { sort, onSort } = useSortState();
 
   const years = useMemo(() => {
@@ -195,13 +198,15 @@ export function AdminLeaveReport() {
               <Download className="h-4 w-4" />
               CSV 받기
             </Button>
-            <Button
-              disabled={saveReport.isPending}
-              onClick={() => saveReport.mutate({ year, month })}
-            >
-              <Save className="h-4 w-4" />
-              {saveReport.isPending ? '저장 중…' : '월말 확정'}
-            </Button>
+            {canSave && (
+              <Button
+                disabled={saveReport.isPending}
+                onClick={() => saveReport.mutate({ year, month })}
+              >
+                <Save className="h-4 w-4" />
+                {saveReport.isPending ? '저장 중…' : '월말 확정'}
+              </Button>
+            )}
           </>
         }
       />

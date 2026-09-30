@@ -3,13 +3,17 @@ import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Panel, PanelHeader, PanelBody } from '../../components/ui/Panel';
-import { useAdminStats, useEmployees } from '../../hooks/useLeaveData';
+import { useAdminStats, useCurrentEmployee, useEmployees } from '../../hooks/useLeaveData';
+import { hasPermission, isScopedPermission } from '../../utils/access';
 import { Link } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 
 export function AdminDashboard() {
+  const { data: currentEmployee } = useCurrentEmployee();
+  const canViewLeave = hasPermission(currentEmployee, 'leave.view');
+  const scoped = isScopedPermission(currentEmployee, 'leave.view');
   const { data: stats, isLoading, isError, refetch } = useAdminStats();
-  const { data: employees } = useEmployees();
+  const { data: employees } = useEmployees({ enabled: canViewLeave });
 
   if (isLoading) {
     return (
@@ -30,7 +34,7 @@ export function AdminDashboard() {
     <div>
       <PageHeader
         title="Overview"
-        description={`전체 ${stats.totalEmployees}명 · ${stats.displayYear}년 기준 연차 현황`}
+        description={`${scoped ? '담당 사업장' : '전체'} ${stats.totalEmployees}명 · ${stats.displayYear}년 기준 연차 현황`}
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
@@ -86,6 +90,7 @@ export function AdminDashboard() {
         />
       </div>
 
+      {canViewLeave && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <Panel>
           <PanelHeader
@@ -153,6 +158,7 @@ export function AdminDashboard() {
           </PanelBody>
         </Panel>
       </div>
+      )}
     </div>
   );
 }

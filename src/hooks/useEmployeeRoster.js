@@ -51,6 +51,17 @@ export function useReactivateEmployee() {
   });
 }
 
+export function useSetEmployeeRoles() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, roles }) => leaveApi.setEmployeeRoles(id, roles),
+    onSuccess: () => {
+      invalidateRoster(queryClient);
+      queryClient.invalidateQueries({ queryKey: ['employee'] });
+    },
+  });
+}
+
 export function useResetEmployeePassword() {
   return useMutation({
     mutationFn: ({ id }) => leaveApi.resetEmployeePassword(id),

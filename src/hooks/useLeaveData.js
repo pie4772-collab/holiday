@@ -45,10 +45,18 @@ export function useEmployee(id) {
   });
 }
 
-export function useEmployees() {
+export function useEmployees({ enabled = true } = {}) {
   return useQuery({
     queryKey: leaveKeys.employees,
     queryFn: leaveApi.getEmployees,
+    enabled,
+  });
+}
+
+export function useTeamMembers() {
+  return useQuery({
+    queryKey: ['team', 'members'],
+    queryFn: leaveApi.getTeamMembers,
   });
 }
 

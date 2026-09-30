@@ -194,8 +194,19 @@ export function getMockEmployeeById(id) {
   };
 }
 
+const MOCK_PERMISSIONS = [
+  'admin', 'approvalLines.manage', 'approvalLogs.view', 'employees.manage', 'employees.view',
+  'leave.edit', 'leave.view', 'mail.manage', 'payroll', 'reports.save', 'reports.view', 'roles.manage',
+];
+
 export function getMockCurrentEmployee() {
-  return getMockEmployeeById('emp-001');
+  return {
+    ...getMockEmployeeById('emp-001'),
+    roles: ['system_admin'],
+    permissions: MOCK_PERMISSIONS,
+    scopedPermissions: [],
+    canAccessAdmin: true,
+  };
 }
 
 export function getMockAdminStats() {

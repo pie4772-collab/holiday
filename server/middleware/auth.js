@@ -1,4 +1,5 @@
-import { getSession, isEmployeeAdmin } from '../services/authService.js';
+import { getSession } from '../services/authService.js';
+import { getAccess } from '../services/accessService.js';
 
 const ALLOWED_DURING_PASSWORD_CHANGE = new Set(['/auth/me', '/auth/change-password', '/auth/logout', '/auth/login']);
 
@@ -26,12 +27,30 @@ export function requireAuth(req, res, next) {
   next();
 }
 
-export async function requireAdmin(req, res, next) {
+/** 로그인 사용자의 역할·권한을 req.access 에 담습니다. */
+export async function loadAccess(req, res, next) {
   if (!req.user) {
     return res.status(401).json({ message: '로그인이 필요합니다.' });
   }
-  if (!(await isEmployeeAdmin(req.user.employeeId))) {
-    return res.status(403).json({ message: '관리자 권한이 필요합니다.' });
+  try {
+    req.access = await getAccess(req.user.employeeId);
+    if (!req.access) {
+      return res.status(403).json({ message: '권한이 없습니다.' });
+    }
+    next();
+  } catch (e) {
+    next(e);
   }
-  next();
+}
+
+export function requirePermission(permission) {
+  return async (req, res, next) => {
+    await loadAccess(req, res, (err) => {
+      if (err) return next(err);
+      if (!req.access.has(permission)) {
+        return res.status(403).json({ message: '이 작업을 할 권한이 없습니다.' });
+      }
+      next();
+    });
+  };
 }

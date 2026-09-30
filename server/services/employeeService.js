@@ -2,6 +2,7 @@ import { getCurrentDisplayYear } from '../../src/utils/leaveCalculations.js';
 import { DEFAULT_POSITION, POSITIONS } from '../../src/constants/hr.js';
 import { getDb, parseEmployeeId } from '../db.js';
 import { ensureUserForEmployee } from './authService.js';
+import { getRolesByEmployee, isDeptHead } from './accessService.js';
 
 function normalizePosition(value) {
   const position = String(value || '').trim();
@@ -15,8 +16,9 @@ function toApiId(dbId) {
   return String(dbId);
 }
 
-function mapEmployeeRow(row) {
+function mapEmployeeRow(row, roles = []) {
   return {
+    roles: [...roles, ...(isDeptHead(row) ? ['dept_head'] : [])],
     id: toApiId(row.id),
     empNo: row.emp_no || '',
     name: row.name,
@@ -47,7 +49,8 @@ export async function getEmployeeRoster(includeInactive = true) {
   const sql = includeInactive
     ? `SELECT * FROM employees ORDER BY is_active DESC, lower(name), id`
     : `SELECT * FROM employees WHERE is_active = 1 ORDER BY lower(name), id`;
-  return (await getDb().prepare(sql).all()).map(mapEmployeeRow);
+  const rolesByEmployee = await getRolesByEmployee();
+  return (await getDb().prepare(sql).all()).map((row) => mapEmployeeRow(row, rolesByEmployee.get(Number(row.id))));
 }
 
 export async function createEmployee(data) {
@@ -84,7 +87,7 @@ export async function createEmployee(data) {
         data.concurrentPosition?.trim() || null,
         data.email?.trim() || '',
         data.notes?.trim() || null,
-        data.isAdmin ? 1 : 0
+        0
       );
 
     const employeeId = result.lastInsertRowid;
@@ -118,7 +121,7 @@ export async function updateEmployee(id, data) {
       `UPDATE employees
        SET emp_no = ?, name = ?, hire_date = ?, workplace = ?, department = ?, job_type = ?,
            position = ?, concurrent_dept = ?, concurrent_position = ?,
-           email = ?, notes = ?, is_admin = ?, updated_at = datetime('now', 'localtime')
+           email = ?, notes = ?, updated_at = datetime('now', 'localtime')
        WHERE id = ?`
     )
     .run(
@@ -133,7 +136,6 @@ export async function updateEmployee(id, data) {
       data.concurrentPosition?.trim() ?? row.concurrent_position,
       data.email?.trim() ?? row.email ?? '',
       data.notes?.trim() ?? row.notes,
-      data.isAdmin === undefined ? (row.is_admin ? 1 : 0) : data.isAdmin ? 1 : 0,
       row.id
     );
 

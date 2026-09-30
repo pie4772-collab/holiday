@@ -63,7 +63,7 @@ async function seatAssigneeName(seat) {
   return emp?.name || null;
 }
 
-function isTeamLeaderFor(approver, requester) {
+export function isTeamLeaderFor(approver, requester) {
   const sameDeptLead =
     LEAD_POSITIONS.includes(approver.position) &&
     code(approver.workplace_code) === code(requester.workplace_code) &&

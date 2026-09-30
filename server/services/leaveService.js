@@ -28,7 +28,7 @@ import {
   listLeaveRequestDates,
   MAX_LEAVE_RANGE_DAYS,
 } from '../../src/utils/leaveRequestDates.js';
-import { getDb, parseEmployeeId } from '../db.js';
+import { getDb, parseEmployeeId, LOCK_EMPLOYEE_LEAVE, LOCK_LEAVE_USAGE } from '../db.js';
 import { isLeaveExemptPosition } from '../../src/constants/hr.js';
 import * as approvalService from './approvalService.js';
 import * as mailService from './mailService.js';
@@ -120,9 +120,9 @@ const APPROVAL_ACTION_LABELS = {
   reject: '반려',
 };
 
-function recordApprovalLog({ usage, employee, actor, action, step = null, note = null, createdAt = null }) {
+async function recordApprovalLog({ usage, employee, actor, action, step = null, note = null, createdAt = null }) {
   if (!usage || !employee || !action) return;
-  getDb()
+  await getDb()
     .prepare(
       `INSERT INTO leave_approval_logs (
          leave_usage_id, employee_id, actor_id, action, step, note,
@@ -182,7 +182,7 @@ function mapApprovalLogRow(row) {
   };
 }
 
-export function getLeaveApprovalHistory(filters = {}) {
+export async function getLeaveApprovalHistory(filters = {}) {
   const clauses = [];
   const params = [];
 
@@ -207,14 +207,14 @@ export function getLeaveApprovalHistory(filters = {}) {
   const query = String(filters.query || '').trim().toLowerCase();
   if (query) {
     clauses.push(
-      `(lower(IFNULL(l.employee_name,'')) LIKE ? OR lower(IFNULL(l.employee_emp_no,'')) LIKE ? OR lower(IFNULL(l.actor_name,'')) LIKE ? OR lower(IFNULL(l.department,'')) LIKE ?)`
+      `(lower(COALESCE(l.employee_name,'')) LIKE ? OR lower(COALESCE(l.employee_emp_no,'')) LIKE ? OR lower(COALESCE(l.actor_name,'')) LIKE ? OR lower(COALESCE(l.department,'')) LIKE ?)`
     );
     const like = `%${query}%`;
     params.push(like, like, like, like);
   }
 
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-  const rows = getDb()
+  const rows = await getDb()
     .prepare(
       `SELECT l.*
        FROM leave_approval_logs l
@@ -225,20 +225,16 @@ export function getLeaveApprovalHistory(filters = {}) {
     .all(...params);
 
   const items = rows.map(mapApprovalLogRow);
-  const workplaces = [
-    ...new Set(
-      getDb()
-        .prepare(
-          `SELECT DISTINCT workplace FROM leave_approval_logs
-           WHERE workplace IS NOT NULL AND trim(workplace) != ''
-           ORDER BY workplace`
-        )
-        .all()
-        .map((r) => r.workplace)
-    ),
-  ];
+  const workplaceRows = await getDb()
+    .prepare(
+      `SELECT DISTINCT workplace FROM leave_approval_logs
+       WHERE workplace IS NOT NULL AND trim(workplace) != ''
+       ORDER BY workplace`
+    )
+    .all();
+  const workplaces = [...new Set(workplaceRows.map((r) => r.workplace))];
 
-  const yearRows = getDb()
+  const yearRows = await getDb()
     .prepare(
       `SELECT DISTINCT substr(created_at, 1, 4) AS y
        FROM leave_approval_logs
@@ -289,35 +285,37 @@ function getEmployeeRow(id) {
     .get(dbId);
 }
 
-function getApprovedUsages(dbId) {
-  return getDb()
+async function getApprovedUsages(dbId) {
+  const rows = await getDb()
     .prepare(
       `SELECT * FROM leave_usages
        WHERE employee_id = ? AND status = 'approved'
-       ORDER BY usage_date DESC`
+       ORDER BY usage_date DESC, id DESC`
     )
-    .all(dbId)
-    .map(mapUsageRow);
+    .all(dbId);
+  return rows.map(mapUsageRow);
 }
 
-function getAllUsages(dbId, year) {
-  const rows = getDb()
-    .prepare(`SELECT * FROM leave_usages WHERE employee_id = ? ORDER BY usage_date DESC`)
-    .all(dbId)
-    .map(mapUsageRow);
+async function getAllUsages(dbId, year) {
+  const rows = (
+    await getDb()
+      .prepare(`SELECT * FROM leave_usages WHERE employee_id = ? ORDER BY usage_date DESC, id DESC`)
+      .all(dbId)
+  ).map(mapUsageRow);
   return year ? filterUsagesByYear(rows, year) : rows;
 }
 
-function getManualAccruals(dbId, year) {
-  const rows = getDb()
-    .prepare(`SELECT * FROM leave_accruals WHERE employee_id = ? AND is_manual = 1`)
-    .all(dbId)
-    .map(mapAccrualRow);
+async function getManualAccruals(dbId, year) {
+  const rows = (
+    await getDb()
+      .prepare(`SELECT * FROM leave_accruals WHERE employee_id = ? AND is_manual = 1`)
+      .all(dbId)
+  ).map(mapAccrualRow);
   return year ? rows.filter((r) => new Date(r.date).getFullYear() === year) : rows;
 }
 
-function getManualAccrualTotal(dbId, year, afterDate = null) {
-  const rows = getManualAccruals(dbId, year);
+async function getManualAccrualTotal(dbId, year, afterDate = null) {
+  const rows = await getManualAccruals(dbId, year);
   const filtered = afterDate
     ? rows.filter((r) => String(r.date || '').slice(0, 10) > String(afterDate).slice(0, 10))
     : rows;
@@ -342,7 +340,7 @@ function toEmployeeBase(row) {
   };
 }
 
-function buildLeaveSummary(row, options = {}) {
+async function buildLeaveSummary(row, options = {}) {
   const dbId = row.id;
   const asOf = options.asOfDate || getBalanceAsOf();
   const consumptionAsOf = options.consumptionAsOf || getConsumptionAsOf();
@@ -386,16 +384,15 @@ function buildLeaveSummary(row, options = {}) {
     };
   }
 
-  const approvedUsages = getApprovedUsages(dbId);
+  const approvedUsages = await getApprovedUsages(dbId);
   const useSnapshot =
     !options.skipSnapshot && shouldUseImportedSnapshot(row, row.hire_date, asOf);
   const snapshotAsOf = useSnapshot ? String(row.as_of_date).slice(0, 10) : null;
   // 스냅샷 사용 시: 기준일 이후 수동 발생만 가산 (엑셀에 이미 포함된 조정 중복 방지)
-  const manualTotal = getManualAccrualTotal(dbId, displayYear, snapshotAsOf);
+  const manualTotal = await getManualAccrualTotal(dbId, displayYear, snapshotAsOf);
+  const yearManualTotal = useSnapshot ? manualTotal : await getManualAccrualTotal(dbId, displayYear);
   const calculated = calculateLeaveBalance(row.hire_date, approvedUsages, asOf, {
-    manualAccrualTotal: useSnapshot
-      ? manualTotal
-      : getManualAccrualTotal(dbId, displayYear),
+    manualAccrualTotal: yearManualTotal,
     consumptionAsOf,
     skipSettledDeduction: Boolean(options.skipSettledDeduction),
     // 스냅샷 구간: 엑셀 잔여에 전기 초과가 이미 반영된 것으로 보고 이월 생략
@@ -445,7 +442,7 @@ function buildLeaveSummary(row, options = {}) {
   // 엔진 이월은 스냅샷 잔여를 모르는 경우가 있어, 직전 주기 요약을 다시 봐 초과분을 확정
   const carryInDays = options.skipCarryIn
     ? 0
-    : getSnapshotAwareCarryInDays(row, asOf, {
+    : await getSnapshotAwareCarryInDays(row, asOf, {
         ...options,
         consumptionAsOf,
       });
@@ -468,21 +465,21 @@ function buildLeaveSummary(row, options = {}) {
     remaining,
     rawRemaining: remaining,
     overusedDays: getOverusedLeaveDays(remaining),
-    manualAccrualTotal: getManualAccrualTotal(dbId, displayYear),
+    manualAccrualTotal: yearManualTotal,
     usingSnapshot: false,
     leaveExempt: false,
   };
 }
 
 /** 직전 주기 종료일 기준 초과사용 → 이번 주기 발생 차감 (스냅샷 잔여 반영) */
-function getSnapshotAwareCarryInDays(row, asOfDate, options = {}) {
+async function getSnapshotAwareCarryInDays(row, asOfDate, options = {}) {
   const periodStart = getLeavePeriodStart(row.hire_date, asOfDate);
   const periodStartKey = toDateKey(periodStart);
   const hireKey = toDateKey(row.hire_date);
   if (!periodStartKey || !hireKey || periodStartKey <= hireKey) return 0;
 
   const priorAsOf = getPreviousDate(periodStart);
-  const prior = buildLeaveSummary(row, {
+  const prior = await buildLeaveSummary(row, {
     ...options,
     asOfDate: priorAsOf,
     consumptionAsOf: priorAsOf,
@@ -558,68 +555,70 @@ function buildAutoAccrualLogs(employee, balance) {
   return logs;
 }
 
-function buildAccrualLogs(employee, balance) {
+async function buildAccrualLogs(employee, balance) {
   const auto = buildAutoAccrualLogs(employee, balance);
-  const manual = getManualAccruals(parseEmployeeId(employee.id), balance.displayYear);
+  const manual = await getManualAccruals(parseEmployeeId(employee.id), balance.displayYear);
   return [...auto, ...manual].sort((a, b) => new Date(b.date) - new Date(a.date));
 }
 
-export function getAllEmployees() {
-  const rows = getDb()
-    .prepare(`${EMPLOYEE_SNAPSHOT_SELECT} WHERE e.is_active = 1 ORDER BY e.name`)
+export async function getAllEmployees() {
+  const rows = await getDb()
+    .prepare(`${EMPLOYEE_SNAPSHOT_SELECT} WHERE e.is_active = 1 ORDER BY e.name, e.id`)
     .all();
 
-  return rows.map((row) => {
-    const base = toEmployeeBase(row);
-    return { ...base, leaveSummary: buildLeaveSummary(row) };
-  });
+  const employees = [];
+  for (const row of rows) {
+    employees.push({ ...toEmployeeBase(row), leaveSummary: await buildLeaveSummary(row) });
+  }
+  return employees;
 }
 
-export function getEmployeeById(id) {
-  const row = getEmployeeRow(id);
+export async function getEmployeeById(id) {
+  const row = await getEmployeeRow(id);
   if (!row) return null;
 
   const base = toEmployeeBase(row);
-  const leaveSummary = buildLeaveSummary(row);
+  const leaveSummary = await buildLeaveSummary(row);
   const displayYear = leaveSummary.displayYear;
 
   return {
     ...base,
     leaveSummary,
-    accrualLogs: buildAccrualLogs(base, leaveSummary),
-    usages: getAllUsages(row.id, displayYear),
+    accrualLogs: await buildAccrualLogs(base, leaveSummary),
+    usages: await getAllUsages(row.id, displayYear),
   };
 }
 
-export function getCurrentEmployee(employeeId) {
+export async function getCurrentEmployee(employeeId) {
   const id = employeeId || process.env.CURRENT_EMPLOYEE_ID || '1';
-  const emp = getEmployeeById(id);
+  const emp = await getEmployeeById(id);
   if (!emp) return null;
   return {
     ...emp,
-    canApprove: approvalService.canApproveRequests(id),
-    approvalHint: approvalService.approvalHintFor({ position: emp.position }),
+    canApprove: await approvalService.canApproveRequests(id),
+    approvalHint: await approvalService.approvalHintFor({ position: emp.position }),
   };
 }
 
-export function getAdminStats() {
-  const employees = getAllEmployees();
+export async function getAdminStats() {
+  const employees = await getAllEmployees();
   const asOf = getBalanceAsOf();
   const displayYear = getCurrentDisplayYear(asOf);
   const thisMonth = asOf.getMonth();
   const thisYear = asOf.getFullYear();
 
   const consumedBefore = formatDate(getConsumptionAsOf());
-  const monthlyUsage = getDb()
-    .prepare(
-      `SELECT usage_type FROM leave_usages
-       WHERE status = 'approved'
-         AND usage_date < ?
-         AND substr(usage_date, 1, 4) = ?
-         AND CAST(substr(usage_date, 6, 2) AS INTEGER) = ?`
-    )
-    .all(consumedBefore, String(thisYear), thisMonth + 1)
-    .reduce((sum, u) => sum + (u.usage_type === 'half' ? 0.5 : 1), 0);
+  const monthlyUsage = (
+    await getDb()
+      .prepare(
+        `SELECT usage_type FROM leave_usages
+         WHERE status = 'approved'
+           AND usage_date < ?
+           AND substr(usage_date, 1, 4) = ?
+           AND CAST(substr(usage_date, 6, 2) AS INTEGER) = ?`
+      )
+      .all(consumedBefore, String(thisYear), thisMonth + 1)
+  ).reduce((sum, u) => sum + (u.usage_type === 'half' ? 0.5 : 1), 0);
 
   const avgRemaining =
     employees.reduce((sum, e) => sum + e.leaveSummary.remaining, 0) / (employees.length || 1);
@@ -656,7 +655,7 @@ function getSavedMonthReport(year, month) {
     .get(year, month);
 }
 
-export function getMonthlyLeaveReport(year, month) {
+export async function getMonthlyLeaveReport(year, month) {
   const y = Number(year);
   const m = Number(month);
   if (!Number.isInteger(y) || y < 2000 || y > 2100 || !Number.isInteger(m) || m < 1 || m > 12) {
@@ -664,7 +663,7 @@ export function getMonthlyLeaveReport(year, month) {
   }
 
   const range = getReportMonthRange(y, m);
-  const rows = getDb()
+  const rows = await getDb()
     .prepare(
       `${EMPLOYEE_SNAPSHOT_SELECT}
        WHERE e.hire_date <= ?
@@ -672,24 +671,24 @@ export function getMonthlyLeaveReport(year, month) {
            (e.is_active = 1 AND (e.terminated_date IS NULL OR e.terminated_date > ?))
            OR (e.terminated_date IS NOT NULL AND e.terminated_date >= ? AND e.terminated_date <= ?)
          )
-       ORDER BY e.workplace, e.name`
+       ORDER BY e.workplace, e.name, e.id`
     )
     .all(range.monthEnd, range.monthEnd, range.monthStart, range.monthEnd);
 
-  const employees = rows
-    .filter((row) => !isLeaveExemptPosition(row.position))
-    .map((row) => {
+  const employees = [];
+  for (const row of rows) {
+    if (isLeaveExemptPosition(row.position)) continue;
     const base = toEmployeeBase(row);
-    const summary = buildLeaveSummary(row, {
+    const summary = await buildLeaveSummary(row, {
       asOfDate: range.asOf,
       consumptionAsOf: range.consumptionAsOf,
     });
-    const approved = getApprovedUsages(row.id);
+    const approved = await getApprovedUsages(row.id);
     const usedInMonth = sumUsageDays(
       approved.filter((usage) => usage.date >= range.monthStart && usage.date <= range.monthEnd)
     );
     const pendingInMonth = sumUsageDays(
-      getAllUsages(row.id).filter(
+      (await getAllUsages(row.id)).filter(
         (usage) =>
           usage.status === 'pending' &&
           usage.date >= range.monthStart &&
@@ -700,7 +699,7 @@ export function getMonthlyLeaveReport(year, month) {
       row.terminated_date && row.terminated_date >= range.monthStart && row.terminated_date <= range.monthEnd
     );
 
-    return {
+    employees.push({
       id: base.id,
       empNo: base.empNo || '',
       name: base.name,
@@ -717,8 +716,8 @@ export function getMonthlyLeaveReport(year, month) {
       remaining: summary.remaining,
       pendingInMonth,
       scheduledDays: summary.scheduledDays || 0,
-    };
-  });
+    });
+  }
 
   const workplaceMap = new Map();
   for (const emp of employees) {
@@ -762,7 +761,7 @@ export function getMonthlyLeaveReport(year, month) {
     { employeeCount: 0, accrued: 0, usedInMonth: 0, remaining: 0, pendingInMonth: 0 }
   );
 
-  const saved = getSavedMonthReport(y, m);
+  const saved = await getSavedMonthReport(y, m);
 
   return {
     year: y,
@@ -783,9 +782,9 @@ export function getMonthlyLeaveReport(year, month) {
   };
 }
 
-export function saveMonthlyLeaveReport(year, month, generatedBy) {
-  const report = getMonthlyLeaveReport(year, month);
-  getDb()
+export async function saveMonthlyLeaveReport(year, month, generatedBy) {
+  const report = await getMonthlyLeaveReport(year, month);
+  await getDb()
     .prepare(
       `INSERT INTO leave_month_reports (year, month, as_of_date, generated_by, payload, generated_at)
        VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'))
@@ -800,14 +799,14 @@ export function saveMonthlyLeaveReport(year, month, generatedBy) {
   return {
     ...report,
     saved: {
-      generatedAt: getSavedMonthReport(report.year, report.month)?.generated_at,
+      generatedAt: (await getSavedMonthReport(report.year, report.month))?.generated_at,
       generatedBy: generatedBy ? String(generatedBy) : null,
     },
   };
 }
 
-export function getSavedMonthlyLeaveReport(year, month) {
-  const saved = getSavedMonthReport(Number(year), Number(month));
+export async function getSavedMonthlyLeaveReport(year, month) {
+  const saved = await getSavedMonthReport(Number(year), Number(month));
   if (!saved) return null;
   try {
     const payload = JSON.parse(saved.payload);
@@ -843,10 +842,10 @@ function getSavedPaySettlement(year, month) {
     .get(year, month);
 }
 
-export function updateEmployeeOrdinaryWage(employeeId, ordinaryWage, purpose = 'liability') {
+export async function updateEmployeeOrdinaryWage(employeeId, ordinaryWage, purpose = 'liability') {
   const dbId = parseEmployeeId(employeeId);
   if (!dbId) throw Object.assign(new Error('유효하지 않은 직원 ID입니다.'), { status: 400 });
-  const emp = getDb().prepare('SELECT id FROM employees WHERE id = ?').get(dbId);
+  const emp = await getDb().prepare('SELECT id FROM employees WHERE id = ?').get(dbId);
   if (!emp) throw Object.assign(new Error('직원을 찾을 수 없습니다.'), { status: 404 });
 
   const wage = ordinaryWage === '' || ordinaryWage == null ? null : Number(ordinaryWage);
@@ -856,7 +855,7 @@ export function updateEmployeeOrdinaryWage(employeeId, ordinaryWage, purpose = '
 
   const db = getDb();
   if (purpose === 'settlement') {
-    db.prepare(
+    await db.prepare(
       `INSERT INTO leave_settlement_ordinary_wages (employee_id, ordinary_wage, updated_at)
        VALUES (?, ?, datetime('now', 'localtime'))
        ON CONFLICT(employee_id) DO UPDATE SET
@@ -864,7 +863,7 @@ export function updateEmployeeOrdinaryWage(employeeId, ordinaryWage, purpose = '
          updated_at = excluded.updated_at`
     ).run(dbId, wage);
   } else {
-    db.prepare(
+    await db.prepare(
       `UPDATE employees
        SET ordinary_wage = ?, updated_at = datetime('now', 'localtime')
        WHERE id = ?`
@@ -895,8 +894,8 @@ function parseOrdinaryWageValue(value) {
   return { skip: false, wage };
 }
 
-function getSettlementOrdinaryWageMap() {
-  const rows = getDb()
+async function getSettlementOrdinaryWageMap() {
+  const rows = await getDb()
     .prepare('SELECT employee_id, ordinary_wage FROM leave_settlement_ordinary_wages')
     .all();
   const map = new Map();
@@ -907,20 +906,20 @@ function getSettlementOrdinaryWageMap() {
 }
 
 /** 통상임금 업로드 양식 (사번 기준). purpose=settlement|liability */
-export function getOrdinaryWageTemplate(purpose = 'liability') {
+export async function getOrdinaryWageTemplate(purpose = 'liability') {
   const forSettlement = purpose === 'settlement';
-  const rows = getDb()
+  const rows = await getDb()
     .prepare(
       forSettlement
         ? `SELECT e.emp_no, e.name, s.ordinary_wage, e.workplace, e.department, e.is_active
            FROM employees e
            LEFT JOIN leave_settlement_ordinary_wages s ON s.employee_id = e.id
            WHERE e.emp_no IS NOT NULL AND TRIM(e.emp_no) != ''
-           ORDER BY e.is_active DESC, e.workplace, e.name`
+           ORDER BY e.is_active DESC, e.workplace, e.name, e.id`
         : `SELECT emp_no, name, ordinary_wage, workplace, department, is_active
            FROM employees
            WHERE emp_no IS NOT NULL AND TRIM(emp_no) != ''
-           ORDER BY is_active DESC, workplace, name`
+           ORDER BY is_active DESC, workplace, name, id`
     )
     .all();
 
@@ -944,7 +943,7 @@ export function getOrdinaryWageTemplate(purpose = 'liability') {
  * - purpose=settlement: leave_settlement_ordinary_wages (연차 정산 전용)
  * - 월통상임금 칸이 비어 있으면 해당 행은 건너뜀
  */
-export function bulkUpdateOrdinaryWagesByEmpNo(items = [], purpose = 'liability') {
+export async function bulkUpdateOrdinaryWagesByEmpNo(items = [], purpose = 'liability') {
   if (!Array.isArray(items) || items.length === 0) {
     throw Object.assign(new Error('업로드할 행이 없습니다.'), { status: 400 });
   }
@@ -973,49 +972,51 @@ export function bulkUpdateOrdinaryWagesByEmpNo(items = [], purpose = 'liability'
   const errors = [];
   const seen = new Set();
 
-  for (let i = 0; i < items.length; i += 1) {
-    const item = items[i] || {};
-    const empNo = normalizeEmpNo(item.empNo ?? item.사번);
-    const line = i + 2; // header = 1
+  await db.transaction(async () => {
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i] || {};
+      const empNo = normalizeEmpNo(item.empNo ?? item.사번);
+      const line = i + 2; // header = 1
 
-    if (!empNo) {
-      skipped.push({ line, reason: '사번 없음' });
-      continue;
-    }
-    if (seen.has(empNo.toLowerCase())) {
-      skipped.push({ line, empNo, reason: '중복 사번' });
-      continue;
-    }
-    seen.add(empNo.toLowerCase());
+      if (!empNo) {
+        skipped.push({ line, reason: '사번 없음' });
+        continue;
+      }
+      if (seen.has(empNo.toLowerCase())) {
+        skipped.push({ line, empNo, reason: '중복 사번' });
+        continue;
+      }
+      seen.add(empNo.toLowerCase());
 
-    let parsed;
-    try {
-      parsed = parseOrdinaryWageValue(item.ordinaryWage ?? item.월통상임금 ?? item.통상임금);
-    } catch (error) {
-      errors.push({ line, empNo, reason: error.message });
-      continue;
-    }
-    if (parsed.skip) {
-      skipped.push({ line, empNo, reason: '통상임금 미입력' });
-      continue;
-    }
+      let parsed;
+      try {
+        parsed = parseOrdinaryWageValue(item.ordinaryWage ?? item.월통상임금 ?? item.통상임금);
+      } catch (error) {
+        errors.push({ line, empNo, reason: error.message });
+        continue;
+      }
+      if (parsed.skip) {
+        skipped.push({ line, empNo, reason: '통상임금 미입력' });
+        continue;
+      }
 
-    const emp = findByEmpNo.get(empNo);
-    if (!emp) {
-      missing.push({ line, empNo });
-      continue;
+      const emp = await findByEmpNo.get(empNo);
+      if (!emp) {
+        missing.push({ line, empNo });
+        continue;
+      }
+
+      if (forSettlement) await updateSettlement.run(emp.id, parsed.wage);
+      else await updateLiability.run(parsed.wage, emp.id);
+
+      updated.push({
+        id: String(emp.id),
+        empNo: emp.emp_no,
+        name: emp.name,
+        ordinaryWage: parsed.wage,
+      });
     }
-
-    if (forSettlement) updateSettlement.run(emp.id, parsed.wage);
-    else updateLiability.run(parsed.wage, emp.id);
-
-    updated.push({
-      id: String(emp.id),
-      empNo: emp.emp_no,
-      name: emp.name,
-      ordinaryWage: parsed.wage,
-    });
-  }
+  });
 
   if (updated.length === 0 && errors.length === 0 && missing.length === 0) {
     throw Object.assign(new Error('반영할 통상임금 행이 없습니다. 사번과 월통상임금을 확인해 주세요.'), {
@@ -1039,7 +1040,7 @@ export function bulkUpdateOrdinaryWagesByEmpNo(items = [], purpose = 'liability'
 /**
  * IFRS 연차부채: 지난달 월말 확정 페이로드의 통상임금을 현재 부채용 임금으로 복사
  */
-export function loadLiabilityOrdinaryWagesFromPreviousMonth(year, month) {
+export async function loadLiabilityOrdinaryWagesFromPreviousMonth(year, month) {
   const y = Number(year);
   const m = Number(month);
   if (!Number.isInteger(y) || y < 2000 || y > 2100 || !Number.isInteger(m) || m < 1 || m > 12) {
@@ -1048,7 +1049,7 @@ export function loadLiabilityOrdinaryWagesFromPreviousMonth(year, month) {
 
   const prevMonth = m === 1 ? 12 : m - 1;
   const prevYear = m === 1 ? y - 1 : y;
-  const saved = getSavedPaySettlement(prevYear, prevMonth);
+  const saved = await getSavedPaySettlement(prevYear, prevMonth);
   if (!saved?.payload) {
     throw Object.assign(
       new Error(`${prevYear}년 ${prevMonth}월 월말 확정 자료가 없습니다. 지난달 부채를 먼저 확정해주세요.`),
@@ -1072,22 +1073,24 @@ export function loadLiabilityOrdinaryWagesFromPreviousMonth(year, month) {
 
   let updatedCount = 0;
   let skippedCount = 0;
-  for (const group of payload.workplaces || []) {
-    for (const emp of group.employees || []) {
-      const wage = emp.ordinaryWage;
-      if (wage == null || wage === '' || !Number.isFinite(Number(wage))) {
-        skippedCount += 1;
-        continue;
+  await db.transaction(async () => {
+    for (const group of payload.workplaces || []) {
+      for (const emp of group.employees || []) {
+        const wage = emp.ordinaryWage;
+        if (wage == null || wage === '' || !Number.isFinite(Number(wage))) {
+          skippedCount += 1;
+          continue;
+        }
+        const empId = parseEmployeeId(emp.id);
+        if (!empId) {
+          skippedCount += 1;
+          continue;
+        }
+        await updateWage.run(Number(wage), empId);
+        updatedCount += 1;
       }
-      const empId = parseEmployeeId(emp.id);
-      if (!empId) {
-        skippedCount += 1;
-        continue;
-      }
-      updateWage.run(Number(wage), empId);
-      updatedCount += 1;
     }
-  }
+  });
 
   return {
     sourceYear: prevYear,
@@ -1097,7 +1100,7 @@ export function loadLiabilityOrdinaryWagesFromPreviousMonth(year, month) {
   };
 }
 
-export function getLeavePaySettlement(year, month) {
+export async function getLeavePaySettlement(year, month) {
   const y = Number(year);
   const m = Number(month);
   if (!Number.isInteger(y) || y < 2000 || y > 2100 || !Number.isInteger(m) || m < 1 || m > 12) {
@@ -1106,21 +1109,21 @@ export function getLeavePaySettlement(year, month) {
 
   const range = getReportMonthRange(y, m);
   // IFRS 연차부채: 월말 재직자만 (당월 퇴사·퇴직자 제외 — 정산 화면에서 별도 처리)
-  const rows = getDb()
+  const rows = await getDb()
     .prepare(
       `${EMPLOYEE_SNAPSHOT_SELECT}
        WHERE e.hire_date <= ?
          AND e.is_active = 1
          AND (e.terminated_date IS NULL OR e.terminated_date > ?)
-       ORDER BY e.workplace, e.name`
+       ORDER BY e.workplace, e.name, e.id`
     )
     .all(range.monthEnd, range.monthEnd);
 
-  const employees = rows
-    .filter((row) => !isLeaveExemptPosition(row.position))
-    .map((row) => {
+  const employees = [];
+  for (const row of rows) {
+    if (isLeaveExemptPosition(row.position)) continue;
     const base = toEmployeeBase(row);
-    const summary = buildLeaveSummary(row, {
+    const summary = await buildLeaveSummary(row, {
       asOfDate: range.asOf,
       consumptionAsOf: range.consumptionAsOf,
     });
@@ -1131,7 +1134,7 @@ export function getLeavePaySettlement(year, month) {
     const allowance =
       dailyRate != null ? roundMoney(dailyRate * remaining) : ordinaryWage != null ? 0 : null;
 
-    return {
+    employees.push({
       id: base.id,
       empNo: base.empNo || '',
       name: base.name,
@@ -1149,8 +1152,8 @@ export function getLeavePaySettlement(year, month) {
       dailyRate,
       allowance,
       wageMissing: ordinaryWage == null,
-    };
-  });
+    });
+  }
 
   const workplaceMap = new Map();
   for (const emp of employees) {
@@ -1189,7 +1192,7 @@ export function getLeavePaySettlement(year, month) {
     { employeeCount: 0, remaining: 0, allowance: 0, wageMissingCount: 0 }
   );
 
-  const saved = getSavedPaySettlement(y, m);
+  const saved = await getSavedPaySettlement(y, m);
 
   return {
     year: y,
@@ -1210,9 +1213,9 @@ export function getLeavePaySettlement(year, month) {
   };
 }
 
-export function saveLeavePaySettlement(year, month, generatedBy) {
-  const settlement = getLeavePaySettlement(year, month);
-  getDb()
+export async function saveLeavePaySettlement(year, month, generatedBy) {
+  const settlement = await getLeavePaySettlement(year, month);
+  await getDb()
     .prepare(
       `INSERT INTO leave_pay_settlements (year, month, as_of_date, generated_by, payload, generated_at)
        VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'))
@@ -1233,14 +1236,14 @@ export function saveLeavePaySettlement(year, month, generatedBy) {
   return {
     ...settlement,
     saved: {
-      generatedAt: getSavedPaySettlement(settlement.year, settlement.month)?.generated_at,
+      generatedAt: (await getSavedPaySettlement(settlement.year, settlement.month))?.generated_at,
       generatedBy: generatedBy ? String(generatedBy) : null,
     },
   };
 }
 
-export function getSavedLeavePaySettlement(year, month) {
-  const saved = getSavedPaySettlement(Number(year), Number(month));
+export async function getSavedLeavePaySettlement(year, month) {
+  const saved = await getSavedPaySettlement(Number(year), Number(month));
   if (!saved) return null;
   try {
     const payload = JSON.parse(saved.payload);
@@ -1291,9 +1294,9 @@ function getSavedEventSettlement(year) {
   return getDb().prepare('SELECT * FROM leave_event_settlements WHERE year = ?').get(year);
 }
 
-function listEventSettlementYears() {
+async function listEventSettlementYears() {
   const current = getConsumptionAsOf().getFullYear();
-  const bounds = getDb()
+  const bounds = await getDb()
     .prepare(
       `SELECT
          MIN(CASE WHEN terminated_date IS NOT NULL THEN substr(terminated_date, 1, 4) END) AS min_term,
@@ -1323,7 +1326,7 @@ function listEventSettlementYears() {
  * - 입사 1년은 일사일 다음 달 8일(급여일)까지 정산 가능. 그 외 회계전환·회계기준일은 현재 시점 이전은 제외
  * 매월 정산하지 않음.
  */
-export function getLeaveEventSettlement(year) {
+export async function getLeaveEventSettlement(year) {
   const y = Number(year);
   if (!Number.isInteger(y) || y < 2000 || y > 2100) {
     throw Object.assign(new Error('연도를 확인해주세요.'), { status: 400 });
@@ -1336,7 +1339,7 @@ export function getLeaveEventSettlement(year) {
   const todayKey = toDateKey(getConsumptionAsOf());
 
   // 연중 재직자 + 해당 연도 퇴사자(과거 퇴사·비활성 포함). 퇴사일이 연초 이전인 사람만 제외.
-  const rows = getDb()
+  const rows = await getDb()
     .prepare(
       `${EMPLOYEE_SNAPSHOT_SELECT}
        WHERE e.hire_date IS NOT NULL
@@ -1345,14 +1348,14 @@ export function getLeaveEventSettlement(year) {
            e.terminated_date IS NULL
            OR substr(e.terminated_date, 1, 10) >= ?
          )
-       ORDER BY e.workplace, e.name`
+       ORDER BY e.workplace, e.name, e.id`
     )
     .all(yearEnd, yearStart);
 
   const items = [];
   const workplaceCatalog = new Map();
   // 정산 통상임금은 부채(employees.ordinary_wage)와 분리 — 관리자 직접 입력분만 사용
-  const settlementWageMap = getSettlementOrdinaryWageMap();
+  const settlementWageMap = await getSettlementOrdinaryWageMap();
 
   for (const row of rows) {
     if (isLeaveExemptPosition(row.position)) continue;
@@ -1391,7 +1394,7 @@ export function getLeaveEventSettlement(year) {
       const periodEndKey = toDateKey(periodEnd);
       const periodStart = closingPeriodStart(row.hire_date, event.type, eventDate);
       const useSnapshot = snapshotCoversPeriod(row, periodStart, periodEndKey);
-      const summary = buildLeaveSummary(row, {
+      const summary = await buildLeaveSummary(row, {
         asOfDate: periodEnd,
         consumptionAsOf: toLocalDate(eventDate),
         skipSnapshot: !useSnapshot,
@@ -1429,7 +1432,7 @@ export function getLeaveEventSettlement(year) {
     }
 
     if (terminatedDate && terminatedDate >= yearStart && terminatedDate <= yearEnd) {
-      const summary = buildLeaveSummary(row, {
+      const summary = await buildLeaveSummary(row, {
         asOfDate: new Date(terminatedDate),
         consumptionAsOf: new Date(terminatedDate),
       });
@@ -1533,7 +1536,7 @@ export function getLeaveEventSettlement(year) {
   // employeeCount across workplaces can double-count if we sum sets per group — recompute uniquely
   totals.employeeCount = new Set(items.map((item) => item.employeeId)).size;
 
-  const saved = getSavedEventSettlement(y);
+  const saved = await getSavedEventSettlement(y);
 
   return {
     year: y,
@@ -1542,7 +1545,7 @@ export function getLeaveEventSettlement(year) {
     dailyHours: ORDINARY_DAILY_HOURS,
     formula: `연차수당 = floor(월 통상임금 ÷ ${ORDINARY_WAGE_HOURS} × ${ORDINARY_DAILY_HOURS}) × max(0, 전기 잔여)`,
     note: '정산일수는 해당 시점에 새로 발생하는 부여일이 아니라, 전년도·이전 주기에 사용하고 남은 잔여입니다. 잔여가 0 미만이면 수당 0, 초과분은 다음 주기로 이월 차감됩니다. 입사 1년 정산은 일사일 다음 달 8일(급여일)까지 계산할 수 있고, 회계기준 전환·회계기준일은 현재 이후 도래 대상만 표시합니다. 중도 퇴사는 과거 연도도 조회할 수 있습니다.',
-    availableYears: listEventSettlementYears(),
+    availableYears: await listEventSettlementYears(),
     eventTypes: [
       { value: 'first_year', label: '입사 1년' },
       { value: 'prorated', label: '회계기준 전환' },
@@ -1561,9 +1564,9 @@ export function getLeaveEventSettlement(year) {
   };
 }
 
-export function saveLeaveEventSettlement(year, generatedBy) {
-  const settlement = getLeaveEventSettlement(year);
-  getDb()
+export async function saveLeaveEventSettlement(year, generatedBy) {
+  const settlement = await getLeaveEventSettlement(year);
+  await getDb()
     .prepare(
       `INSERT INTO leave_event_settlements (year, as_of_date, generated_by, payload, generated_at)
        VALUES (?, ?, ?, ?, datetime('now', 'localtime'))
@@ -1578,14 +1581,14 @@ export function saveLeaveEventSettlement(year, generatedBy) {
   return {
     ...settlement,
     saved: {
-      generatedAt: getSavedEventSettlement(settlement.year)?.generated_at,
+      generatedAt: (await getSavedEventSettlement(settlement.year))?.generated_at,
       generatedBy: generatedBy ? String(generatedBy) : null,
     },
   };
 }
 
-export function getSavedLeaveEventSettlement(year) {
-  const saved = getSavedEventSettlement(Number(year));
+export async function getSavedLeaveEventSettlement(year) {
+  const saved = await getSavedEventSettlement(Number(year));
   if (!saved) return null;
   try {
     const payload = JSON.parse(saved.payload);
@@ -1601,16 +1604,16 @@ export function getSavedLeaveEventSettlement(year) {
   }
 }
 
-export function getLeaveHistory(employeeId) {
-  const emp = getEmployeeById(employeeId);
+export async function getLeaveHistory(employeeId) {
+  const emp = await getEmployeeById(employeeId);
   return emp?.accrualLogs || [];
 }
 
-export function getLeaveUsages(employeeId) {
-  const row = getEmployeeRow(employeeId);
+export async function getLeaveUsages(employeeId) {
+  const row = await getEmployeeRow(employeeId);
   if (!row) return [];
   const year = String(getCurrentDisplayYear(getBalanceAsOf()));
-  return getAllUsages(row.id).filter(
+  return (await getAllUsages(row.id)).filter(
     (usage) =>
       usage.status === 'pending' ||
       usage.status === 'rejected' ||
@@ -1622,8 +1625,8 @@ export function getAdminAccruals(employeeId) {
   return getLeaveHistory(employeeId);
 }
 
-export function getAdminUsages(employeeId) {
-  const row = getEmployeeRow(employeeId);
+export async function getAdminUsages(employeeId) {
+  const row = await getEmployeeRow(employeeId);
   if (!row) return [];
   return getAllUsages(row.id, getCurrentDisplayYear(getBalanceAsOf()));
 }
@@ -1632,10 +1635,10 @@ function httpError(message, status = 400) {
   return Object.assign(new Error(message), { status });
 }
 
-export function submitLeaveRequest(data) {
+export async function submitLeaveRequest(data) {
   const dbId = parseEmployeeId(data.employeeId);
   if (!dbId) throw httpError('유효하지 않은 직원 ID입니다.');
-  const employee = getDb().prepare('SELECT * FROM employees WHERE id = ? AND is_active = 1').get(dbId);
+  const employee = await getDb().prepare('SELECT * FROM employees WHERE id = ? AND is_active = 1').get(dbId);
   if (!employee) throw httpError('직원을 찾을 수 없습니다.');
   if (isLeaveExemptPosition(employee.position)) {
     throw httpError('임원(이사·상무·전무·대표이사)은 연차 신청 대상이 아닙니다.');
@@ -1672,69 +1675,75 @@ export function submitLeaveRequest(data) {
     throw httpError('반차는 하루만 신청할 수 있습니다.');
   }
 
-  const placeholders = dates.map(() => '?').join(', ');
-  const conflicts = getDb()
-    .prepare(
-      `SELECT usage_date, status FROM leave_usages
-       WHERE employee_id = ?
-         AND usage_date IN (${placeholders})
-         AND status IN ('pending', 'approved')
-       ORDER BY usage_date`
-    )
-    .all(dbId, ...dates);
-
-  if (conflicts.length) {
-    const first = conflicts[0];
-    const label = first.status === 'pending' ? '승인 대기 중' : '이미 승인됨';
-    throw httpError(`${first.usage_date}은(는) ${label}인 연차가 있어 신청할 수 없습니다.`);
-  }
-
+  const db = getDb();
   const daysPerDate = type === 'half' ? 0.5 : 1;
-  const chain = approvalService.getApprovalChain(employee);
+  const chain = await approvalService.getApprovalChain(employee);
   const autoApprove = chain.length === 0;
   const firstStep = autoApprove ? null : chain[0]?.role || '팀장';
 
-  const insertPending = getDb().prepare(
+  const insertPending = db.prepare(
     `INSERT INTO leave_usages (employee_id, usage_date, usage_type, days, reason, status, created_by, approval_step)
      VALUES (?, ?, ?, ?, ?, 'pending', 'employee', ?)`
   );
-  const insertApproved = getDb().prepare(
+  const insertApproved = db.prepare(
     `INSERT INTO leave_usages (
        employee_id, usage_date, usage_type, days, reason, status, created_by, approval_step,
        approved_by, approved_at
      ) VALUES (?, ?, ?, ?, ?, 'approved', 'employee', NULL, ?, datetime('now', 'localtime'))`
   );
 
-  const items = dates.map((date) => {
-    const result = autoApprove
-      ? insertApproved.run(dbId, date, type, daysPerDate, reason, dbId)
-      : insertPending.run(dbId, date, type, daysPerDate, reason, firstStep);
-    const usageRow = getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(result.lastInsertRowid);
-    if (autoApprove) {
-      recordApprovalLog({
-        usage: usageRow,
-        employee,
-        actor: employee,
-        action: 'submit',
-        step: null,
-      });
-      recordApprovalLog({
-        usage: usageRow,
-        employee,
-        actor: employee,
-        action: 'auto_approve',
-        step: null,
-      });
-    } else {
-      recordApprovalLog({
-        usage: usageRow,
-        employee,
-        actor: employee,
-        action: 'submit',
-        step: firstStep,
-      });
+  const items = await db.transaction(async () => {
+    await db.lock(LOCK_EMPLOYEE_LEAVE, dbId);
+    const placeholders = dates.map(() => '?').join(', ');
+    const conflicts = await db
+      .prepare(
+        `SELECT usage_date, status FROM leave_usages
+         WHERE employee_id = ?
+           AND usage_date IN (${placeholders})
+           AND status IN ('pending', 'approved')
+         ORDER BY usage_date`
+      )
+      .all(dbId, ...dates);
+
+    if (conflicts.length) {
+      const first = conflicts[0];
+      const label = first.status === 'pending' ? '승인 대기 중' : '이미 승인됨';
+      throw httpError(`${first.usage_date}은(는) ${label}인 연차가 있어 신청할 수 없습니다.`);
     }
-    return mapUsageRow(usageRow);
+
+    const created = [];
+    for (const date of dates) {
+      const result = autoApprove
+        ? await insertApproved.run(dbId, date, type, daysPerDate, reason, dbId)
+        : await insertPending.run(dbId, date, type, daysPerDate, reason, firstStep);
+      const usageRow = await db.prepare('SELECT * FROM leave_usages WHERE id = ?').get(result.lastInsertRowid);
+      if (autoApprove) {
+        await recordApprovalLog({
+          usage: usageRow,
+          employee,
+          actor: employee,
+          action: 'submit',
+          step: null,
+        });
+        await recordApprovalLog({
+          usage: usageRow,
+          employee,
+          actor: employee,
+          action: 'auto_approve',
+          step: null,
+        });
+      } else {
+        await recordApprovalLog({
+          usage: usageRow,
+          employee,
+          actor: employee,
+          action: 'submit',
+          step: firstStep,
+        });
+      }
+      created.push(mapUsageRow(usageRow));
+    }
+    return created;
   });
 
   const dateLabel = describeLeaveDates(dates);
@@ -1754,7 +1763,7 @@ export function submitLeaveRequest(data) {
     };
   }
 
-  const approvalHint = approvalService.approvalHintFor(employee);
+  const approvalHint = await approvalService.approvalHintFor(employee);
   mailService.notifyLeaveSubmitted(employee, items, approvalHint).catch((error) => {
     console.error('[mail] notifyLeaveSubmitted:', error.message);
   });
@@ -1771,12 +1780,13 @@ export function submitLeaveRequest(data) {
   };
 }
 
-export function getPendingApprovals(approverId) {
-  return approvalService.listPendingApprovals(approverId).map((row) => {
-    const mapped = mapUsageRow(row);
-    return {
-      ...mapped,
-      approvalHint: approvalService.approvalHintFor(
+export async function getPendingApprovals(approverId) {
+  const rows = await approvalService.listPendingApprovals(approverId);
+  const items = [];
+  for (const row of rows) {
+    items.push({
+      ...mapUsageRow(row),
+      approvalHint: await approvalService.approvalHintFor(
         {
           position: row.position,
           workplace: row.workplace,
@@ -1785,82 +1795,92 @@ export function getPendingApprovals(approverId) {
         },
         row.approval_step
       ),
-    };
-  });
+    });
+  }
+  return items;
 }
 
-export function decideLeaveRequest(usageId, approverId, action, rejectReason) {
+export async function decideLeaveRequest(usageId, approverId, action, rejectReason) {
+  const db = getDb();
   const approverDbId = parseEmployeeId(approverId);
-  const row = getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(Number(usageId));
-  if (!row) throw Object.assign(new Error('신청 내역을 찾을 수 없습니다.'), { status: 404 });
-  if (row.status !== 'pending') throw Object.assign(new Error('이미 처리된 신청입니다.'), { status: 400 });
-  if (!approvalService.canApproveUsage(approverDbId, row)) {
-    throw Object.assign(new Error('이 신청을 승인할 권한이 없습니다.'), { status: 403 });
-  }
+  const { updated, requester, approver } = await db.transaction(async () => {
+    await db.lock(LOCK_LEAVE_USAGE, usageId);
+    const row = await db.prepare('SELECT * FROM leave_usages WHERE id = ?').get(Number(usageId));
+    if (!row) throw Object.assign(new Error('신청 내역을 찾을 수 없습니다.'), { status: 404 });
+    if (row.status !== 'pending') throw Object.assign(new Error('이미 처리된 신청입니다.'), { status: 400 });
+    if (!(await approvalService.canApproveUsage(approverDbId, row))) {
+      throw Object.assign(new Error('이 신청을 승인할 권한이 없습니다.'), { status: 403 });
+    }
 
-  const requester = getDb().prepare('SELECT * FROM employees WHERE id = ?').get(row.employee_id);
-  const approver = getDb().prepare('SELECT * FROM employees WHERE id = ?').get(approverDbId);
-  const currentStep = row.approval_step || null;
+    const requester = await db.prepare('SELECT * FROM employees WHERE id = ?').get(row.employee_id);
+    const approver = await db.prepare('SELECT * FROM employees WHERE id = ?').get(approverDbId);
+    const currentStep = row.approval_step || null;
 
-  if (action === 'reject') {
-    getDb()
-      .prepare(
-        `UPDATE leave_usages
-         SET status = 'rejected', approved_by = ?, approved_at = datetime('now', 'localtime'),
-             reject_reason = ?, updated_at = datetime('now', 'localtime')
-         WHERE id = ?`
-      )
-      .run(approverDbId, rejectReason || '', row.id);
-    recordApprovalLog({
-      usage: row,
-      employee: requester,
-      actor: approver,
-      action: 'reject',
-      step: currentStep,
-      note: rejectReason || '',
-    });
-  } else {
-    const nextStep = approvalService.nextApprovalStep(requester, row.approval_step);
-    if (nextStep) {
-      getDb()
+    if (action === 'reject') {
+      await db
         .prepare(
           `UPDATE leave_usages
-           SET approval_step = ?, approved_by = ?, approved_at = datetime('now', 'localtime'),
-               updated_at = datetime('now', 'localtime')
+           SET status = 'rejected', approved_by = ?, approved_at = datetime('now', 'localtime'),
+               reject_reason = ?, updated_at = datetime('now', 'localtime')
            WHERE id = ?`
         )
-        .run(nextStep, approverDbId, row.id);
-      recordApprovalLog({
+        .run(approverDbId, rejectReason || '', row.id);
+      await recordApprovalLog({
         usage: row,
         employee: requester,
         actor: approver,
-        action: 'step_approve',
+        action: 'reject',
         step: currentStep,
-        note: `다음 결재: ${nextStep}`,
+        note: rejectReason || '',
       });
     } else {
-      getDb()
-        .prepare(
-          `UPDATE leave_usages
-           SET status = 'approved', approved_by = ?, approved_at = datetime('now', 'localtime'),
-               reject_reason = NULL, updated_at = datetime('now', 'localtime')
-           WHERE id = ?`
-        )
-        .run(approverDbId, row.id);
-      recordApprovalLog({
-        usage: row,
-        employee: requester,
-        actor: approver,
-        action: 'approve',
-        step: currentStep,
-      });
+      const nextStep = await approvalService.nextApprovalStep(requester, row.approval_step);
+      if (nextStep) {
+        await db
+          .prepare(
+            `UPDATE leave_usages
+             SET approval_step = ?, approved_by = ?, approved_at = datetime('now', 'localtime'),
+                 updated_at = datetime('now', 'localtime')
+             WHERE id = ?`
+          )
+          .run(nextStep, approverDbId, row.id);
+        await recordApprovalLog({
+          usage: row,
+          employee: requester,
+          actor: approver,
+          action: 'step_approve',
+          step: currentStep,
+          note: `다음 결재: ${nextStep}`,
+        });
+      } else {
+        await db
+          .prepare(
+            `UPDATE leave_usages
+             SET status = 'approved', approved_by = ?, approved_at = datetime('now', 'localtime'),
+                 reject_reason = NULL, updated_at = datetime('now', 'localtime')
+             WHERE id = ?`
+          )
+          .run(approverDbId, row.id);
+        await recordApprovalLog({
+          usage: row,
+          employee: requester,
+          actor: approver,
+          action: 'approve',
+          step: currentStep,
+        });
+      }
     }
-  }
 
-  const updated = getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(row.id);
+    return {
+      updated: await db.prepare('SELECT * FROM leave_usages WHERE id = ?').get(row.id),
+      requester,
+      approver,
+    };
+  });
+
   const mapped = mapUsageRow(updated);
   const approvalHint =
-    updated.status === 'pending' ? approvalService.approvalHintFor(requester, updated.approval_step) : null;
+    updated.status === 'pending' ? await approvalService.approvalHintFor(requester, updated.approval_step) : null;
 
   if (updated.status === 'rejected') {
     mailService.notifyLeaveFinal(requester, mapped, 'reject', updated.reject_reason, approver).catch((error) => {
@@ -1887,11 +1907,11 @@ export function decideLeaveRequest(usageId, approverId, action, rejectReason) {
   };
 }
 
-export function createAccrual(data) {
+export async function createAccrual(data) {
   const dbId = parseEmployeeId(data.employeeId);
   if (!dbId) throw new Error('유효하지 않은 직원 ID입니다.');
 
-  const result = getDb()
+  const result = await getDb()
     .prepare(
       `INSERT INTO leave_accruals (employee_id, accrual_date, accrual_type, amount, description, is_manual, created_by)
        VALUES (?, ?, ?, ?, ?, 1, 'admin')`
@@ -1899,15 +1919,15 @@ export function createAccrual(data) {
     .run(dbId, data.date, data.type, data.amount, data.description);
 
   return mapAccrualRow(
-    getDb().prepare('SELECT * FROM leave_accruals WHERE id = ?').get(result.lastInsertRowid)
+    await getDb().prepare('SELECT * FROM leave_accruals WHERE id = ?').get(result.lastInsertRowid)
   );
 }
 
-export function updateAccrual(id, data) {
-  const row = getDb().prepare('SELECT * FROM leave_accruals WHERE id = ? AND is_manual = 1').get(id);
+export async function updateAccrual(id, data) {
+  const row = await getDb().prepare('SELECT * FROM leave_accruals WHERE id = ? AND is_manual = 1').get(id);
   if (!row) throw new Error('수동 발생 내역을 찾을 수 없습니다.');
 
-  getDb()
+  await getDb()
     .prepare(
       `UPDATE leave_accruals
        SET accrual_date = ?, accrual_type = ?, amount = ?, description = ?,
@@ -1916,15 +1936,15 @@ export function updateAccrual(id, data) {
     )
     .run(data.date, data.type, data.amount, data.description, id);
 
-  return mapAccrualRow(getDb().prepare('SELECT * FROM leave_accruals WHERE id = ?').get(id));
+  return mapAccrualRow(await getDb().prepare('SELECT * FROM leave_accruals WHERE id = ?').get(id));
 }
 
-export function deleteAccrual(id) {
-  const result = getDb().prepare('DELETE FROM leave_accruals WHERE id = ? AND is_manual = 1').run(id);
+export async function deleteAccrual(id) {
+  const result = await getDb().prepare('DELETE FROM leave_accruals WHERE id = ? AND is_manual = 1').run(id);
   if (result.changes === 0) throw new Error('수동 발생 내역을 찾을 수 없습니다.');
 }
 
-export function createUsage(data) {
+export async function createUsage(data) {
   const dbId = parseEmployeeId(data.employeeId);
   if (!dbId) throw new Error('유효하지 않은 직원 ID입니다.');
   if (!isValidLeaveDate(data.date)) throw new Error('날짜를 확인해주세요.');
@@ -1932,7 +1952,7 @@ export function createUsage(data) {
   if (blocked) throw httpError(blocked);
 
   const days = data.type === 'half' ? 0.5 : 1;
-  const result = getDb()
+  const result = await getDb()
     .prepare(
       `INSERT INTO leave_usages (employee_id, usage_date, usage_type, days, reason, status, created_by)
        VALUES (?, ?, ?, ?, ?, ?, 'admin')`
@@ -1940,12 +1960,12 @@ export function createUsage(data) {
     .run(dbId, data.date, data.type, days, data.reason, data.status || 'approved');
 
   return mapUsageRow(
-    getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(result.lastInsertRowid)
+    await getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(result.lastInsertRowid)
   );
 }
 
-export function updateUsage(id, data) {
-  const row = getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(id);
+export async function updateUsage(id, data) {
+  const row = await getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(id);
   if (!row) throw new Error('사용 내역을 찾을 수 없습니다.');
   if (!isValidLeaveDate(data.date)) throw new Error('날짜를 확인해주세요.');
   const blocked = leaveBlockedReason(data.date);
@@ -1953,7 +1973,7 @@ export function updateUsage(id, data) {
 
   const days = data.type === 'half' ? 0.5 : 1;
   const status = data.status === 'pending' || data.status === 'rejected' ? data.status : 'approved';
-  getDb()
+  await getDb()
     .prepare(
       `UPDATE leave_usages
        SET usage_date = ?, usage_type = ?, days = ?, reason = ?, status = ?,
@@ -1962,10 +1982,10 @@ export function updateUsage(id, data) {
     )
     .run(data.date, data.type, days, data.reason, status, id);
 
-  return mapUsageRow(getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(id));
+  return mapUsageRow(await getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(id));
 }
 
-export function deleteUsage(id) {
-  const result = getDb().prepare('DELETE FROM leave_usages WHERE id = ?').run(id);
+export async function deleteUsage(id) {
+  const result = await getDb().prepare('DELETE FROM leave_usages WHERE id = ?').run(id);
   if (result.changes === 0) throw new Error('사용 내역을 찾을 수 없습니다.');
 }

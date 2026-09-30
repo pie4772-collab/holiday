@@ -1,8 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { loadEnvFile } from './loadEnv.js';
 import { INITIAL_ADMIN_NAMES, STRATEGY_APPROVER_EMP_NO, SEOUL_WORKPLACE_CODE, STRATEGY_DEPT_CODE, APPROVAL_SEAT_DEFAULTS } from '../src/constants/hr.js';
+
+loadEnvFile();
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -26,6 +30,7 @@ function resolveDbPath() {
 const DB_PATH = resolveDbPath();
 const SCHEMA_PATH = path.join(__dirname, '../database/schema.sql');
 const MIGRATIONS_DIR = path.join(__dirname, '../database/migrations');
+const PG_SCHEMA_PATH = path.join(__dirname, '../database/postgres/schema.sql');
 const STATEMENT_CACHE_LIMIT = 500;
 
 function ensureDbDir() {
@@ -180,35 +185,42 @@ function toParams(args) {
   });
 }
 
-class Statement {
+class SyncStatement {
   constructor(owner, sql) {
     this.owner = owner;
     this.sql = sql;
   }
 
   get(...args) {
-    return this.owner.driver.get(this.sql, toParams(args));
+    return this.owner.execute('get', this.sql, toParams(args));
   }
 
   all(...args) {
-    return this.owner.driver.all(this.sql, toParams(args));
+    return this.owner.execute('all', this.sql, toParams(args));
   }
 
   run(...args) {
-    const result = this.owner.driver.run(this.sql, toParams(args));
-    this.owner.afterWrite();
-    return result;
+    return this.owner.execute('run', this.sql, toParams(args));
   }
 }
 
-class Db {
+/** 서버 시작 시 스키마 보정(migrate)에만 쓰는 SQLite 동기 인터페이스입니다. */
+class SqliteSyncDb {
   constructor(driver) {
     this.driver = driver;
     this.txDepth = 0;
   }
 
   prepare(sql) {
-    return new Statement(this, sql);
+    return new SyncStatement(this, sql);
+  }
+
+  execute(kind, sql, params) {
+    if (kind === 'get') return this.driver.get(sql, params);
+    if (kind === 'all') return this.driver.all(sql, params);
+    const result = this.driver.run(sql, params);
+    this.afterWrite();
+    return result;
   }
 
   exec(sql) {
@@ -255,40 +267,182 @@ class Db {
   }
 }
 
-const nodeSqlite = await loadNodeSqlite();
-const db = new Db(nodeSqlite ? createNodeSqliteDriver(nodeSqlite) : await createSqlJsDriver());
+const txContext = new AsyncLocalStorage();
+
+export const LOCK_EMPLOYEE_LEAVE = 1;
+export const LOCK_LEAVE_USAGE = 2;
+
+function activeTx() {
+  const store = txContext.getStore();
+  return store?.active ? store : null;
+}
+
+/** SQLite는 연결이 하나뿐이라, 트랜잭션이 진행 중이면 다른 요청의 쿼리를 끝날 때까지 기다리게 합니다. */
+function createSqliteBackend(sync) {
+  let running = null;
+
+  async function waitIdle() {
+    while (running) await running;
+  }
+
+  return {
+    name: sync.driver.name,
+    dialect: 'sqlite',
+    sync,
+    async query(kind, sql, params, tx) {
+      if (!tx) await waitIdle();
+      return sync.execute(kind, sql, params);
+    },
+    async exec(sql, tx) {
+      if (!tx) await waitIdle();
+      sync.exec(sql);
+    },
+    async transaction(fn) {
+      await waitIdle();
+      let finish;
+      running = new Promise((resolve) => {
+        finish = resolve;
+      });
+      const store = { active: true };
+      sync.driver.exec('BEGIN');
+      sync.txDepth += 1;
+      try {
+        const result = await fn(store);
+        sync.driver.exec('COMMIT');
+        return result;
+      } catch (error) {
+        try {
+          sync.driver.exec('ROLLBACK');
+        } catch {
+          // SQLite가 이미 롤백한 경우
+        }
+        throw error;
+      } finally {
+        store.active = false;
+        sync.txDepth -= 1;
+        try {
+          sync.driver.flush();
+        } finally {
+          running = null;
+          finish();
+        }
+      }
+    },
+    close() {
+      sync.close();
+    },
+  };
+}
+
+class Statement {
+  constructor(owner, sql) {
+    this.owner = owner;
+    this.sql = sql;
+  }
+
+  get(...args) {
+    return this.owner.query('get', this.sql, toParams(args));
+  }
+
+  all(...args) {
+    return this.owner.query('all', this.sql, toParams(args));
+  }
+
+  run(...args) {
+    return this.owner.query('run', this.sql, toParams(args));
+  }
+}
+
+/** 서비스 코드가 쓰는 DB 인터페이스. 모든 쿼리는 Promise를 돌려줍니다. */
+class Db {
+  constructor(backend) {
+    this.backend = backend;
+  }
+
+  get dialect() {
+    return this.backend.dialect;
+  }
+
+  prepare(sql) {
+    return new Statement(this, sql);
+  }
+
+  query(kind, sql, params = []) {
+    return this.backend.query(kind, sql, params, activeTx());
+  }
+
+  exec(sql) {
+    return this.backend.exec(sql, activeTx());
+  }
+
+  /**
+   * 트랜잭션 안에서 같은 (namespace, id) 작업을 한 번에 하나만 진행시킵니다.
+   * SQLite는 트랜잭션이 이미 직렬화되므로 아무것도 하지 않습니다.
+   */
+  async lock(namespace, id) {
+    if (this.dialect !== 'postgres' || !activeTx()) return;
+    await this.query('get', 'SELECT pg_advisory_xact_lock(CAST(? AS integer), CAST(? AS integer)) AS locked', [
+      namespace,
+      Number(id) || 0,
+    ]);
+  }
+
+  /** 중첩 호출은 바깥 트랜잭션에 합쳐집니다. */
+  transaction(fn) {
+    const current = activeTx();
+    if (current) return fn(current);
+    return this.backend.transaction((store) => txContext.run(store, () => fn(store)));
+  }
+
+  close() {
+    return this.backend.close();
+  }
+}
+
+function migrationFilesFor(dialect) {
+  if (!fs.existsSync(MIGRATIONS_DIR)) return [];
+  const byVersion = new Map();
+  for (const file of fs.readdirSync(MIGRATIONS_DIR).sort()) {
+    const match = file.match(/^(\d{3,})_[\w-]+?(?:\.(sqlite|postgres))?\.sql$/);
+    if (!match) continue;
+    const [, version, fileDialect] = match;
+    if (fileDialect && fileDialect !== dialect) continue;
+    if (fileDialect || !byVersion.has(version)) byVersion.set(version, file);
+  }
+  return [...byVersion.entries()].sort(([a], [b]) => a.localeCompare(b));
+}
 
 /**
  * database/migrations/NNN_설명.sql 을 번호 순서대로 한 번씩 적용합니다.
+ * DB별로 문법이 다르면 NNN_설명.sqlite.sql / NNN_설명.postgres.sql 로 나눠 둡니다.
  * 파일 안에서 BEGIN/COMMIT을 쓰지 마세요. 파일마다 트랜잭션으로 감쌉니다.
  */
-function runSqlMigrations(database) {
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      version     TEXT PRIMARY KEY,
-      name        TEXT NOT NULL,
-      applied_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
-    )
-  `);
-  if (!fs.existsSync(MIGRATIONS_DIR)) return;
+async function runSqlMigrations(database) {
+  await database.exec(
+    database.dialect === 'postgres'
+      ? `CREATE TABLE IF NOT EXISTS schema_migrations (
+           version     TEXT PRIMARY KEY,
+           name        TEXT NOT NULL,
+           applied_at  TEXT NOT NULL DEFAULT to_char(LOCALTIMESTAMP, 'YYYY-MM-DD HH24:MI:SS')
+         )`
+      : `CREATE TABLE IF NOT EXISTS schema_migrations (
+           version     TEXT PRIMARY KEY,
+           name        TEXT NOT NULL,
+           applied_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+         )`
+  );
 
   const applied = new Set(
-    database.prepare('SELECT version FROM schema_migrations').all().map((row) => row.version)
+    (await database.prepare('SELECT version FROM schema_migrations').all()).map((row) => row.version)
   );
-  const files = fs
-    .readdirSync(MIGRATIONS_DIR)
-    .filter((file) => /^\d{3,}_[\w-]+\.sql$/.test(file))
-    .sort();
-
-  for (const file of files) {
-    const version = file.slice(0, file.indexOf('_'));
+  for (const [version, file] of migrationFilesFor(database.dialect)) {
     if (applied.has(version)) continue;
     const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
-    database.transaction(() => {
-      database.exec(sql);
-      database.prepare('INSERT INTO schema_migrations (version, name) VALUES (?, ?)').run(version, file);
+    await database.transaction(async () => {
+      await database.exec(sql);
+      await database.prepare('INSERT INTO schema_migrations (version, name) VALUES (?, ?)').run(version, file);
     });
-    console.log(`[db] migration applied: ${file}`);
+    console.error(`[db] migration applied: ${file}`);
   }
 }
 
@@ -886,24 +1040,58 @@ function migrate(database) {
     .run();
 }
 
-db.pragma('foreign_keys = ON');
-db.transaction(() => migrate(db));
-runSqlMigrations(db);
+async function openSqlite() {
+  const nodeSqlite = await loadNodeSqlite();
+  const sync = new SqliteSyncDb(nodeSqlite ? createNodeSqliteDriver(nodeSqlite) : await createSqlJsDriver());
+  sync.pragma('foreign_keys = ON');
+  sync.transaction(() => migrate(sync));
+  const database = new Db(createSqliteBackend(sync));
+  await runSqlMigrations(database);
+  return database;
+}
+
+/**
+ * DB_CLIENT=postgres 이면 PostgreSQL(DB_HOST·DB_PORT·DB_NAME·DB_USER·DB_PASSWORD 또는 DATABASE_URL)을 씁니다.
+ * PostgreSQL이 비어 있으면 기존 SQLite 파일(DB_PATH)의 데이터를 한 번 옮겨 옵니다. SQLite 파일은 그대로 둡니다.
+ */
+async function openPostgres() {
+  const { createPostgresBackend, describeConnection } = await import('./dbPostgres.js');
+  const database = new Db(await createPostgresBackend());
+  database.location = describeConnection();
+  await database.backend.ensureSchema(PG_SCHEMA_PATH);
+  await runSqlMigrations(database);
+
+  const { importSqliteIfEmpty } = await import('./dbImport.js');
+  const imported = await importSqliteIfEmpty(database, openSqlite, { sourceLabel: DB_PATH });
+  if (imported) {
+    const tables = Object.entries(imported.tables).map(([name, count]) => `${name}=${count}`).join(', ');
+    console.error(`[db] SQLite → PostgreSQL 이전 완료 (${DB_PATH}): ${tables}`);
+    for (const line of imported.orphans) console.warn(`[db] 이전 중 정리: ${line}`);
+  }
+  return database;
+}
+
+const USE_POSTGRES = /^(postgres|postgresql|pg|pgsql)$/i.test(process.env.DB_CLIENT || '');
+const db = USE_POSTGRES ? await openPostgres() : await openSqlite();
 
 export function getDb() {
   return db;
 }
 
 export function getDbPath() {
-  return DB_PATH;
+  return db.location || DB_PATH;
 }
 
 export function getDbDriverName() {
-  return db.driver.name;
+  return db.backend.name;
 }
 
-export function closeDb() {
-  db.close();
+export function getDbDialect() {
+  return db.dialect;
+}
+
+export async function closeDb() {
+  await db.close();
 }
 
 export function parseEmployeeId(id) {

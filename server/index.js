@@ -11,7 +11,7 @@ import { syncUsersFromEmployees } from './services/authService.js';
 import { getLocalIp, getShareUrl } from './utils/network.js';
 
 loadEnvFile();
-const userCount = syncUsersFromEmployees();
+const userCount = await syncUsersFromEmployees();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -29,11 +29,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-app.get('/health', (req, res) => {
+app.get('/health', async (req, res) => {
   const { localIp, shareUrl } = getShareInfo();
   try {
-    const count = getDb().prepare('SELECT COUNT(*) AS c FROM employees').get().c;
-    const users = getDb().prepare('SELECT COUNT(*) AS c FROM users').get().c;
+    const count = (await getDb().prepare('SELECT COUNT(*) AS c FROM employees').get()).c;
+    const users = (await getDb().prepare('SELECT COUNT(*) AS c FROM users').get()).c;
     res.json({
       status: 'ok',
       employees: count,

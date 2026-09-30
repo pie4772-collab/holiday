@@ -58,51 +58,50 @@ export function destroySession() {
   // Tokens are signed and stateless; logout is handled on the client.
 }
 
-export function ensureUserForEmployee(employeeId, empNo) {
+export async function ensureUserForEmployee(employeeId, empNo) {
   const username = String(empNo || '').trim();
   if (!employeeId || !username) return null;
 
   const db = getDb();
-  const existing = db.prepare('SELECT * FROM users WHERE employee_id = ?').get(employeeId);
+  const existing = await db.prepare('SELECT * FROM users WHERE employee_id = ?').get(employeeId);
   if (existing) {
     if (existing.username !== username) {
-      const taken = db.prepare('SELECT id FROM users WHERE username = ? AND employee_id != ?').get(
-        username,
-        employeeId
-      );
+      const taken = await db
+        .prepare('SELECT id FROM users WHERE username = ? AND employee_id != ?')
+        .get(username, employeeId);
       if (!taken) {
-        db.prepare('UPDATE users SET username = ? WHERE employee_id = ?').run(username, employeeId);
+        await db.prepare('UPDATE users SET username = ? WHERE employee_id = ?').run(username, employeeId);
       }
     }
     return existing;
   }
 
-  const taken = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
+  const taken = await db.prepare('SELECT id FROM users WHERE username = ?').get(username);
   if (taken) return taken;
 
-  const result = db
+  const result = await db
     .prepare('INSERT INTO users (employee_id, username, password_hash) VALUES (?, ?, ?)')
     .run(employeeId, username, hashPassword(DEFAULT_PASSWORD));
   return db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
 }
 
-export function syncUsersFromEmployees() {
-  const employees = getDb()
+export async function syncUsersFromEmployees() {
+  const employees = await getDb()
     .prepare(`SELECT id, emp_no FROM employees WHERE emp_no IS NOT NULL AND trim(emp_no) != ''`)
     .all();
   for (const emp of employees) {
-    ensureUserForEmployee(emp.id, emp.emp_no);
+    await ensureUserForEmployee(emp.id, emp.emp_no);
   }
-  return getDb().prepare('SELECT COUNT(*) AS c FROM users').get().c;
+  return (await getDb().prepare('SELECT COUNT(*) AS c FROM users').get()).c;
 }
 
-export function login(username, password) {
+export async function login(username, password) {
   const id = String(username || '').trim();
   if (!id || !password) {
     throw Object.assign(new Error('사번과 비밀번호를 입력하세요.'), { status: 400 });
   }
 
-  const row = getDb()
+  const row = await getDb()
     .prepare(
       `SELECT u.*, e.name, e.position, e.is_active, e.is_admin
        FROM users u
@@ -131,7 +130,7 @@ export function login(username, password) {
   };
 }
 
-export function isEmployeeAdmin(employeeId) {
-  const row = getDb().prepare('SELECT is_admin FROM employees WHERE id = ?').get(Number(employeeId));
+export async function isEmployeeAdmin(employeeId) {
+  const row = await getDb().prepare('SELECT is_admin FROM employees WHERE id = ?').get(Number(employeeId));
   return Boolean(row?.is_admin);
 }

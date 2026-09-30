@@ -43,14 +43,14 @@ function getEmployeeRowAny(id) {
   return getDb().prepare('SELECT * FROM employees WHERE id = ?').get(dbId);
 }
 
-export function getEmployeeRoster(includeInactive = true) {
+export async function getEmployeeRoster(includeInactive = true) {
   const sql = includeInactive
-    ? `SELECT * FROM employees ORDER BY is_active DESC, name COLLATE NOCASE`
-    : `SELECT * FROM employees WHERE is_active = 1 ORDER BY name COLLATE NOCASE`;
-  return getDb().prepare(sql).all().map(mapEmployeeRow);
+    ? `SELECT * FROM employees ORDER BY is_active DESC, lower(name), id`
+    : `SELECT * FROM employees WHERE is_active = 1 ORDER BY lower(name), id`;
+  return (await getDb().prepare(sql).all()).map(mapEmployeeRow);
 }
 
-export function createEmployee(data) {
+export async function createEmployee(data) {
   const db = getDb();
   const empNo = data.empNo?.trim() || null;
   const name = data.name?.trim();
@@ -59,110 +59,120 @@ export function createEmployee(data) {
   if (!name) throw new Error('이름은 필수입니다.');
   if (!hireDate) throw new Error('입사일은 필수입니다.');
 
-  if (empNo) {
-    const dup = db.prepare('SELECT id FROM employees WHERE emp_no = ?').get(empNo);
-    if (dup) throw new Error('이미 사용 중인 사번입니다.');
-  }
+  return db.transaction(async () => {
+    if (empNo) {
+      const dup = await db.prepare('SELECT id FROM employees WHERE emp_no = ?').get(empNo);
+      if (dup) throw new Error('이미 사용 중인 사번입니다.');
+    }
 
-  const result = db
-    .prepare(
-      `INSERT INTO employees (
-         emp_no, name, hire_date, workplace, department, job_type, position,
-         concurrent_dept, concurrent_position, email, notes, is_active, is_admin
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
-    )
-    .run(
-      empNo,
-      name,
-      hireDate,
-      data.workplace?.trim() || null,
-      data.department?.trim() || null,
-      data.jobType?.trim() || '사무직',
-      normalizePosition(data.position),
-      data.concurrentDept?.trim() || null,
-      data.concurrentPosition?.trim() || null,
-      data.email?.trim() || '',
-      data.notes?.trim() || null,
-      data.isAdmin ? 1 : 0
-    );
+    const result = await db
+      .prepare(
+        `INSERT INTO employees (
+           emp_no, name, hire_date, workplace, department, job_type, position,
+           concurrent_dept, concurrent_position, email, notes, is_active, is_admin
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+      )
+      .run(
+        empNo,
+        name,
+        hireDate,
+        data.workplace?.trim() || null,
+        data.department?.trim() || null,
+        data.jobType?.trim() || '사무직',
+        normalizePosition(data.position),
+        data.concurrentDept?.trim() || null,
+        data.concurrentPosition?.trim() || null,
+        data.email?.trim() || '',
+        data.notes?.trim() || null,
+        data.isAdmin ? 1 : 0
+      );
 
-  const employeeId = result.lastInsertRowid;
-  if (empNo) ensureUserForEmployee(employeeId, empNo);
+    const employeeId = result.lastInsertRowid;
+    if (empNo) await ensureUserForEmployee(employeeId, empNo);
 
-  db.prepare(
-    `INSERT INTO leave_balance_snapshots
-       (employee_id, as_of_date, display_year, accrued, used, remaining, source_file)
-     VALUES (?, ?, ?, 0, 0, 0, 'manual_hire')`
-  ).run(employeeId, AS_OF_DATE, DISPLAY_YEAR);
+    await db
+      .prepare(
+        `INSERT INTO leave_balance_snapshots
+           (employee_id, as_of_date, display_year, accrued, used, remaining, source_file)
+         VALUES (?, ?, ?, 0, 0, 0, 'manual_hire')`
+      )
+      .run(employeeId, AS_OF_DATE, DISPLAY_YEAR);
 
-  return mapEmployeeRow(db.prepare('SELECT * FROM employees WHERE id = ?').get(employeeId));
+    return mapEmployeeRow(await db.prepare('SELECT * FROM employees WHERE id = ?').get(employeeId));
+  });
 }
 
-export function updateEmployee(id, data) {
+export async function updateEmployee(id, data) {
   const db = getDb();
-  const row = getEmployeeRowAny(id);
+  const row = await getEmployeeRowAny(id);
   if (!row) throw new Error('직원을 찾을 수 없습니다.');
 
   const empNo = data.empNo?.trim() || null;
   if (empNo) {
-    const dup = db.prepare('SELECT id FROM employees WHERE emp_no = ? AND id != ?').get(empNo, row.id);
+    const dup = await db.prepare('SELECT id FROM employees WHERE emp_no = ? AND id != ?').get(empNo, row.id);
     if (dup) throw new Error('이미 사용 중인 사번입니다.');
   }
 
-  db.prepare(
-    `UPDATE employees
-     SET emp_no = ?, name = ?, hire_date = ?, workplace = ?, department = ?, job_type = ?,
-         position = ?, concurrent_dept = ?, concurrent_position = ?,
-         email = ?, notes = ?, is_admin = ?, updated_at = datetime('now', 'localtime')
-     WHERE id = ?`
-  ).run(
-    empNo,
-    data.name?.trim() || row.name,
-    data.hireDate || row.hire_date,
-    data.workplace?.trim() ?? row.workplace,
-    data.department?.trim() ?? row.department,
-    data.jobType?.trim() ?? row.job_type ?? '사무직',
-    normalizePosition(data.position ?? row.position),
-    data.concurrentDept?.trim() ?? row.concurrent_dept,
-    data.concurrentPosition?.trim() ?? row.concurrent_position,
-    data.email?.trim() ?? row.email ?? '',
-    data.notes?.trim() ?? row.notes,
-    data.isAdmin === undefined ? (row.is_admin ? 1 : 0) : data.isAdmin ? 1 : 0,
-    row.id
-  );
+  await db
+    .prepare(
+      `UPDATE employees
+       SET emp_no = ?, name = ?, hire_date = ?, workplace = ?, department = ?, job_type = ?,
+           position = ?, concurrent_dept = ?, concurrent_position = ?,
+           email = ?, notes = ?, is_admin = ?, updated_at = datetime('now', 'localtime')
+       WHERE id = ?`
+    )
+    .run(
+      empNo,
+      data.name?.trim() || row.name,
+      data.hireDate || row.hire_date,
+      data.workplace?.trim() ?? row.workplace,
+      data.department?.trim() ?? row.department,
+      data.jobType?.trim() ?? row.job_type ?? '사무직',
+      normalizePosition(data.position ?? row.position),
+      data.concurrentDept?.trim() ?? row.concurrent_dept,
+      data.concurrentPosition?.trim() ?? row.concurrent_position,
+      data.email?.trim() ?? row.email ?? '',
+      data.notes?.trim() ?? row.notes,
+      data.isAdmin === undefined ? (row.is_admin ? 1 : 0) : data.isAdmin ? 1 : 0,
+      row.id
+    );
 
-  if (empNo) ensureUserForEmployee(row.id, empNo);
+  if (empNo) await ensureUserForEmployee(row.id, empNo);
 
-  return mapEmployeeRow(db.prepare('SELECT * FROM employees WHERE id = ?').get(row.id));
+  return mapEmployeeRow(await db.prepare('SELECT * FROM employees WHERE id = ?').get(row.id));
 }
 
-export function terminateEmployee(id, terminatedDate) {
+export async function terminateEmployee(id, terminatedDate) {
   const db = getDb();
-  const row = getEmployeeRowAny(id);
+  const row = await getEmployeeRowAny(id);
   if (!row) throw new Error('직원을 찾을 수 없습니다.');
   if (!row.is_active) throw new Error('이미 퇴사 처리된 직원입니다.');
 
   const date = terminatedDate || AS_OF_DATE;
-  db.prepare(
-    `UPDATE employees
-     SET is_active = 0, terminated_date = ?, updated_at = datetime('now', 'localtime')
-     WHERE id = ?`
-  ).run(date, row.id);
+  await db
+    .prepare(
+      `UPDATE employees
+       SET is_active = 0, terminated_date = ?, updated_at = datetime('now', 'localtime')
+       WHERE id = ?`
+    )
+    .run(date, row.id);
 
-  return mapEmployeeRow(db.prepare('SELECT * FROM employees WHERE id = ?').get(row.id));
+  return mapEmployeeRow(await db.prepare('SELECT * FROM employees WHERE id = ?').get(row.id));
 }
 
-export function reactivateEmployee(id) {
+export async function reactivateEmployee(id) {
   const db = getDb();
-  const row = getEmployeeRowAny(id);
+  const row = await getEmployeeRowAny(id);
   if (!row) throw new Error('직원을 찾을 수 없습니다.');
   if (row.is_active) throw new Error('이미 재직 중인 직원입니다.');
 
-  db.prepare(
-    `UPDATE employees
-     SET is_active = 1, terminated_date = NULL, updated_at = datetime('now', 'localtime')
-     WHERE id = ?`
-  ).run(row.id);
+  await db
+    .prepare(
+      `UPDATE employees
+       SET is_active = 1, terminated_date = NULL, updated_at = datetime('now', 'localtime')
+       WHERE id = ?`
+    )
+    .run(row.id);
 
-  return mapEmployeeRow(db.prepare('SELECT * FROM employees WHERE id = ?').get(row.id));
+  return mapEmployeeRow(await db.prepare('SELECT * FROM employees WHERE id = ?').get(row.id));
 }

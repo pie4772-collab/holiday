@@ -35,19 +35,19 @@ function getRow() {
   return getDb().prepare('SELECT * FROM mail_settings WHERE id = 1').get();
 }
 
-export function getMailSettings() {
-  return rowToPublic(getRow());
+export async function getMailSettings() {
+  return rowToPublic(await getRow());
 }
 
-export function saveMailSettings(data) {
-  const current = getRow();
+export async function saveMailSettings(data) {
+  const current = await getRow();
   const password =
     data.password && String(data.password).trim()
       ? String(data.password).trim()
       : current?.password || '';
   const username = String(data.username || '').trim();
   const fromEmail = String(data.fromEmail || username).trim();
-  getDb()
+  await getDb()
     .prepare(
       `INSERT INTO mail_settings (
          id, enabled, smtp_host, smtp_port, smtp_secure, username, password,
@@ -154,8 +154,8 @@ function mailErrorMessage(error, settings) {
   return `메일 발송 실패: ${detail}`;
 }
 
-function mergeTestSettings(overrides = {}) {
-  const stored = rowToPublic(getRow(), true);
+async function mergeTestSettings(overrides = {}) {
+  const stored = rowToPublic(await getRow(), true);
   const password =
     overrides.password && String(overrides.password).trim()
       ? String(overrides.password).trim()
@@ -219,13 +219,13 @@ async function sendWithSettings(settings, to, subject, html) {
 }
 
 async function sendMail(to, subject, html, options = {}) {
-  const settings = rowToPublic(getRow(), true);
+  const settings = rowToPublic(await getRow(), true);
   if (!options.force && !settings.enabled) return { skipped: true, reason: 'disabled' };
   return sendWithSettings(settings, to, subject, html);
 }
 
 export async function sendTestMail(toEmail, overrides = {}) {
-  const settings = mergeTestSettings(overrides);
+  const settings = await mergeTestSettings(overrides);
   const to = String(toEmail || settings.fromEmail || settings.username).trim();
   if (!to) throw Object.assign(new Error('테스트 받을 이메일을 입력해주세요.'), { status: 400 });
   if (!settings.username || !settings.password) {
@@ -274,10 +274,10 @@ function datesText(items) {
 
 export async function notifyLeaveSubmitted(employee, items, approvalHint) {
   try {
-    const settings = rowToPublic(getRow(), true);
+    const settings = rowToPublic(await getRow(), true);
     if (!settings.enabled) return;
     const step = items?.[0]?.approvalStep || items?.[0]?.approval_step;
-    const approvers = uniqueEmails(approvalService.listLineApprovers(employee, step));
+    const approvers = uniqueEmails(await approvalService.listLineApprovers(employee, step));
     if (!approvers.length) {
       console.warn('[mail] no line approver email for', employee.name, approvalHint);
       return;
@@ -307,7 +307,7 @@ export async function notifyLeaveAdvanced(employee, usage, approvalHint) {
 
 export async function notifyLeaveFinal(employee, usage, decision, rejectReason, approver = null, options = {}) {
   try {
-    const settings = rowToPublic(getRow(), true);
+    const settings = rowToPublic(await getRow(), true);
     if (!settings.enabled) return;
     const typeLabel = usage.type === 'half' || usage.usage_type === 'half' ? '반차' : '연차';
     const date = usage.date || usage.usage_date;
@@ -348,7 +348,7 @@ export async function notifyLeaveFinal(employee, usage, decision, rejectReason, 
     const recipients = uniqueEmails([
       employee,
       approver,
-      ...approvalService.listWorkplaceAdminEmployees(employee),
+      ...(await approvalService.listWorkplaceAdminEmployees(employee)),
     ]);
     if (!recipients.length) {
       console.warn('[mail] no approval recipients for', employee.name);

@@ -59,7 +59,26 @@ E-HR에서 가장 만들기 번거로운 공통 기반이 이미 갖춰져 있�
   - 사원 등록, 연차 발생 추가·수정·삭제, 연차 사용 등록 후 서버 강제 종료·재시작에도 데이터 유지
   - 같은 쓰기 작업 후 모든 컬럼의 저장 타입이 `sql.js`와 동일 (정수를 REAL로 저장하는 차이는 BigInt 바인딩으로 해결)
   - 트랜잭션 롤백·커밋 정상
-- 남은 확인: 운영 서버 배포 후 `/health`의 `dbDriver` 값과 Node 버전, 재시작 후 데이터 유지
+- 운영 서버 확인 결과: Cafe24 런타임이 Node 20으로 고정되어 있어 `node:sqlite` 대신 `sql.js`(안전 저장 방식)로 동작한다.
+
+**PostgreSQL 전환 (2026-09-30, 코드 준비 완료 · 운영 미적용)**
+- 운영 서버가 Node 20 고정이라 파일 DB의 한계가 남아 있고, E-HR로 확장하면 동시 사용과 데이터가 늘어나므로 Cafe24가 지원하는 **PostgreSQL**을 운영 DB로 쓰도록 준비했다.
+- 모든 DB 호출을 비동기(`await`)로 바꿨다. 서비스 코드는 계속 `getDb().prepare(sql).get/all/run` 형태를 쓰고, DB 종류별 차이는 `server/db.js`가 흡수한다.
+  - SQLite: 기존 드라이버 그대로. 트랜잭션 중에는 다른 요청의 쿼리가 끝날 때까지 기다린다.
+  - PostgreSQL(`server/dbPostgres.js`): 연결 풀 사용. `?` 자리표시자, `datetime('now','localtime')`, NULL 정렬 순서(SQLite는 NULL이 가장 작음), 대소문자 섞인 별칭, INSERT 후 새 id(`RETURNING id`)를 자동으로 맞춰 준다.
+- 선택 방법: 환경변수 `DB_CLIENT=postgres`. 접속 정보는 Cafe24가 자동 주입하는 `DB_HOST`·`DB_PORT`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`(또는 `DATABASE_URL`)를 쓴다. `DB_CLIENT`를 지우면 즉시 SQLite로 돌아간다.
+- 스키마: `database/postgres/schema.sql`. 날짜는 SQLite와 같은 문자열 형식, 문자열 정렬은 SQLite와 같은 바이트 순서(`COLLATE "C"`)로 저장한다. 서버 시작 때마다 `IF NOT EXISTS`로 적용한다.
+- 자동 데이터 이전(`server/dbImport.js`): PostgreSQL이 비어 있으면 서버 시작 시 SQLite 파일(`/app/user_data/holiday.db`)의 모든 표를 한 트랜잭션으로 옮기고, 표마다 행 수와 내용 해시를 대조한 뒤에만 커밋한다. 하나라도 다르면 전부 취소되어 PostgreSQL은 빈 채로 남는다. SQLite 파일은 건드리지 않는다. 이전 기록은 `app_meta.sqlite_import`에 남는다.
+- 동시성: 같은 직원의 연차 신청, 같은 신청건의 결재는 PostgreSQL에서 한 번에 하나씩 처리되도록 잠금을 건다.
+- 번호형 마이그레이션은 두 DB에 공통으로 쓰고, 문법이 다르면 `NNN_설명.sqlite.sql` / `NNN_설명.postgres.sql`로 나눈다.
+- 로컬 검증 (PostgreSQL 18, Node 24):
+  - API 스냅샷 825단계(조회 전체 + 사원·연차·결재·정산 쓰기 흐름)가 SQLite(`node:sqlite`, `sql.js`)와 PostgreSQL에서 모두 전환 전 기준값과 100% 일치 (`scripts/run-api-snapshot.ps1`, `scripts/api-snapshot.mjs --compare`)
+  - 한국어 정렬(ko-KR ICU)로 만든 PostgreSQL DB에서도 동일
+  - 이전 후 데이터 표의 행 수·내용 해시가 SQLite와 동일 (`scripts/db-fingerprint.mjs`), 결재선 검증 스크립트 출력 동일
+  - 재시작 시 다시 이전하지 않음, 재시작 후 데이터 유지, 동일 신청 6건 동시 요청 시 1건만 접수
+  - 저장 시각이 Node 프로세스의 현지 시각과 같은 형식·시간대로 기록됨 (서버 시간대를 UTC·뉴욕으로 바꿔도 일치)
+  - 부모 없는 행은 삭제 규칙대로 정리(CASCADE는 제외, SET NULL은 비움)하고 로그로 남김. 변환할 수 없는 값이 있으면 이전 전체가 취소됨
+- 운영 적용 절차는 `docs/AISPACE_DEPLOY.md`의 "PostgreSQL 전환" 참고.
 
 ### 2.2 역할 기반 권한 (RBAC)
 
@@ -216,7 +235,7 @@ E-HR에서 가장 만들기 번거로운 공통 기반이 이미 갖춰져 있�
 
 ## 6. 진행 전 결정이 필요한 사항
 
-1. ~~DB 선택~~ → `node:sqlite`로 전환 완료 (2.1 참고). 데이터가 크게 늘면 Cafe24 MySQL 검토
+1. ~~DB 선택~~ → PostgreSQL로 결정, 코드 준비 완료 (2.1 참고). 운영 적용 시 Cafe24 프로젝트에 PostgreSQL을 붙이는 방법 확정 필요
 2. 역할 체계: 2.2의 기본 역할안을 그대로 쓸지, 조정할지
 3. 민감정보 범위: 주민등록번호·계좌·연봉을 이 시스템에 저장할지, 급여 프로그램에만 둘지
 4. 근태 원천 데이터: 지문·출입 단말기 사용 여부와 데이터 추출 방법

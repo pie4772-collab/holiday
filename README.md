@@ -10,8 +10,8 @@
 | 구분 | 기술 |
 |------|------|
 | 프론트 | React 19, Vite, Tailwind CSS v4, React Query, Zustand, React Router |
-| 백엔드 | Express 5, SQLite (`node:sqlite`, Node 22.13 미만은 `sql.js`로 자동 전환) |
-| DB | SQLite (`database/holiday.db`) |
+| 백엔드 | Express 5, SQLite (`node:sqlite`, Node 22.13 미만은 `sql.js`로 자동 전환) 또는 PostgreSQL (`pg`) |
+| DB | SQLite (`database/holiday.db`) 기본, `DB_CLIENT=postgres`면 PostgreSQL (`database/postgres/schema.sql`) |
 
 ---
 

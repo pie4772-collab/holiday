@@ -24,6 +24,31 @@ function getShareInfo() {
   return { localIp, shareUrl: getShareUrl(PORT, localIp) };
 }
 
+/** 값은 노출하지 않고 설정 이름·파일 존재 여부만 반환합니다. */
+function getEnvDiagnostics() {
+  const appRoot = path.join(__dirname, '..');
+  const listEnvFiles = (dir) => {
+    try {
+      return fs.readdirSync(dir).filter((name) => name.startsWith('.env') || name.endsWith('.env'));
+    } catch {
+      return null;
+    }
+  };
+  return {
+    cwd: process.cwd(),
+    appRoot,
+    envKeys: Object.keys(process.env)
+      .filter((k) => /^(DB_|DATABASE|PG|POSTGRES|MYSQL|AS_OF|CURRENT_EMP|REDIS)/i.test(k))
+      .sort(),
+    envFiles: {
+      appRoot: listEnvFiles(appRoot),
+      server: listEnvFiles(__dirname),
+      cwd: listEnvFiles(process.cwd()),
+      userData: listEnvFiles(path.join(appRoot, 'user_data')),
+    },
+  };
+}
+
 const app = express();
 
 app.use(cors());
@@ -44,6 +69,7 @@ app.get('/health', async (req, res) => {
       localIp,
       port: Number(PORT),
       shareUrl,
+      ...(req.query.diag === '1' ? { diag: getEnvDiagnostics() } : {}),
     });
   } catch (e) {
     res.status(200).json({

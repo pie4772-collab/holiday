@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import initSqlJs from 'sql.js';
 import { INITIAL_ADMIN_NAMES, STRATEGY_APPROVER_EMP_NO, SEOUL_WORKPLACE_CODE, STRATEGY_DEPT_CODE, APPROVAL_SEAT_DEFAULTS } from '../src/constants/hr.js';
 
 const require = createRequire(import.meta.url);
@@ -25,89 +24,273 @@ function resolveDbPath() {
 }
 
 const DB_PATH = resolveDbPath();
+const SCHEMA_PATH = path.join(__dirname, '../database/schema.sql');
+const MIGRATIONS_DIR = path.join(__dirname, '../database/migrations');
+const STATEMENT_CACHE_LIMIT = 500;
 
-const wasmPath = path.join(path.dirname(require.resolve('sql.js')), 'sql-wasm.wasm');
-const SQL = await initSqlJs({
-  wasmBinary: fs.readFileSync(wasmPath),
-});
-
-function openDatabase() {
-  if (fs.existsSync(DB_PATH)) {
-    return new SQL.Database(fs.readFileSync(DB_PATH));
-  }
-  const db = new SQL.Database();
-  const schemaPath = path.join(__dirname, '../database/schema.sql');
-  if (fs.existsSync(schemaPath)) {
-    db.exec(fs.readFileSync(schemaPath, 'utf8'));
-  }
-  return db;
+function ensureDbDir() {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 }
 
-const sqlDb = openDatabase();
+function readSchemaSql() {
+  return fs.existsSync(SCHEMA_PATH) ? fs.readFileSync(SCHEMA_PATH, 'utf8') : '';
+}
 
-function persist() {
-  const dir = path.dirname(DB_PATH);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(DB_PATH, Buffer.from(sqlDb.export()));
+/** sql.js 시절 파일을 node:sqlite로 처음 열기 전에 한 번만 원본을 보관합니다. */
+function backupBeforeDriverSwitch() {
+  const backupPath = `${DB_PATH}.pre-node-sqlite.bak`;
+  if (fs.existsSync(DB_PATH) && !fs.existsSync(backupPath)) {
+    fs.copyFileSync(DB_PATH, backupPath);
+  }
+}
+
+async function loadNodeSqlite() {
+  if (process.env.DB_DRIVER === 'sqljs') return null;
+  try {
+    const mod = await import('node:sqlite');
+    return mod.DatabaseSync ? mod : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Node 22.13+ 내장 SQLite: 네이티브 빌드 없이 파일에 변경분만 기록합니다. */
+function createNodeSqliteDriver({ DatabaseSync }) {
+  ensureDbDir();
+  const isNew = !fs.existsSync(DB_PATH);
+  if (!isNew) backupBeforeDriverSwitch();
+  const database = new DatabaseSync(DB_PATH);
+  database.exec('PRAGMA busy_timeout = 5000');
+  if (isNew) {
+    const schema = readSchemaSql();
+    if (schema) database.exec(schema);
+  }
+
+  // node:sqlite는 JS number를 항상 REAL로 바인딩해 TEXT 컬럼에 '1.0'으로 저장되므로 정수는 BigInt로 넘긴다.
+  function bindable(params) {
+    return params.map((value) =>
+      typeof value === 'number' && Number.isSafeInteger(value) ? BigInt(value) : value
+    );
+  }
+
+  const cache = new Map();
+  function statement(sql) {
+    let stmt = cache.get(sql);
+    if (!stmt) {
+      if (cache.size >= STATEMENT_CACHE_LIMIT) cache.clear();
+      stmt = database.prepare(sql);
+      cache.set(sql, stmt);
+    }
+    return stmt;
+  }
+
+  return {
+    name: 'node:sqlite',
+    get(sql, params) {
+      const row = statement(sql).get(...bindable(params));
+      return row ? { ...row } : undefined;
+    },
+    all(sql, params) {
+      return statement(sql).all(...bindable(params)).map((row) => ({ ...row }));
+    },
+    run(sql, params) {
+      const result = statement(sql).run(...bindable(params));
+      return { lastInsertRowid: Number(result.lastInsertRowid), changes: Number(result.changes) };
+    },
+    exec(sql) {
+      database.exec(sql);
+    },
+    flush() {},
+    close() {
+      database.close();
+    },
+  };
+}
+
+/**
+ * Node 20 등 node:sqlite가 없는 환경용 대체 드라이버.
+ * DB 전체를 메모리에 두므로, 임시 파일에 쓴 뒤 교체해 저장 중 중단돼도 원본이 손상되지 않게 합니다.
+ */
+async function createSqlJsDriver() {
+  const { default: initSqlJs } = await import('sql.js');
+  const wasmPath = path.join(path.dirname(require.resolve('sql.js')), 'sql-wasm.wasm');
+  const SQL = await initSqlJs({ wasmBinary: fs.readFileSync(wasmPath) });
+
+  let database;
+  if (fs.existsSync(DB_PATH)) {
+    database = new SQL.Database(fs.readFileSync(DB_PATH));
+  } else {
+    database = new SQL.Database();
+    const schema = readSchemaSql();
+    if (schema) database.exec(schema);
+  }
+
+  function lastInsertRowid() {
+    const result = database.exec('SELECT last_insert_rowid() AS id');
+    return result[0]?.values?.[0]?.[0] ?? 0;
+  }
+
+  return {
+    name: 'sql.js',
+    get(sql, params) {
+      const stmt = database.prepare(sql);
+      try {
+        if (params.length) stmt.bind(params);
+        return stmt.step() ? stmt.getAsObject() : undefined;
+      } finally {
+        stmt.free();
+      }
+    },
+    all(sql, params) {
+      const stmt = database.prepare(sql);
+      try {
+        if (params.length) stmt.bind(params);
+        const rows = [];
+        while (stmt.step()) rows.push(stmt.getAsObject());
+        return rows;
+      } finally {
+        stmt.free();
+      }
+    },
+    run(sql, params) {
+      if (params.length) database.run(sql, params);
+      else database.run(sql);
+      return { lastInsertRowid: lastInsertRowid(), changes: database.getRowsModified() };
+    },
+    exec(sql) {
+      database.exec(sql);
+    },
+    flush() {
+      ensureDbDir();
+      const tmpPath = `${DB_PATH}.tmp`;
+      fs.writeFileSync(tmpPath, Buffer.from(database.export()));
+      fs.renameSync(tmpPath, DB_PATH);
+    },
+    close() {
+      database.close();
+    },
+  };
 }
 
 function toParams(args) {
-  return args.map((value) => (value === undefined ? null : value));
+  return args.map((value) => {
+    if (value === undefined) return null;
+    if (typeof value === 'boolean') return value ? 1 : 0;
+    return value;
+  });
 }
 
 class Statement {
-  constructor(sql) {
+  constructor(owner, sql) {
+    this.owner = owner;
     this.sql = sql;
   }
 
   get(...args) {
-    const stmt = sqlDb.prepare(this.sql);
-    const params = toParams(args);
-    if (params.length) stmt.bind(params);
-    const row = stmt.step() ? stmt.getAsObject() : undefined;
-    stmt.free();
-    return row;
+    return this.owner.driver.get(this.sql, toParams(args));
   }
 
   all(...args) {
-    const stmt = sqlDb.prepare(this.sql);
-    const params = toParams(args);
-    if (params.length) stmt.bind(params);
-    const rows = [];
-    while (stmt.step()) rows.push(stmt.getAsObject());
-    stmt.free();
-    return rows;
+    return this.owner.driver.all(this.sql, toParams(args));
   }
 
   run(...args) {
-    const params = toParams(args);
-    if (params.length) sqlDb.run(this.sql, params);
-    else sqlDb.run(this.sql);
-    const idResult = sqlDb.exec('SELECT last_insert_rowid() AS id');
-    const lastInsertRowid = idResult[0]?.values?.[0]?.[0] ?? 0;
-    const changes = sqlDb.getRowsModified();
-    persist();
-    return { lastInsertRowid, changes };
+    const result = this.owner.driver.run(this.sql, toParams(args));
+    this.owner.afterWrite();
+    return result;
   }
 }
 
 class Db {
+  constructor(driver) {
+    this.driver = driver;
+    this.txDepth = 0;
+  }
+
   prepare(sql) {
-    return new Statement(sql);
+    return new Statement(this, sql);
   }
 
   exec(sql) {
-    sqlDb.exec(sql);
-    persist();
+    this.driver.exec(sql);
+    this.afterWrite();
     return this;
   }
 
   pragma(source) {
-    sqlDb.run(`PRAGMA ${source}`);
+    this.driver.exec(`PRAGMA ${source}`);
+  }
+
+  afterWrite() {
+    if (this.txDepth === 0) this.driver.flush();
+  }
+
+  /** 동기 함수만 지원합니다. 중첩 호출은 바깥 트랜잭션에 합쳐집니다. */
+  transaction(fn) {
+    if (this.txDepth > 0) return fn();
+    this.driver.exec('BEGIN');
+    this.txDepth += 1;
+    try {
+      const result = fn();
+      if (result && typeof result.then === 'function') {
+        throw new Error('db.transaction()에는 동기 함수만 전달할 수 있습니다.');
+      }
+      this.driver.exec('COMMIT');
+      return result;
+    } catch (error) {
+      try {
+        this.driver.exec('ROLLBACK');
+      } catch {
+        // BEGIN 이후 SQLite가 이미 롤백한 경우
+      }
+      throw error;
+    } finally {
+      this.txDepth -= 1;
+      this.driver.flush();
+    }
+  }
+
+  close() {
+    this.driver.close();
   }
 }
 
-const db = new Db();
+const nodeSqlite = await loadNodeSqlite();
+const db = new Db(nodeSqlite ? createNodeSqliteDriver(nodeSqlite) : await createSqlJsDriver());
+
+/**
+ * database/migrations/NNN_설명.sql 을 번호 순서대로 한 번씩 적용합니다.
+ * 파일 안에서 BEGIN/COMMIT을 쓰지 마세요. 파일마다 트랜잭션으로 감쌉니다.
+ */
+function runSqlMigrations(database) {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      version     TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      applied_at  TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )
+  `);
+  if (!fs.existsSync(MIGRATIONS_DIR)) return;
+
+  const applied = new Set(
+    database.prepare('SELECT version FROM schema_migrations').all().map((row) => row.version)
+  );
+  const files = fs
+    .readdirSync(MIGRATIONS_DIR)
+    .filter((file) => /^\d{3,}_[\w-]+\.sql$/.test(file))
+    .sort();
+
+  for (const file of files) {
+    const version = file.slice(0, file.indexOf('_'));
+    if (applied.has(version)) continue;
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
+    database.transaction(() => {
+      database.exec(sql);
+      database.prepare('INSERT INTO schema_migrations (version, name) VALUES (?, ?)').run(version, file);
+    });
+    console.log(`[db] migration applied: ${file}`);
+  }
+}
 
 function tableColumns(database, table) {
   return database.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
@@ -703,8 +886,9 @@ function migrate(database) {
     .run();
 }
 
-sqlDb.run('PRAGMA foreign_keys = ON');
-migrate(db);
+db.pragma('foreign_keys = ON');
+db.transaction(() => migrate(db));
+runSqlMigrations(db);
 
 export function getDb() {
   return db;
@@ -712,6 +896,14 @@ export function getDb() {
 
 export function getDbPath() {
   return DB_PATH;
+}
+
+export function getDbDriverName() {
+  return db.driver.name;
+}
+
+export function closeDb() {
+  db.close();
 }
 
 export function parseEmployeeId(id) {

@@ -18,6 +18,9 @@ dist-ssr
 # SQLite sidecar files (the main holiday.db seed is tracked)
 *.db-wal
 *.db-shm
+*.db-journal
+*.db.tmp
+*.pre-node-sqlite.bak
 
 # Editor directories and files
 .vscode/*

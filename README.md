@@ -10,7 +10,7 @@
 | 구분 | 기술 |
 |------|------|
 | 프론트 | React 19, Vite, Tailwind CSS v4, React Query, Zustand, React Router |
-| 백엔드 | Express 5, better-sqlite3 |
+| 백엔드 | Express 5, SQLite (`node:sqlite`, Node 22.13 미만은 `sql.js`로 자동 전환) |
 | DB | SQLite (`database/holiday.db`) |
 
 ---
@@ -206,7 +206,7 @@ Express 자동 구성 VPS는 카페24가 **최소 DEV B · 4GB RAM**을 권장�
 
 ```
 Node.js + Express (idle)     ~80–120 MB
-better-sqlite3               ~10–20 MB
+SQLite (node:sqlite)         ~10–20 MB
 동시 요청 처리 (소규모)       +수십 MB
 ─────────────────────────────────────
 운영 중 합계                  ~150–250 MB  → 512MB면 여유
@@ -215,7 +215,7 @@ better-sqlite3               ~10–20 MB
 
 ### 배포 시 주의사항
 
-1. **`better-sqlite3`** — Linux 네이티브 모듈. 호스팅에서 `npm install` 시 빌드 도구 필요.
+1. **SQLite 드라이버** — Node 내장 `node:sqlite`를 쓰므로 네이티브 빌드가 필요 없습니다. Node 22.13 미만이면 `sql.js`로 자동 전환됩니다. 사용 중인 드라이버는 `/health`의 `dbDriver`로 확인합니다.
 2. **SQLite 영속성** — PaaS 재배포 시 DB가 유지되는 **영속 볼륨** 설정 확인.
 3. **인증 없음** — 현재 `CURRENT_EMPLOYEE_ID`로 고정 사용자. 외부 URL 공개 전 **로그인/접근 제한** 필요.
 4. **구형 Node.js 호스팅** — Git push 방식, Node 버전·용량 제약 많음 → **AI Space 또는 Node VPS** 권장.

@@ -45,7 +45,8 @@ npm start   → prestart에서 vite build 후 node server/index.js
 ```
 
 - **Node.js 20+** 필요 (`engines` 필드 참고)
-- **better-sqlite3** — Linux에서 `npm install` 시 네이티브 빌드
+- **SQLite** — Node 내장 `node:sqlite` 사용 (네이티브 빌드 불필요). Node 22.13 미만이면 `sql.js`로 자동 전환
+- DB 스키마 변경은 `database/migrations/NNN_설명.sql`로 추가하면 서버 시작 시 한 번 적용됩니다
 
 ## 5. 수동 배포 (MCP 없이)
 

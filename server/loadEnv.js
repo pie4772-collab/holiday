@@ -6,7 +6,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** server/.env 로드 (--env-file 없이도 동작, AI Space 등 PaaS 호환) */
 export function loadEnvFile() {
-  const envPath = path.join(__dirname, '.env');
+  loadFile(path.join(__dirname, '.env'));
+  // Cafe24 AI Space는 콘솔 환경변수·DB 접속 정보를 프로젝트 루트 .env로 주입할 수 있습니다.
+  loadFile(path.join(__dirname, '..', '.env'));
+}
+
+function loadFile(envPath) {
   if (!fs.existsSync(envPath)) return;
 
   for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {

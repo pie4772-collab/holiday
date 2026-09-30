@@ -39,6 +39,7 @@ app.get('/health', async (req, res) => {
       employees: count,
       users,
       dbDriver: getDbDriverName(),
+      dbClient: process.env.DB_CLIENT || null,
       node: process.version,
       localIp,
       port: Number(PORT),
@@ -48,6 +49,7 @@ app.get('/health', async (req, res) => {
     res.status(200).json({
       status: 'ok',
       db: 'error',
+      dbClient: process.env.DB_CLIENT || null,
       message: e.message,
       localIp,
       port: Number(PORT),

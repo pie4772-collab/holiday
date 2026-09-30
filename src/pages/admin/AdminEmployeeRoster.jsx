@@ -15,7 +15,9 @@ import {
   useUpdateEmployee,
   useTerminateEmployee,
   useReactivateEmployee,
+  useResetEmployeePassword,
 } from '../../hooks/useEmployeeRoster';
+import { DEFAULT_PASSWORD } from '../../constants/hr';
 import { formatDate } from '../../utils/leaveCalculations';
 
 function rosterSortValue(emp, key) {
@@ -53,6 +55,7 @@ export function AdminEmployeeRoster() {
   const updateEmployee = useUpdateEmployee();
   const terminateEmployee = useTerminateEmployee();
   const reactivateEmployee = useReactivateEmployee();
+  const resetPassword = useResetEmployeePassword();
 
   const workplaces = useMemo(() => {
     return [...new Set((roster || []).map((emp) => emp.workplace).filter(Boolean))].sort((a, b) =>
@@ -107,6 +110,22 @@ export function AdminEmployeeRoster() {
   async function handleReactivate(emp) {
     if (!window.confirm(`${emp.name}님을 재직 처리하시겠습니까?`)) return;
     await reactivateEmployee.mutateAsync({ id: emp.id });
+  }
+
+  async function handleResetPassword(emp) {
+    if (
+      !window.confirm(
+        `${emp.name}(${emp.empNo || '사번 없음'})님의 비밀번호를 초기 비밀번호(${DEFAULT_PASSWORD})로 초기화하시겠습니까?\n\n로그인 잠금이 풀리고, 사용 중인 로그인은 모두 끊깁니다. 다음 로그인 때 새 비밀번호를 설정해야 합니다.`
+      )
+    ) {
+      return;
+    }
+    try {
+      await resetPassword.mutateAsync({ id: emp.id });
+      window.alert(`${emp.name}님의 비밀번호를 초기화했습니다.`);
+    } catch (e) {
+      window.alert(e.message || '비밀번호를 초기화하지 못했습니다.');
+    }
   }
 
   const isSubmitting =
@@ -236,6 +255,13 @@ export function AdminEmployeeRoster() {
                         수정
                       </button>
                       <button
+                        onClick={() => handleResetPassword(emp)}
+                        className="flex-1 text-[13px] text-stripe-text py-2 rounded-md bg-[#f0f3f7]"
+                        disabled={resetPassword.isPending || !emp.empNo}
+                      >
+                        비번 초기화
+                      </button>
+                      <button
                         onClick={() => setModal({ mode: 'terminate', employee: emp })}
                         className="flex-1 text-[13px] text-[#df1b41] py-2 rounded-md bg-[#fee2e2]"
                       >
@@ -317,6 +343,18 @@ export function AdminEmployeeRoster() {
                           >
                             수정
                           </button>
+                          {emp.empNo && (
+                            <>
+                              <span className="text-[#e3e8ee] mx-2">|</span>
+                              <button
+                                onClick={() => handleResetPassword(emp)}
+                                className="text-[13px] text-stripe-muted hover:text-stripe-text"
+                                disabled={resetPassword.isPending}
+                              >
+                                비번 초기화
+                              </button>
+                            </>
+                          )}
                           <span className="text-[#e3e8ee] mx-2">|</span>
                           <button
                             onClick={() => setModal({ mode: 'terminate', employee: emp })}

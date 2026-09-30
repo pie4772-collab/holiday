@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { getDb } from '../db.js';
+import { decryptField, encryptField, isEncrypted } from '../secrets.js';
 import * as approvalService from './approvalService.js';
 
 const DEFAULTS = {
@@ -31,8 +32,24 @@ function rowToPublic(row, includePassword = false) {
   };
 }
 
-function getRow() {
-  return getDb().prepare('SELECT * FROM mail_settings WHERE id = 1').get();
+async function getRow() {
+  const row = await getDb().prepare('SELECT * FROM mail_settings WHERE id = 1').get();
+  if (!row?.password) return row;
+  const password = decryptField(row.password);
+  if (password == null) {
+    console.error('[mail] 저장된 SMTP 비밀번호를 복호화하지 못했습니다. 비밀 키가 바뀌었다면 메일 설정에서 비밀번호를 다시 입력하세요.');
+  }
+  return { ...row, password: password || '' };
+}
+
+/** 이전 버전에서 평문으로 저장된 SMTP 비밀번호를 암호화합니다. 서버 시작 시 한 번 호출합니다. */
+export async function encryptStoredMailPassword() {
+  const row = await getDb().prepare('SELECT password FROM mail_settings WHERE id = 1').get();
+  if (!row?.password || isEncrypted(row.password)) return false;
+  await getDb()
+    .prepare('UPDATE mail_settings SET password = ? WHERE id = 1')
+    .run(encryptField(row.password));
+  return true;
 }
 
 export async function getMailSettings() {
@@ -71,7 +88,7 @@ export async function saveMailSettings(data) {
       Number(data.smtpPort) || DEFAULTS.smtpPort,
       data.smtpSecure === 'starttls' ? 'starttls' : 'ssl',
       username,
-      password,
+      encryptField(password),
       String(data.fromName || DEFAULTS.fromName).trim() || DEFAULTS.fromName,
       fromEmail,
       String(data.appUrl || DEFAULTS.appUrl).trim().replace(/\/$/, '') || DEFAULTS.appUrl

@@ -28,8 +28,17 @@ Holiday 프로젝트를 **space_02** (Node.js / Express API + 프론트)에 배�
 | `DB_PATH` | 영속 스토리지 경로 | SQLite 파일 (재배포 후에도 유지) |
 | `APP_DB_CLIENT` | `postgres` | 설정하면 PostgreSQL 사용. 비우면 SQLite. 로컬에서는 `DB_CLIENT`도 됩니다(Cafe24 콘솔의 `DB_*` 변수는 앱에 전달되지 않음) |
 
+| `SESSION_SECRET` | (선택) 32자 이상 | 로그인 토큰 서명 키. 없으면 비밀 키 파일에서 파생 |
+| `APP_SECRET_KEY` | (선택) 16진수 64자 | 비밀 키를 파일 대신 직접 지정 |
+
 `server/.env`도 함께 업로드되지만, **콘솔 환경 변수가 우선**합니다.
 PostgreSQL 접속 정보(`DB_HOST`·`DB_PORT`·`DB_NAME`·`DB_USER`·`DB_PASSWORD`)는 Cafe24가 자동 주입하므로 직접 넣지 않습니다.
+
+### 비밀 키 파일
+
+- 서버가 처음 시작될 때 `/app/user_data/secret.key`를 자동으로 만듭니다. 로그인 토큰 서명과 메일 계정 비밀번호 암호화에 씁니다.
+- 재배포·강제 재배포에도 유지되고 `backup_project` 백업에 포함됩니다. **이 파일을 지우면** 모든 사용자가 다시 로그인해야 하고, 메일 설정의 SMTP 비밀번호를 다시 입력해야 합니다.
+- Git에 올리지 않습니다(`.gitignore`의 `secret.key`).
 
 ## 3. DB
 

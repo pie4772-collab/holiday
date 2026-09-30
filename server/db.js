@@ -11,7 +11,7 @@ loadEnvFile();
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BUNDLED_DB_PATH = path.join(__dirname, '../database/holiday.db');
-const USER_DATA_DIR = process.env.USER_DATA_DIR
+export const USER_DATA_DIR = process.env.USER_DATA_DIR
   || (fs.existsSync('/app/user_data') || fs.existsSync('/app') ? '/app/user_data' : null);
 
 function resolveDbPath() {

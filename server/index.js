@@ -8,10 +8,14 @@ import apiRouter from './routes/api.js';
 import { getDb, getDbDriverName, getDbPath, DB_CLIENT_SETTING } from './db.js';
 import { optionalAuth } from './middleware/auth.js';
 import { syncUsersFromEmployees } from './services/authService.js';
+import { encryptStoredMailPassword } from './services/mailService.js';
 import { getLocalIp, getShareUrl } from './utils/network.js';
 
 loadEnvFile();
 const userCount = await syncUsersFromEmployees();
+if (await encryptStoredMailPassword()) {
+  console.error('[mail] 평문으로 저장돼 있던 SMTP 비밀번호를 암호화했습니다.');
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -69,7 +73,7 @@ if (SERVE_STATIC) {
 }
 
 app.use((err, req, res, _next) => {
-  console.error(err);
+  if (!err.status || err.status >= 500) console.error(err);
   res.status(err.status || 500).json({ message: err.message || '서버 오류' });
 });
 

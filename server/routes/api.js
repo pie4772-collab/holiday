@@ -18,15 +18,25 @@ router.post('/auth/login', async (req, res, next) => {
 });
 
 router.post('/auth/logout', async (req, res) => {
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-  authService.destroySession(token);
+  await authService.logout(req.user);
   res.json({ success: true });
 });
 
+router.post('/auth/change-password', requireAuth, async (req, res, next) => {
+  try {
+    res.json(
+      await authService.changePassword(req.user.employeeId, req.body?.currentPassword, req.body?.newPassword)
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get('/auth/me', requireAuth, async (req, res) => {
+  const { tv: _tv, ...session } = req.user;
   res.json({
-    ...req.user,
+    ...session,
+    mustChangePassword: Boolean(req.user.mustChangePassword),
     isAdmin: await isEmployeeAdmin(req.user.employeeId),
     canApprove: await approvalService.canApproveRequests(req.user.employeeId),
   });
@@ -290,6 +300,14 @@ router.post('/admin/employees/:id/reactivate', requireAdmin, async (req, res, ne
   try {
     const result = await employeeService.reactivateEmployee(req.params.id);
     res.json(result);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/employees/:id/reset-password', requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await authService.resetPassword(req.params.id));
   } catch (e) {
     next(e);
   }

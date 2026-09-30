@@ -8,6 +8,8 @@
 import fs from 'node:fs';
 
 const DEFAULT_PASSWORD = '123456';
+// 초기 비밀번호로 로그인하면 변경이 강제되므로 스냅샷용 비밀번호로 바꿔서 진행합니다.
+const SNAPSHOT_PASSWORD = 'Snapshot2026pw';
 const VOLATILE_KEY = /(createdAt|updatedAt|generatedAt|approvedAt|created_at|updated_at|generated_at|approved_at|imported_at|token|exp)$/i;
 const DATETIME = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/;
 
@@ -74,8 +76,18 @@ async function record(name, method, url, token, body) {
 
 async function login(username) {
   if (tokens.has(username)) return tokens.get(username);
-  const result = await request('POST', '/api/auth/login', null, { username, password: DEFAULT_PASSWORD });
-  const token = result.status === 200 ? result.data.token : null;
+  let result = await request('POST', '/api/auth/login', null, { username, password: DEFAULT_PASSWORD });
+  if (result.status !== 200) {
+    result = await request('POST', '/api/auth/login', null, { username, password: SNAPSHOT_PASSWORD });
+  }
+  let token = result.status === 200 ? result.data.token : null;
+  if (token && result.data.user?.mustChangePassword) {
+    const changed = await request('POST', '/api/auth/change-password', token, {
+      currentPassword: DEFAULT_PASSWORD,
+      newPassword: SNAPSHOT_PASSWORD,
+    });
+    token = changed.status === 200 ? changed.data.token : null;
+  }
   tokens.set(username, token);
   return token;
 }

@@ -62,6 +62,10 @@ export function LoginPage() {
       const result = await leaveApi.login(username, password);
       setAuthToken(result.token);
       setRole(nextPath.startsWith('/admin') ? 'admin' : 'employee');
+      if (result.user?.mustChangePassword) {
+        navigate(`/change-password?next=${encodeURIComponent(nextPath)}`, { replace: true });
+        return;
+      }
       navigate(nextPath, { replace: true });
     } catch (err) {
       setError(err.message || '로그인에 실패했습니다.');

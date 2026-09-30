@@ -143,13 +143,14 @@ export function Layout() {
                 onSwitch={(next) => navigate(next === 'admin' ? '/admin' : '/employee')}
               />
             )}
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="mt-1 w-full text-[10px] text-stripe-sidebar-muted hover:text-white"
-            >
-              로그아웃
-            </button>
+            <div className="mt-1 flex justify-center gap-2 text-[10px] text-stripe-sidebar-muted">
+              <Link to={`/change-password?next=${encodeURIComponent(location.pathname)}`} className="hover:text-white">
+                비밀번호
+              </Link>
+              <button type="button" onClick={handleLogout} className="hover:text-white">
+                로그아웃
+              </button>
+            </div>
           </div>
         </div>
         {shareUrl && role === 'admin' && (
@@ -196,13 +197,14 @@ export function Layout() {
               onSwitch={(next) => navigate(next === 'admin' ? '/admin' : '/employee')}
             />
           )}
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="mt-2 w-full text-left px-1 text-[11px] text-stripe-sidebar-muted hover:text-white"
-          >
-            로그아웃
-          </button>
+          <div className="mt-2 flex gap-3 px-1 text-[11px] text-stripe-sidebar-muted">
+            <Link to={`/change-password?next=${encodeURIComponent(location.pathname)}`} className="hover:text-white">
+              비밀번호 변경
+            </Link>
+            <button type="button" onClick={handleLogout} className="hover:text-white">
+              로그아웃
+            </button>
+          </div>
           {shareUrl && role === 'admin' && (
             <p className="mt-3 px-1 text-[10px] text-stripe-sidebar-muted leading-relaxed break-all">
               공유: <span className="text-white/90">{shareUrl}</span>

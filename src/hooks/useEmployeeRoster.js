@@ -51,6 +51,12 @@ export function useReactivateEmployee() {
   });
 }
 
+export function useResetEmployeePassword() {
+  return useMutation({
+    mutationFn: ({ id }) => leaveApi.resetEmployeePassword(id),
+  });
+}
+
 export function useApprovalLines() {
   return useQuery({
     queryKey: ['admin', 'approval-lines'],

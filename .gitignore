@@ -15,6 +15,9 @@ dist-ssr
 .env.*
 !.env.example
 
+# Encryption / session signing key (never commit)
+secret.key
+
 # SQLite sidecar files (the main holiday.db seed is tracked)
 *.db-wal
 *.db-shm

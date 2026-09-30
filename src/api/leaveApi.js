@@ -326,6 +326,25 @@ export const leaveApi = {
     return apiClient('/auth/logout', { method: 'POST' });
   },
 
+  async changePassword(currentPassword, newPassword) {
+    if (USE_MOCK) {
+      await delay(200);
+      return {
+        token: 'mock-token',
+        user: { employeeId: '1', empNo: 'demo', name: '데모', position: '팀원', mustChangePassword: false },
+      };
+    }
+    return apiClient('/auth/change-password', { method: 'POST', body: { currentPassword, newPassword } });
+  },
+
+  async resetEmployeePassword(id) {
+    if (USE_MOCK) {
+      await delay(200);
+      return { employeeId: String(id) };
+    }
+    return apiClient(`/admin/employees/${id}/reset-password`, { method: 'POST' });
+  },
+
   async getApprovalLines() {
     if (USE_MOCK) {
       await delay();

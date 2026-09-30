@@ -37,6 +37,14 @@ export async function apiClient(endpoint, options = {}) {
       }
     }
     const error = await response.json().catch(() => ({ message: '요청 실패' }));
+    if (
+      response.status === 403 &&
+      error.code === 'PASSWORD_CHANGE_REQUIRED' &&
+      typeof window !== 'undefined' &&
+      window.location.pathname !== '/change-password'
+    ) {
+      window.location.assign(`/change-password?next=${encodeURIComponent(window.location.pathname)}`);
+    }
     throw new Error(error.message || `HTTP ${response.status}`);
   }
 

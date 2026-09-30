@@ -17,8 +17,9 @@ export function RequireAuth({ children }) {
     let cancelled = false;
     leaveApi
       .me()
-      .then(() => {
-        if (!cancelled) setStatus('ok');
+      .then((me) => {
+        if (cancelled) return;
+        setStatus(me?.mustChangePassword && location.pathname !== '/change-password' ? 'mustChange' : 'ok');
       })
       .catch(() => {
         setAuthToken('');
@@ -28,7 +29,7 @@ export function RequireAuth({ children }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [location.pathname]);
 
   if (status === 'checking') {
     return (
@@ -40,6 +41,10 @@ export function RequireAuth({ children }) {
 
   if (status === 'anon') {
     return <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />;
+  }
+
+  if (status === 'mustChange') {
+    return <Navigate to={`/change-password?next=${encodeURIComponent(location.pathname)}`} replace />;
   }
 
   return children;

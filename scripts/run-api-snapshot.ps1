@@ -18,16 +18,18 @@ Remove-Item "$db*" -Force -ErrorAction SilentlyContinue
 Copy-Item $SourceDb $db
 
 $env:DB_PATH = $db
+$env:SECRET_KEY_FILE = Join-Path $work 'secret.key'
 $env:PORT = "$Port"
 $env:SERVE_STATIC = 'false'
 Remove-Item Env:DB_DRIVER -ErrorAction SilentlyContinue
 if ($Driver -eq 'sqljs') { $env:DB_DRIVER = 'sqljs' }
 if ($Driver -eq 'postgres') {
-  $env:DB_CLIENT = 'postgres'
+  $env:APP_DB_CLIENT = 'postgres'
   $env:DATABASE_URL = $PgUrl
   node -e "const pg=require('pg');const c=new pg.Client(process.env.DATABASE_URL);c.connect().then(()=>c.query('DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;')).then(()=>c.end()).catch(e=>{console.error(e.message);process.exit(1)})"
   if ($LASTEXITCODE -ne 0) { throw 'postgres reset failed' }
 } else {
+  Remove-Item Env:APP_DB_CLIENT -ErrorAction SilentlyContinue
   Remove-Item Env:DB_CLIENT -ErrorAction SilentlyContinue
   Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
 }

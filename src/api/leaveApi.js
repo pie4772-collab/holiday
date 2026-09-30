@@ -337,6 +337,47 @@ export const leaveApi = {
     return apiClient('/auth/change-password', { method: 'POST', body: { currentPassword, newPassword } });
   },
 
+  async getPersonnelCard(employeeId) {
+    return apiClient(`/admin/employees/${employeeId}/personnel`);
+  },
+
+  async getMyPersonnelCard() {
+    return apiClient('/employees/me/personnel');
+  },
+
+  async savePersonnelProfile(employeeId, data) {
+    return apiClient(`/admin/employees/${employeeId}/personnel/profile`, { method: 'PUT', body: data });
+  },
+
+  async createPersonnelRecord(employeeId, data) {
+    return apiClient(`/admin/employees/${employeeId}/personnel/records`, { method: 'POST', body: data });
+  },
+
+  async updatePersonnelRecord(recordId, data) {
+    return apiClient(`/admin/personnel/records/${recordId}`, { method: 'PUT', body: data });
+  },
+
+  async deletePersonnelRecord(recordId) {
+    return apiClient(`/admin/personnel/records/${recordId}`, { method: 'DELETE' });
+  },
+
+  async downloadPersonnelCsv(type) {
+    const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+    const token = getAuthToken();
+    const response = await fetch(`${API_BASE}/admin/personnel/export?type=${type}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: '내려받기 실패' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.blob();
+  },
+
+  async importPersonnel(type, table) {
+    return apiClient('/admin/personnel/import', { method: 'POST', body: { type, table } });
+  },
+
   async getTeamMembers() {
     if (USE_MOCK) {
       await delay();

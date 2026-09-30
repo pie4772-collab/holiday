@@ -20,14 +20,17 @@ const ROLE_PERMISSIONS = {
   system_admin: [
     'admin', 'employees.view', 'employees.manage', 'leave.view', 'leave.edit',
     'reports.view', 'reports.save', 'approvalLogs.view', 'approvalLines.manage',
-    'payroll', 'mail.manage', 'roles.manage',
+    'payroll', 'mail.manage', 'roles.manage', 'records.view', 'records.edit',
   ],
   hr: [
     'admin', 'employees.view', 'employees.manage', 'leave.view', 'leave.edit',
     'reports.view', 'reports.save', 'approvalLogs.view', 'approvalLines.manage',
+    'records.view', 'records.edit',
   ],
   payroll: ['admin', 'employees.view', 'reports.view', 'payroll'],
-  site_admin: ['admin', 'employees.view', 'leave.view', 'leave.edit', 'reports.view', 'approvalLogs.view'],
+  site_admin: [
+    'admin', 'employees.view', 'leave.view', 'leave.edit', 'reports.view', 'approvalLogs.view', 'records.view',
+  ],
   dept_head: ['team.view'],
 };
 

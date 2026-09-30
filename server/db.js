@@ -444,6 +444,8 @@ async function runSqlMigrations(database) {
     });
     console.error(`[db] migration applied: ${file}`);
   }
+  // 마이그레이션으로 생긴 id 테이블도 INSERT ... RETURNING id 대상에 넣습니다.
+  await database.backend.refreshTableInfo?.();
 }
 
 function tableColumns(database, table) {

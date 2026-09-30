@@ -45,7 +45,10 @@ export async function apiClient(endpoint, options = {}) {
     ) {
       window.location.assign(`/change-password?next=${encodeURIComponent(window.location.pathname)}`);
     }
-    throw new Error(error.message || `HTTP ${response.status}`);
+    throw Object.assign(new Error(error.message || `HTTP ${response.status}`), {
+      status: response.status,
+      data: error,
+    });
   }
 
   return response.json();

@@ -7,6 +7,7 @@ import { requireAuth, loadAccess, requirePermission } from '../middleware/auth.j
 import { isEmployeeAdmin } from '../services/authService.js';
 import * as approvalService from '../services/approvalService.js';
 import * as mailService from '../services/mailService.js';
+import * as personnelService from '../services/personnelService.js';
 import { getDb } from '../db.js';
 
 const router = express.Router();
@@ -555,6 +556,89 @@ router.delete('/admin/usages/:id', requirePermission('leave.edit'), async (req, 
     if (!(await requireCoveredRecord(req, res, 'leave.edit', 'leave_usages', req.params.id))) return;
     await leaveService.deleteUsage(req.params.id);
     res.json({ success: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/employees/me/personnel', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await personnelService.getPersonnelCard(req.user.employeeId, { self: true }));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/employees/:id/personnel', requirePermission('records.view'), async (req, res, next) => {
+  try {
+    if (!(await requireCoveredEmployee(req, res, 'records.view', req.params.id))) return;
+    res.json(await personnelService.getPersonnelCard(req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.put('/admin/employees/:id/personnel/profile', requirePermission('records.edit'), async (req, res, next) => {
+  try {
+    if (!(await requireCoveredEmployee(req, res, 'records.edit', req.params.id))) return;
+    res.json(await personnelService.saveProfile(req.params.id, req.body || {}, req.user.employeeId));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/employees/:id/personnel/records', requirePermission('records.edit'), async (req, res, next) => {
+  try {
+    if (!(await requireCoveredEmployee(req, res, 'records.edit', req.params.id))) return;
+    res.status(201).json(await personnelService.createRecord(req.params.id, req.body || {}, req.user.employeeId));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.put('/admin/personnel/records/:recordId', requirePermission('records.edit'), async (req, res, next) => {
+  try {
+    if (!(await requireCoveredRecord(req, res, 'records.edit', 'employee_records', req.params.recordId))) return;
+    res.json(await personnelService.updateRecord(req.params.recordId, req.body || {}, req.user.employeeId));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete('/admin/personnel/records/:recordId', requirePermission('records.edit'), async (req, res, next) => {
+  try {
+    if (!(await requireCoveredRecord(req, res, 'records.edit', 'employee_records', req.params.recordId))) return;
+    await personnelService.deleteRecord(req.params.recordId);
+    res.json({ success: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/personnel/export', requirePermission('records.edit'), async (req, res, next) => {
+  try {
+    const type = req.query.type === 'records' ? 'records' : 'profiles';
+    const { headers, rows } = await personnelService.exportPersonnel(type);
+    const escape = (value) => {
+      const cell = value == null ? '' : String(value);
+      return /[",\r\n]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell;
+    };
+    const csv = `\uFEFF${[headers, ...rows].map((row) => row.map(escape).join(',')).join('\r\n')}`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="personnel-${type}.csv"`);
+    res.send(csv);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/personnel/import', requirePermission('records.edit'), async (req, res, next) => {
+  try {
+    const type = req.body?.type === 'records' ? 'records' : 'profiles';
+    const result = await personnelService.importPersonnel(type, req.body?.table, req.user.employeeId);
+    res.status(result.applied ? 200 : 400).json(
+      result.applied ? result : { ...result, message: `오류 ${result.errors.length}건이 있어 반영하지 않았습니다.` }
+    );
   } catch (e) {
     next(e);
   }

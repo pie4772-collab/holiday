@@ -196,7 +196,8 @@ export function getMockEmployeeById(id) {
 
 const MOCK_PERMISSIONS = [
   'admin', 'approvalLines.manage', 'approvalLogs.view', 'employees.manage', 'employees.view',
-  'leave.edit', 'leave.view', 'mail.manage', 'payroll', 'reports.save', 'reports.view', 'roles.manage',
+  'leave.edit', 'leave.view', 'mail.manage', 'payroll', 'records.edit', 'records.view', 'reports.save',
+  'reports.view', 'roles.manage',
 ];
 
 export function getMockCurrentEmployee() {

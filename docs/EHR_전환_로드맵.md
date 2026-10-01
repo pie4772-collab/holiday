@@ -397,3 +397,18 @@ E-HR에서 가장 만들기 번거로운 공통 기반이 이미 갖춰져 있�
 3. ~~민감정보 범위~~ → 주민등록번호·계좌·연봉·가족 정보는 저장하지 않고 급여 프로그램에만 둔다 (3.1 참고)
 4. ~~근태 원천 데이터~~ → 단말기 없이 앱 출퇴근 버튼과 사업장 허용 IP로 기록 (3.4 참고)
 5. 전자결재 1차 대상 문서: 가장 먼저 옮길 신청서 2~3종
+
+---
+
+## 7. 나중에 할 일
+
+1. **SQLite 지원 정리, PostgreSQL로 통일**
+   - 배경: 운영은 PostgreSQL로 전환이 끝났지만, 코드는 아직 SQLite·PostgreSQL을 모두 지원한다. 로컬 기본값도 SQLite라서 기능을 추가할 때마다 두 DB로 각각 테스트하고 있다.
+   - 할 일
+     - 로컬 개발도 PostgreSQL로 바꾼다. 테스트용 포터블 PostgreSQL(`embedded-postgres`)을 쓰면 별도 설치가 필요 없다.
+     - `server/db.js`의 SQLite 드라이버(`node:sqlite`·`sql.js`)와 SQL 변환 계층을 걷어낸다.
+     - SQLite → PostgreSQL 자동 이전(`server/dbImport.js`)도 걷어낸다. 운영 이전이 이미 끝났다.
+     - 마이그레이션의 `*.sqlite.sql` / `*.postgres.sql` 이중 관리를 없앤다.
+     - 스냅샷 테스트(`scripts/run-api-snapshot.ps1`) 기본값도 PostgreSQL로 바꾼다.
+   - 효과: SQL을 한 가지로만 쓰고, 테스트도 한 번이면 된다.
+   - 주의: 정리 전에 운영 DB 백업을 받는다. 원본 SQLite 파일(`database/holiday.db`, `/app/user_data/holiday.db`)은 보관용으로 남긴다.

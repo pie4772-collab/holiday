@@ -14,6 +14,7 @@ import { isLeaveExemptPosition } from '../../src/constants/hr.js';
 import { getHolidayName, isNonWorkingDay, nonWorkingDayReason } from '../../src/utils/workCalendar.js';
 import { ipInRanges, parseIpRanges } from '../utils/clientIp.js';
 import { canReviewRemote, remoteReviewRequired, remoteReviewerLabel } from './approvalService.js';
+import * as mailService from './mailService.js';
 
 const META_START_DATE = 'attendance_start_date';
 const META_PROXY_HOPS = 'attendance_proxy_hops';
@@ -662,6 +663,40 @@ function nextRemoteStatus(employee, input, existing, side) {
   return { status: 'pending', reviewerId: null };
 }
 
+/** 이미 확인 대기 중인 같은 유형·장소를 다시 누른 경우는 알리지 않습니다. */
+function needsRemoteNotice(next, existing, input) {
+  if (next?.status !== 'pending') return false;
+  if (existing?.remote_status !== 'pending') return true;
+  const same = (type, place) => type === input.type && place === input.place;
+  return !(same(existing.check_in_type, existing.check_in_place) || same(existing.check_out_type, existing.check_out_place));
+}
+
+/** 확인권자. 없으면(예: 같은 사업장에 임원·공장장이 없는 팀장) 대신 확인할 수 있는 근태 관리자에게 보냅니다. */
+export async function listRemoteReviewers(employee) {
+  const db = getDb();
+  const rows = await db.prepare('SELECT * FROM employees WHERE is_active = 1 ORDER BY name, id').all();
+  const reviewers = [];
+  for (const row of rows) {
+    if (await canReviewRemote(row, employee)) reviewers.push(row);
+  }
+  if (reviewers.length) return { reviewers, forAdmin: false };
+  const admins = await db
+    .prepare(
+      `SELECT DISTINCT e.* FROM employees e
+       JOIN employee_roles r ON r.employee_id = e.id
+       WHERE e.is_active = 1 AND e.id <> ?
+         AND (r.role IN ('system_admin', 'hr') OR (r.role = 'site_admin' AND e.workplace_code = ?))`
+    )
+    .all(Number(employee.id), employee.workplace_code == null ? '' : String(employee.workplace_code));
+  return { reviewers: admins, forAdmin: true };
+}
+
+function sendRemoteNotice(employee, info) {
+  listRemoteReviewers(employee)
+    .then(({ reviewers, forAdmin }) => mailService.notifyRemoteSubmitted(employee, info, reviewers, { forAdmin }))
+    .catch((error) => console.error('[mail] remote notice:', error.message));
+}
+
 async function applyRemoteStatus(db, ctx, next) {
   if (!next) return;
   await db
@@ -680,6 +715,7 @@ export async function checkIn(employeeId, data, ip, nowDate = new Date()) {
   const input = normalizeWorkInput(data, ctx.ipSite);
 
   const db = getDb();
+  let notify = false;
   await db.transaction(async () => {
     const existing = await getRecordRow(ctx.employee.id, ctx.workDate);
     if (existing?.check_in_at) throw httpError('이미 출근을 기록했습니다.', 409);
@@ -698,7 +734,9 @@ export async function checkIn(employeeId, data, ip, nowDate = new Date()) {
         )
         .run(ctx.employee.id, ctx.workDate, ctx.now.stamp, ip || null, input.type, input.place);
     }
-    await applyRemoteStatus(db, ctx, nextRemoteStatus(ctx.employee, input, existing, 'in'));
+    const next = nextRemoteStatus(ctx.employee, input, existing, 'in');
+    notify = needsRemoteNotice(next, existing, input);
+    await applyRemoteStatus(db, ctx, next);
     await writeLog(db, {
       employeeId: ctx.employee.id,
       workDate: ctx.workDate,
@@ -710,6 +748,9 @@ export async function checkIn(employeeId, data, ip, nowDate = new Date()) {
       actorId: ctx.employee.id,
     });
   });
+  if (notify) {
+    sendRemoteNotice(ctx.employee, { workDate: ctx.workDate, type: input.type, place: input.place, side: 'in', at: ctx.now.stamp });
+  }
   return getMyToday(employeeId, ip, nowDate);
 }
 
@@ -721,6 +762,7 @@ export async function checkOut(employeeId, data, ip, nowDate = new Date()) {
   const input = normalizeWorkInput(data, ctx.ipSite);
 
   const db = getDb();
+  let notify = false;
   await db.transaction(async () => {
     const existing = await getRecordRow(ctx.employee.id, ctx.workDate);
     if (existing) {
@@ -738,7 +780,9 @@ export async function checkOut(employeeId, data, ip, nowDate = new Date()) {
         )
         .run(ctx.employee.id, ctx.workDate, ctx.now.stamp, ip || null, input.type, input.place);
     }
-    await applyRemoteStatus(db, ctx, nextRemoteStatus(ctx.employee, input, existing, 'out'));
+    const next = nextRemoteStatus(ctx.employee, input, existing, 'out');
+    notify = needsRemoteNotice(next, existing, input);
+    await applyRemoteStatus(db, ctx, next);
     await writeLog(db, {
       employeeId: ctx.employee.id,
       workDate: ctx.workDate,
@@ -750,6 +794,9 @@ export async function checkOut(employeeId, data, ip, nowDate = new Date()) {
       actorId: ctx.employee.id,
     });
   });
+  if (notify) {
+    sendRemoteNotice(ctx.employee, { workDate: ctx.workDate, type: input.type, place: input.place, side: 'out', at: ctx.now.stamp });
+  }
   return getMyToday(employeeId, ip, nowDate);
 }
 
@@ -1130,6 +1177,17 @@ export async function reviewRemote(recordId, reviewerId, covers, data, nowDate =
     });
   });
   const [updated] = await loadReviewRows('r.id = ?', [Number(recordId)]);
+  const side = REMOTE_WORK_TYPES.includes(record.checkInType) ? 'in' : 'out';
+  const info = {
+    workDate: record.workDate,
+    type: side === 'in' ? record.checkInType : record.checkOutType,
+    place: side === 'in' ? record.checkInPlace : record.checkOutPlace,
+    side,
+    at: side === 'in' ? record.checkInAt : record.checkOutAt,
+  };
+  getEmployee(row.employee_id)
+    .then((employee) => mailService.notifyRemoteReviewed(employee, info, decision, reviewer, reason))
+    .catch((error) => console.error('[mail] remote review notice:', error.message));
   return mapReviewRow(updated);
 }
 

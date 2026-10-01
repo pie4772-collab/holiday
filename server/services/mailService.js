@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import { getDb } from '../db.js';
 import { decryptField, encryptField, isEncrypted } from '../secrets.js';
 import * as approvalService from './approvalService.js';
+import { WORK_TYPE_LABELS } from '../../src/constants/attendance.js';
 
 const DEFAULTS = {
   enabled: false,
@@ -383,5 +384,70 @@ export async function notifyLeaveFinal(employee, usage, decision, rejectReason, 
     );
   } catch (error) {
     console.error('[mail] notifyLeaveFinal failed:', error.message);
+  }
+}
+
+function remoteSummary(info) {
+  const label = WORK_TYPE_LABELS[info.type] || info.type;
+  return {
+    label,
+    html: `<p>근무일: ${escapeHtml(info.workDate)}<br/>구분: ${escapeHtml(label)} (${escapeHtml(info.side === 'out' ? '퇴근' : '출근')} ${escapeHtml(String(info.at || '').slice(11, 16))})<br/>장소: ${escapeHtml(info.place || '-')}</p>`,
+  };
+}
+
+/**
+ * 외근·출장 확인 요청. reviewers 는 확인권자(없으면 근태 관리자) 직원 행 목록입니다.
+ * info: { workDate, type, place, side, at }
+ */
+export async function notifyRemoteSubmitted(employee, info, reviewers, { forAdmin = false } = {}) {
+  try {
+    const settings = rowToPublic(await getRow(), true);
+    if (!settings.enabled) return;
+    const to = uniqueEmails(reviewers).filter((r) => Number(r.id) !== Number(employee.id));
+    if (!to.length) {
+      console.warn('[mail] no remote reviewer email for', employee.name);
+      return;
+    }
+    const { label, html } = remoteSummary(info);
+    const path = forAdmin ? '/admin/attendance-reviews' : '/employee/attendance-reviews';
+    const body = `
+      <p><strong>${escapeHtml(employee.name)}</strong>님이 ${escapeHtml(label)}을(를) 등록했습니다.</p>
+      ${html}
+      <p>확인해야 지각·조퇴로 판정되지 않습니다. 아래 링크로 접속해 확인 또는 반려해주세요.</p>
+    `;
+    await sendMail(
+      to.map((r) => r.email),
+      `[Holiday] ${employee.name} ${label} 확인 요청 (${info.workDate})`,
+      htmlLayout(`${label} 확인 요청`, body, '확인하러 가기', `${settings.appUrl || DEFAULTS.appUrl}/login?next=${encodeURIComponent(path)}`)
+    );
+  } catch (error) {
+    console.error('[mail] notifyRemoteSubmitted failed:', error.message);
+  }
+}
+
+/** 외근·출장 확인 결과를 본인에게 알립니다. decision: 'approved' | 'rejected' */
+export async function notifyRemoteReviewed(employee, info, decision, reviewer, rejectReason) {
+  try {
+    const settings = rowToPublic(await getRow(), true);
+    if (!settings.enabled) return;
+    const to = uniqueEmails([employee]);
+    if (!to.length) return;
+    const { label, html } = remoteSummary(info);
+    const result = decision === 'approved' ? '확인' : '반려';
+    const body = `
+      <p>${escapeHtml(employee.name)}님의 ${escapeHtml(label)} 기록이 <strong>${result}</strong>되었습니다.</p>
+      ${html}
+      <p>처리자: ${escapeHtml(reviewer?.name || '-')}${
+        decision === 'rejected' && rejectReason ? `<br/>반려 사유: ${escapeHtml(rejectReason)}` : ''
+      }</p>
+      ${decision === 'rejected' ? '<p>반려된 기록은 사무실 출퇴근과 같이 지각·조퇴를 판정합니다.</p>' : ''}
+    `;
+    await sendMail(
+      to.map((r) => r.email),
+      `[Holiday] ${label} ${result} (${info.workDate})`,
+      htmlLayout(`${label} ${result}`, body, '근태 보기', `${settings.appUrl || DEFAULTS.appUrl}/login?next=${encodeURIComponent('/employee/attendance')}`)
+    );
+  } catch (error) {
+    console.error('[mail] notifyRemoteReviewed failed:', error.message);
   }
 }

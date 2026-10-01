@@ -19,6 +19,7 @@ import {
   Contact,
   Clock,
   Settings2,
+  MapPinCheck,
 } from 'lucide-react';
 import { ASSIGNABLE_ROLES, ROLE_LABELS, canAccessAdmin, hasPermission } from '../utils/access';
 import { useAppStore } from '../store/useAppStore';
@@ -110,11 +111,22 @@ export function Layout() {
   const employeeItems = [
     ...employeeNav,
     ...(canApprove ? [{ to: '/employee/approvals', icon: ClipboardCheck, label: '연차 승인' }] : []),
+    ...(canApprove || hasPermission(currentEmployee, 'attendance.edit')
+      ? [{ to: '/employee/attendance-reviews', icon: MapPinCheck, label: '외근·출장 확인' }]
+      : []),
     ...(hasPermission(currentEmployee, 'team.view')
       ? [{ to: '/employee/team', icon: Users, label: '부서원 연차' }]
       : []),
   ];
   const adminItems = adminNav.filter((item) => !item.permission || hasPermission(currentEmployee, item.permission));
+  if (canApprove || hasPermission(currentEmployee, 'attendance.edit')) {
+    const index = adminItems.findIndex((item) => item.to === '/admin/attendance');
+    adminItems.splice(index >= 0 ? index + 1 : adminItems.length, 0, {
+      to: '/admin/attendance-reviews',
+      icon: MapPinCheck,
+      label: '외근·출장 확인',
+    });
+  }
   const navItems = role === 'admin' && canAdmin ? adminItems : employeeItems;
   const adminLabel = primaryRoleLabel(currentEmployee);
   const homePath = role === 'admin' && canAdmin ? '/admin' : '/employee';

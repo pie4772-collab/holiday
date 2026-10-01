@@ -152,6 +152,11 @@ export function AttendanceTodayCard({ showLink = false }) {
                 회사 네트워크가 아니면 외근·출장으로만 기록할 수 있고 장소를 입력해야 합니다.
               </p>
             )}
+            {remote && today.remoteReview?.required && (
+              <p className="text-[12px] text-[#b45309]">
+                외근·출장은 {today.remoteReview.reviewer} 확인 후 인정되며, 확인 전에는 지각·조퇴로 표시될 수 있습니다.
+              </p>
+            )}
           </div>
         )}
 
@@ -175,6 +180,14 @@ export function AttendanceTodayCard({ showLink = false }) {
           </Button>
         </div>
 
+        {today.record?.remoteStatus && (
+          <p className={`text-[13px] ${today.record.remoteStatus === 'rejected' ? 'text-[#df1b41]' : 'text-stripe-muted'}`}>
+            {today.record.remoteStatus === 'pending' && `외근·출장 기록이 ${today.remoteReview?.reviewer || '상급자'} 확인을 기다리고 있습니다.`}
+            {today.record.remoteStatus === 'approved' && '외근·출장이 확인되어 지각·조퇴 판정에서 제외됩니다.'}
+            {today.record.remoteStatus === 'rejected' &&
+              `외근·출장이 반려되었습니다${today.record.remoteRejectReason ? `: ${today.record.remoteRejectReason}` : ''}.`}
+          </p>
+        )}
         {!today.checkIn.allowed && !today.record?.checkInAt && today.checkIn.reason && (
           <p className="text-[13px] text-stripe-muted">{today.checkIn.reason}</p>
         )}

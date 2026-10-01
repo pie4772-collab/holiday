@@ -13,6 +13,7 @@ import {
 import { isLeaveExemptPosition } from '../../src/constants/hr.js';
 import { getHolidayName, isNonWorkingDay, nonWorkingDayReason } from '../../src/utils/workCalendar.js';
 import { ipInRanges, parseIpRanges } from '../utils/clientIp.js';
+import { canReviewRemote, remoteReviewRequired, remoteReviewerLabel } from './approvalService.js';
 
 const META_START_DATE = 'attendance_start_date';
 const META_PROXY_HOPS = 'attendance_proxy_hops';
@@ -318,7 +319,14 @@ function mapRecord(row) {
     checkOutPlace: row.check_out_place || null,
     corrected: Boolean(row.corrected),
     note: row.note || null,
+    remoteStatus: row.remote_status || null,
+    remoteReviewedAt: row.remote_reviewed_at || null,
+    remoteRejectReason: row.remote_reject_reason || null,
   };
+}
+
+function hasRemoteType(record) {
+  return [record?.checkInType, record?.checkOutType].some((t) => REMOTE_WORK_TYPES.includes(t));
 }
 
 /** 반차 시간대 미지정(이전 신청)은 출근 시각으로 오전/오후를 정합니다. */
@@ -347,7 +355,10 @@ export function evaluateDay({ employee, site, date, record, leave, today, nowMin
   const inMin = minutesOnWorkDate(record?.checkInAt, date);
   const outMin = minutesOnWorkDate(record?.checkOutAt, date);
   const types = [record?.checkInType, record?.checkOutType].filter(Boolean);
-  const isTrip = types.some((t) => TRIP_WORK_TYPES.includes(t));
+  const remote = hasRemoteType(record);
+  // 외근·출장은 상급자가 확인해야 인정합니다. 확인 전·반려는 사무실 출퇴근과 같이 판정합니다.
+  const remoteApproved = remote && record.remoteStatus === 'approved';
+  const isTrip = remoteApproved && types.some((t) => TRIP_WORK_TYPES.includes(t));
   const hasRecord = inMin != null || outMin != null;
   const tracked = Boolean(startDate) && date >= startDate;
   const isPast = date < today;
@@ -361,7 +372,8 @@ export function evaluateDay({ employee, site, date, record, leave, today, nowMin
   if (leave?.kind === 'half') flags.add(period === 'am' ? 'leave_am' : period === 'pm' ? 'leave_pm' : 'leave_half');
   if (nonWorking) flags.add(hasRecord ? 'holiday_work' : 'holiday');
   if (isTrip) flags.add('trip');
-  else if (types.includes('outside')) flags.add('outside');
+  else if (remoteApproved) flags.add('outside');
+  else if (remote) flags.add(record.remoteStatus === 'rejected' ? 'remote_rejected' : 'remote_pending');
 
   let workMinutes = 0;
   let overtimeMinutes = 0;
@@ -381,7 +393,7 @@ export function evaluateDay({ employee, site, date, record, leave, today, nowMin
     } else {
       if (inMin == null) flags.add('missing_in');
       if (inMin != null && outMin == null) flags.add(isPast ? 'missing_out' : 'working');
-      const judge = !exempt && !isTrip;
+      const judge = !exempt && !remoteApproved;
       if (judge && inMin != null && inMin > schedule.start + grace) flags.add('late');
       if (judge && outMin != null && outMin < schedule.end - grace) flags.add('early');
       if (outMin != null && outMin > schedule.end + grace) {
@@ -427,6 +439,7 @@ function emptySummary() {
     leaveDays: 0,
     tripDays: 0,
     outsideDays: 0,
+    remotePending: 0,
     holidayWorkDays: 0,
     workMinutes: 0,
     overtimeMinutes: 0,
@@ -449,6 +462,7 @@ function addToSummary(summary, day) {
   }
   if (f.has('trip')) summary.tripDays += 1;
   if (f.has('outside')) summary.outsideDays += 1;
+  if (f.has('remote_pending')) summary.remotePending += 1;
   if (f.has('holiday_work')) summary.holidayWorkDays += 1;
   summary.workMinutes += day.evaluation.workMinutes;
   summary.overtimeMinutes += day.evaluation.overtimeMinutes;
@@ -569,6 +583,10 @@ function presentToday(ctx, startDate) {
     record: ctx.record,
     leave: ctx.leave,
     closed: Boolean(ctx.closedAt),
+    remoteReview: {
+      required: remoteReviewRequired(ctx.employee),
+      reviewer: remoteReviewerLabel(ctx.employee),
+    },
     evaluation: evaluateDay({
       employee: ctx.employee,
       site: ctx.site,
@@ -626,6 +644,35 @@ async function writeLog(db, { employeeId, workDate, action, occurredAt, ip, type
     );
 }
 
+/**
+ * 외근·출장 기록의 확인 상태. 공장장 이상은 바로 인정하고,
+ * 확인받은 출근과 같은 유형·장소로 퇴근하면 확인을 유지합니다.
+ */
+function nextRemoteStatus(employee, input, existing, side) {
+  if (!REMOTE_WORK_TYPES.includes(input.type)) return null;
+  if (!remoteReviewRequired(employee)) return { status: 'approved', reviewerId: employee.id };
+  if (
+    side === 'out' &&
+    existing?.remote_status === 'approved' &&
+    existing.check_in_type === input.type &&
+    existing.check_in_place === input.place
+  ) {
+    return null;
+  }
+  return { status: 'pending', reviewerId: null };
+}
+
+async function applyRemoteStatus(db, ctx, next) {
+  if (!next) return;
+  await db
+    .prepare(
+      `UPDATE attendance_records
+       SET remote_status = ?, remote_reviewed_by = ?, remote_reviewed_at = ?, remote_reject_reason = NULL
+       WHERE employee_id = ? AND work_date = ?`
+    )
+    .run(next.status, next.reviewerId ?? null, next.reviewerId ? ctx.now.stamp : null, ctx.employee.id, ctx.workDate);
+}
+
 export async function checkIn(employeeId, data, ip, nowDate = new Date()) {
   const ctx = await buildTodayContext(employeeId, ip, nowDate);
   const { checkIn: availability } = actionAvailability(ctx);
@@ -651,6 +698,7 @@ export async function checkIn(employeeId, data, ip, nowDate = new Date()) {
         )
         .run(ctx.employee.id, ctx.workDate, ctx.now.stamp, ip || null, input.type, input.place);
     }
+    await applyRemoteStatus(db, ctx, nextRemoteStatus(ctx.employee, input, existing, 'in'));
     await writeLog(db, {
       employeeId: ctx.employee.id,
       workDate: ctx.workDate,
@@ -690,6 +738,7 @@ export async function checkOut(employeeId, data, ip, nowDate = new Date()) {
         )
         .run(ctx.employee.id, ctx.workDate, ctx.now.stamp, ip || null, input.type, input.place);
     }
+    await applyRemoteStatus(db, ctx, nextRemoteStatus(ctx.employee, input, existing, 'out'));
     await writeLog(db, {
       employeeId: ctx.employee.id,
       workDate: ctx.workDate,
@@ -958,7 +1007,22 @@ export async function correctDay(employeeId, date, data, actorId, nowDate = new 
           note
         );
     }
-    const after = mapRecord(await getRecordRow(employee.id, date));
+    let after = mapRecord(await getRecordRow(employee.id, date));
+    if (after) {
+      // 관리자가 새로 넣거나 바꾼 외근·출장은 확인된 것으로 보고, 그대로면 기존 확인 상태를 유지합니다.
+      const unchanged = before?.remoteStatus && remoteSignature(before) === remoteSignature(after);
+      const status = !hasRemoteType(after) ? null : unchanged ? before.remoteStatus : 'approved';
+      if (!unchanged) {
+        await db
+          .prepare(
+            `UPDATE attendance_records
+             SET remote_status = ?, remote_reviewed_by = ?, remote_reviewed_at = ?, remote_reject_reason = NULL
+             WHERE id = ?`
+          )
+          .run(status, status ? actorId ?? null : null, status ? occurredAt : null, Number(after.id));
+        after = mapRecord(await getRecordRow(employee.id, date));
+      }
+    }
     await writeLog(db, {
       employeeId: employee.id,
       workDate: date,
@@ -973,6 +1037,100 @@ export async function correctDay(employeeId, date, data, actorId, nowDate = new 
     });
   });
   return getEmployeeMonth(employee.id, date.slice(0, 7), { includeLogs: true }, nowDate);
+}
+
+function remoteSignature(record) {
+  const part = (type, place) => (REMOTE_WORK_TYPES.includes(type) ? `${type}:${place || ''}` : '-');
+  return `${part(record.checkInType, record.checkInPlace)}|${part(record.checkOutType, record.checkOutPlace)}`;
+}
+
+/* ───────────── 외근·출장 확인 ───────────── */
+
+async function loadReviewRows(where, params) {
+  return getDb()
+    .prepare(
+      `SELECT r.*, e.name AS employee_name, e.emp_no, e.workplace, e.workplace_code, e.department, e.department_code,
+              e.position, e.concurrent_position, e.concurrent_dept_code, e.is_active AS employee_active,
+              v.name AS reviewer_name
+       FROM attendance_records r
+       JOIN employees e ON e.id = r.employee_id
+       LEFT JOIN employees v ON v.id = r.remote_reviewed_by
+       WHERE ${where}
+       ORDER BY r.work_date DESC, r.id DESC`
+    )
+    .all(...params);
+}
+
+function mapReviewRow(row) {
+  return {
+    ...employeeInfo({ ...row, id: row.employee_id, name: row.employee_name }),
+    record: mapRecord(row),
+    reviewerName: row.reviewer_name || null,
+    reviewerLabel: remoteReviewerLabel(row),
+  };
+}
+
+/**
+ * 확인할 외근·출장 기록. 상급자로서 확인할 수 있거나 근태 정정 권한(covers) 범위에 있는 직원만 보입니다.
+ * @param {(employeeRow) => boolean} covers 관리자 대리 확인 범위
+ */
+export async function listRemoteReviews(reviewerId, covers, { status = 'pending', days = 60 } = {}, nowDate = new Date()) {
+  const reviewer = await getEmployee(reviewerId);
+  const since = addDays(workDateOf(kstNow(nowDate)), -days);
+  const rows =
+    status === 'pending'
+      ? await loadReviewRows(`r.remote_status = 'pending'`, [])
+      : await loadReviewRows(`r.remote_status IN ('approved', 'rejected') AND r.work_date >= ?`, [since]);
+  const result = [];
+  for (const row of rows) {
+    const employeeRow = { ...row, id: row.employee_id };
+    if (!(await canReviewRemote(reviewer, employeeRow)) && !covers(employeeRow)) continue;
+    if (status !== 'pending' && Number(row.remote_reviewed_by) === Number(row.employee_id)) continue;
+    result.push(mapReviewRow(row));
+  }
+  return result;
+}
+
+export async function reviewRemote(recordId, reviewerId, covers, data, nowDate = new Date()) {
+  const decision = data?.decision === 'reject' ? 'rejected' : data?.decision === 'approve' ? 'approved' : null;
+  if (!decision) throw httpError('확인 또는 반려를 선택해주세요.');
+  const reason = text(data?.reason).slice(0, 500);
+  if (decision === 'rejected' && reason.length < 2) throw httpError('반려 사유를 입력해주세요.');
+
+  const [row] = await loadReviewRows('r.id = ?', [Number(recordId)]);
+  if (!row) throw httpError('기록을 찾을 수 없습니다.', 404);
+  const record = mapRecord(row);
+  if (!hasRemoteType(record)) throw httpError('외근·출장 기록이 아닙니다.');
+  const employeeRow = { ...row, id: row.employee_id };
+  const reviewer = await getEmployee(reviewerId);
+  const isLineReviewer = await canReviewRemote(reviewer, employeeRow);
+  const isAdmin = covers(employeeRow) && Number(reviewerId) !== Number(row.employee_id);
+  if (!isLineReviewer && !isAdmin) throw httpError('이 기록을 확인할 권한이 없습니다.', 403);
+  if (record.remoteStatus !== 'pending' && !isAdmin) throw httpError('이미 처리된 기록입니다.', 409);
+  if (await isClosed(record.workDate)) throw httpError(`${record.workDate.slice(0, 7)} 근태가 마감되어 처리할 수 없습니다.`, 409);
+
+  const occurredAt = kstNow(nowDate).stamp;
+  const db = getDb();
+  await db.transaction(async () => {
+    await db
+      .prepare(
+        `UPDATE attendance_records
+         SET remote_status = ?, remote_reviewed_by = ?, remote_reviewed_at = ?, remote_reject_reason = ?,
+             updated_at = datetime('now', 'localtime')
+         WHERE id = ?`
+      )
+      .run(decision, Number(reviewerId), occurredAt, decision === 'rejected' ? reason : null, Number(recordId));
+    await writeLog(db, {
+      employeeId: row.employee_id,
+      workDate: record.workDate,
+      action: decision === 'approved' ? 'remote_approve' : 'remote_reject',
+      occurredAt,
+      actorId: reviewerId,
+      reason: reason || null,
+    });
+  });
+  const [updated] = await loadReviewRows('r.id = ?', [Number(recordId)]);
+  return mapReviewRow(updated);
 }
 
 function pickTimes(record) {
@@ -1011,13 +1169,14 @@ export async function exportMonthly(monthText, employeeIds = null) {
   const hours = (minutes) => (minutes ? Math.round((minutes / 60) * 100) / 100 : 0);
   const headers = [
     '사번', '성명', '사업장', '부서', '직급', '근무일', '출근일', '지각', '조퇴', '결근', '출근누락', '퇴근누락',
-    '연차(일)', '출장', '외근', '휴일근무', '근무시간(h)', '연장(h)', '야간(h)',
+    '연차(일)', '출장', '외근', '외근·출장 확인대기', '휴일근무', '근무시간(h)', '연장(h)', '야간(h)',
   ];
   const rows = report.rows.map((row) => {
     const s = row.summary;
     return [
       row.empNo, row.name, row.workplace, row.department, row.position, s.scheduledDays, s.attendedDays, s.late,
-      s.early, s.absent, s.missingIn, s.missingOut, s.leaveDays, s.tripDays, s.outsideDays, s.holidayWorkDays,
+      s.early, s.absent, s.missingIn, s.missingOut, s.leaveDays, s.tripDays, s.outsideDays, s.remotePending,
+      s.holidayWorkDays,
       hours(s.workMinutes), hours(s.overtimeMinutes), hours(s.nightMinutes),
     ];
   });

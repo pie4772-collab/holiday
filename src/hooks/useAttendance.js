@@ -85,6 +85,21 @@ export function useAttendanceClosing() {
   });
 }
 
+export function useRemoteReviews(status) {
+  return useQuery({
+    queryKey: ['attendance', 'remote-reviews', status],
+    queryFn: () => leaveApi.getRemoteReviews(status),
+  });
+}
+
+export function useReviewRemote() {
+  const invalidate = useInvalidateAttendance();
+  return useMutation({
+    mutationFn: ({ recordId, data }) => leaveApi.reviewRemote(recordId, data),
+    onSuccess: invalidate,
+  });
+}
+
 export function useAttendanceSettings() {
   return useQuery({ queryKey: attendanceKeys.settings, queryFn: leaveApi.getAttendanceSettings });
 }

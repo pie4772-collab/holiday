@@ -11,8 +11,10 @@ export const WORK_TYPE_LABELS = Object.fromEntries(WORK_TYPES.map((t) => [t.key,
 /** 장소 입력이 필요한 유형 */
 export const REMOTE_WORK_TYPES = ['outside', 'trip', 'overseas'];
 
-/** 지각·조퇴 판정을 하지 않는 유형 */
+/** 출장 유형 (집계에서 외근과 구분) */
 export const TRIP_WORK_TYPES = ['trip', 'overseas'];
+
+export const REMOTE_STATUS_LABELS = { pending: '확인 대기', approved: '확인됨', rejected: '반려' };
 
 /** 하루의 경계. 이 시각 이전 퇴근은 전날 근무로, 출근은 이 시각부터 가능합니다. */
 export const DAY_BOUNDARY_HOUR = 5;
@@ -38,6 +40,8 @@ export const ATTENDANCE_FLAGS = [
   { key: 'late', label: '지각', variant: 'danger' },
   { key: 'early', label: '조퇴', variant: 'danger' },
   { key: 'not_yet', label: '미출근', variant: 'warning' },
+  { key: 'remote_rejected', label: '외근·출장 반려', variant: 'danger' },
+  { key: 'remote_pending', label: '외근·출장 확인 대기', variant: 'warning' },
   { key: 'working', label: '근무 중', variant: 'success' },
   { key: 'leave_am', label: '오전 반차', variant: 'info' },
   { key: 'leave_pm', label: '오후 반차', variant: 'info' },

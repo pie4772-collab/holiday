@@ -454,6 +454,14 @@ export const leaveApi = {
     return apiClient(`/attendance/me?month=${month}`);
   },
 
+  async getRemoteReviews(status = 'pending') {
+    return apiClient(`/attendance/remote-reviews?status=${status}`);
+  },
+
+  async reviewRemote(recordId, data) {
+    return apiClient(`/attendance/records/${recordId}/remote-review`, { method: 'POST', body: data });
+  },
+
   async getAttendanceDaily(date) {
     return apiClient(`/admin/attendance/daily?date=${date}`);
   },

@@ -19,6 +19,8 @@ const LOG_LABELS = {
   check_out_again: '퇴근 재기록',
   correct: '정정',
   delete: '기록 삭제',
+  remote_approve: '외근·출장 확인',
+  remote_reject: '외근·출장 반려',
 };
 
 function describeTimes(times) {
@@ -117,7 +119,9 @@ export function AdminAttendanceEmployee() {
                     <td className="font-mono text-[12px] whitespace-nowrap">{log.workDate}</td>
                     <td className="whitespace-nowrap">{LOG_LABELS[log.action] || log.action}</td>
                     <td className="text-[13px]">
-                      {log.detail ? (
+                      {log.action.startsWith('remote_') ? (
+                        <span className="text-stripe-muted">{log.reason ? `사유: ${log.reason}` : '-'}</span>
+                      ) : log.detail ? (
                         <>
                           {describeTimes(log.detail.before)} → {describeTimes(log.detail.after)}
                           {log.reason && <span className="block text-stripe-muted">사유: {log.reason}</span>}

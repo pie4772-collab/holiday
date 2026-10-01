@@ -694,6 +694,36 @@ router.get('/attendance/me', requireAuth, async (req, res, next) => {
   }
 });
 
+function attendanceEditCovers(access) {
+  return (employeeRow) => access.covers('attendance.edit', employeeRow);
+}
+
+router.get('/attendance/remote-reviews', loadAccess, async (req, res, next) => {
+  try {
+    const status = req.query.status === 'done' ? 'done' : 'pending';
+    res.json(
+      await attendanceService.listRemoteReviews(req.user.employeeId, attendanceEditCovers(req.access), { status })
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/attendance/records/:id/remote-review', loadAccess, async (req, res, next) => {
+  try {
+    res.json(
+      await attendanceService.reviewRemote(
+        req.params.id,
+        req.user.employeeId,
+        attendanceEditCovers(req.access),
+        req.body || {}
+      )
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get('/admin/attendance/daily', requirePermission('attendance.view'), async (req, res, next) => {
   try {
     const ids = await accessService.scopedEmployeeIds(req.access, 'attendance.view');

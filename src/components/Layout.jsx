@@ -20,6 +20,7 @@ import {
   Clock,
   Settings2,
   MapPinCheck,
+  Megaphone,
 } from 'lucide-react';
 import { ASSIGNABLE_ROLES, ROLE_LABELS, canAccessAdmin, hasPermission } from '../utils/access';
 import { useAppStore } from '../store/useAppStore';
@@ -30,6 +31,7 @@ import { BrandLockup } from './BrandLockup';
 
 const employeeNav = [
   { to: '/employee', icon: LayoutDashboard, label: 'Home', end: true },
+  { to: '/employee/notices', icon: Megaphone, label: '공지사항' },
   { to: '/employee/attendance', icon: Clock, label: '출퇴근' },
   { to: '/employee/history', icon: History, label: '연차 사용현황' },
   { to: '/employee/calendar', icon: Calendar, label: '캘린더' },

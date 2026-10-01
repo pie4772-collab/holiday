@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { getDb } from '../db.js';
 import { decryptBytes, encryptBytes } from '../secrets.js';
+import { validateUpload } from '../utils/fileUpload.js';
 import {
   DOCUMENT_EXTENSIONS,
-  DOCUMENT_MAX_BYTES,
   DOCUMENT_PREVIEW_EXTENSIONS,
   DOCUMENT_TYPES,
   PROFILE_FIELDS,
@@ -232,28 +232,6 @@ export async function deleteRecord(id) {
 
 // ----- 입사 증명서류 -----
 
-const DOCUMENT_SIGNATURES = {
-  pdf: (b) => b.subarray(0, 4).toString('latin1') === '%PDF',
-  png: (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
-  jpg: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
-  jpeg: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
-  gif: (b) => b.subarray(0, 4).toString('latin1') === 'GIF8',
-  webp: (b) => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP',
-};
-
-function cleanFileName(value) {
-  const base = [...text(value).split(/[\\/]/).pop()]
-    .filter((ch) => ch.charCodeAt(0) >= 32 && ch.charCodeAt(0) !== 127)
-    .join('')
-    .replace(/["<>|:*?]/g, '')
-    .trim();
-  if (!base) throw httpError('파일 이름이 없습니다.');
-  if (base.length <= 150) return base;
-  const dot = base.lastIndexOf('.');
-  const ext = dot > 0 ? base.slice(dot) : '';
-  return base.slice(0, 150 - ext.length) + ext;
-}
-
 function mapDocumentRow(row) {
   return {
     id: String(row.id),
@@ -287,19 +265,7 @@ export async function createDocument(employeeId, { docType, fileName, notes, con
   const employee = await getEmployee(employeeId);
   const type = text(docType);
   if (!DOCUMENT_TYPES.includes(type)) throw httpError('서류 종류를 선택하세요.');
-  const name = cleanFileName(fileName);
-  const dot = name.lastIndexOf('.');
-  const extension = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
-  if (!DOCUMENT_EXTENSIONS[extension]) {
-    throw httpError(`올릴 수 없는 파일 형식입니다. (${Object.keys(DOCUMENT_EXTENSIONS).join(', ')})`);
-  }
-  if (!Buffer.isBuffer(content) || !content.length) throw httpError('파일 내용이 비어 있습니다.');
-  if (content.length > DOCUMENT_MAX_BYTES) {
-    throw httpError(`파일은 ${Math.round(DOCUMENT_MAX_BYTES / 1024 / 1024)}MB 이하만 올릴 수 있습니다.`, 413);
-  }
-  if (DOCUMENT_SIGNATURES[extension] && !DOCUMENT_SIGNATURES[extension](content)) {
-    throw httpError(`파일 내용이 확장자(.${extension})와 맞지 않습니다.`);
-  }
+  const { name, extension } = validateUpload(fileName, content);
   const memo = cleanValue('notes', notes, '메모');
   const result = await getDb()
     .prepare(

@@ -24,6 +24,8 @@ import { AdminPersonnelList } from './pages/admin/AdminPersonnelList';
 import { AdminPersonnelCard } from './pages/admin/AdminPersonnelCard';
 import { EmployeeAttendance } from './pages/employee/EmployeeAttendance';
 import { AttendanceRemoteReviews } from './pages/employee/AttendanceRemoteReviews';
+import { EmployeeNotices } from './pages/employee/EmployeeNotices';
+import { EmployeeNoticeDetail } from './pages/employee/EmployeeNoticeDetail';
 import { AdminAttendance } from './pages/admin/AdminAttendance';
 import { AdminAttendanceEmployee } from './pages/admin/AdminAttendanceEmployee';
 import { AdminAttendanceSettings } from './pages/admin/AdminAttendanceSettings';
@@ -129,6 +131,8 @@ function AppRoutes() {
           <Route path="request" element={<EmployeeRequest />} />
           <Route path="approvals" element={<EmployeeApprovals />} />
           <Route path="profile" element={<EmployeeProfile />} />
+          <Route path="notices" element={<EmployeeNotices />} />
+          <Route path="notices/:id" element={<EmployeeNoticeDetail />} />
           <Route path="attendance" element={<EmployeeAttendance />} />
           <Route path="attendance-reviews" element={<AttendanceRemoteReviews />} />
           <Route

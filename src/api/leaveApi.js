@@ -361,6 +361,69 @@ export const leaveApi = {
     return apiClient(`/admin/personnel/records/${recordId}`, { method: 'DELETE' });
   },
 
+  async getNotices(limit) {
+    return apiClient(`/notices${limit ? `?limit=${limit}` : ''}`);
+  },
+
+  async getNotice(id) {
+    return apiClient(`/notices/${id}`);
+  },
+
+  async getNoticeTargets() {
+    return apiClient('/notices/targets');
+  },
+
+  async saveNotice(id, data) {
+    return id
+      ? apiClient(`/notices/${id}`, { method: 'PUT', body: data })
+      : apiClient('/notices', { method: 'POST', body: data });
+  },
+
+  async deleteNotice(id) {
+    return apiClient(`/notices/${id}`, { method: 'DELETE' });
+  },
+
+  async confirmNoticeRead(id) {
+    return apiClient(`/notices/${id}/read`, { method: 'POST' });
+  },
+
+  async getNoticeReads(id) {
+    return apiClient(`/notices/${id}/reads`);
+  },
+
+  async uploadNoticeFile(id, file) {
+    const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+    const token = getAuthToken();
+    const response = await fetch(`${API_BASE}/notices/${id}/files?${new URLSearchParams({ fileName: file.name })}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: file,
+    });
+    const data = await response.json().catch(() => ({ message: '업로드 실패' }));
+    if (!response.ok) throw new Error(data.message || `HTTP ${response.status}`);
+    return data;
+  },
+
+  async downloadNoticeFile(fileId) {
+    const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+    const token = getAuthToken();
+    const response = await fetch(`${API_BASE}/notices/files/${fileId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: '내려받기 실패' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.blob();
+  },
+
+  async deleteNoticeFile(fileId) {
+    return apiClient(`/notices/files/${fileId}`, { method: 'DELETE' });
+  },
+
   async getPersonnelDocuments(employeeId) {
     return apiClient(`/admin/employees/${employeeId}/personnel/documents`);
   },

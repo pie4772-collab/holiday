@@ -11,7 +11,7 @@ import { useCurrentEmployee, useLeaveUsages } from '../../hooks/useLeaveData';
 import { formatDate } from '../../utils/leaveCalculations';
 import { LeaveUsageList } from '../../components/LeaveUsageList';
 import { useAppStore } from '../../store/useAppStore';
-import { AttendanceTodayCard } from '../../components/attendance/AttendanceTodayCard';
+import { NoticeBoard } from '../../components/notices/NoticeBoard';
 
 export function EmployeeDashboard() {
   const { lastRequestMessage } = useAppStore();
@@ -54,9 +54,7 @@ export function EmployeeDashboard() {
         </div>
       </PageHeader>
 
-      <div className="mb-8 max-w-xl">
-        <AttendanceTodayCard showLink />
-      </div>
+      <NoticeBoard />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-8">
         <LeaveSummaryCard

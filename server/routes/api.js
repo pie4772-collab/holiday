@@ -9,6 +9,8 @@ import * as approvalService from '../services/approvalService.js';
 import * as mailService from '../services/mailService.js';
 import * as personnelService from '../services/personnelService.js';
 import * as attendanceService from '../services/attendanceService.js';
+import * as noticeService from '../services/noticeService.js';
+import { sendFile } from '../utils/fileUpload.js';
 import { getClientIp, describeClientIp } from '../utils/clientIp.js';
 import { DOCUMENT_MAX_BYTES } from '../../src/constants/personnel.js';
 import { getDb } from '../db.js';
@@ -712,6 +714,103 @@ router.post('/admin/personnel/import', requirePermission('records.edit'), async 
     res.status(result.applied ? 200 : 400).json(
       result.applied ? result : { ...result, message: `오류 ${result.errors.length}건이 있어 반영하지 않았습니다.` }
     );
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ───────────── 사내 공지 ───────────── */
+
+router.get('/notices', loadAccess, async (req, res, next) => {
+  try {
+    res.json(await noticeService.listNotices(req.access, { limit: req.query.limit }));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/notices/targets', loadAccess, async (req, res, next) => {
+  try {
+    res.json(await noticeService.listTargets(req.access));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/notices/:id', loadAccess, async (req, res, next) => {
+  try {
+    res.json(await noticeService.getNotice(req.access, req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/notices', requirePermission('notices.manage'), async (req, res, next) => {
+  try {
+    res.status(201).json(await noticeService.createNotice(req.access, req.body || {}));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.put('/notices/:id', requirePermission('notices.manage'), async (req, res, next) => {
+  try {
+    res.json(await noticeService.updateNotice(req.access, req.params.id, req.body || {}));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete('/notices/:id', requirePermission('notices.manage'), async (req, res, next) => {
+  try {
+    await noticeService.deleteNotice(req.access, req.params.id);
+    res.json({ success: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/notices/:id/read', loadAccess, async (req, res, next) => {
+  try {
+    res.json(await noticeService.confirmRead(req.access, req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/notices/:id/reads', requirePermission('notices.manage'), async (req, res, next) => {
+  try {
+    res.json(await noticeService.getReadStatus(req.access, req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** 본문은 파일 원본(application/octet-stream), 파일 이름은 쿼리로 받습니다. */
+router.post('/notices/:id/files', requirePermission('notices.manage'), readDocumentBody, async (req, res, next) => {
+  try {
+    res.status(201).json(
+      await noticeService.addFile(req.access, req.params.id, {
+        fileName: req.query.fileName,
+        content: Buffer.isBuffer(req.body) ? req.body : null,
+      })
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/notices/files/:fileId', loadAccess, async (req, res, next) => {
+  try {
+    sendFile(res, await noticeService.getFile(req.access, req.params.fileId));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete('/notices/files/:fileId', requirePermission('notices.manage'), async (req, res, next) => {
+  try {
+    res.json(await noticeService.deleteFile(req.access, req.params.fileId));
   } catch (e) {
     next(e);
   }

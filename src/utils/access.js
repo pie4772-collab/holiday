@@ -10,10 +10,10 @@ export const ROLE_LABELS = {
 export const ASSIGNABLE_ROLES = ['system_admin', 'hr', 'payroll', 'site_admin'];
 
 export const ROLE_DESCRIPTIONS = {
-  system_admin: '전체 기능·역할 지정·메일 서버',
-  hr: '사원 명부·인사기록카드·연차·근태·결재 라인·보고서 (연차 결재 관리자)',
+  system_admin: '전체 기능·역할 지정·메일 서버·공지',
+  hr: '사원 명부·인사기록카드·연차·근태·결재 라인·보고서·공지 (연차 결재 관리자)',
   payroll: 'IFRS 연차부채·연차 정산·통상임금·근태 조회',
-  site_admin: '본인 사업장의 연차 관리·명부·인사기록카드 조회·근태 조회/정정·이력·보고서',
+  site_admin: '본인 사업장의 연차 관리·명부·인사기록카드 조회·근태 조회/정정·이력·보고서·공지',
 };
 
 export const ROLE_BADGE_VARIANTS = {

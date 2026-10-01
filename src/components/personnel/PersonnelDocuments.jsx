@@ -4,6 +4,7 @@ import { Panel, PanelBody, PanelHeader } from '../ui/Panel';
 import { Button } from '../ui/Button';
 import { LoadingSpinner } from '../LoadingSpinner';
 import { leaveApi } from '../../api/leaveApi';
+import { formatFileSize, openProtectedFile } from '../../utils/fileDownload';
 import { DOCUMENT_EXTENSIONS, DOCUMENT_MAX_BYTES, DOCUMENT_TYPES } from '../../constants/personnel';
 import {
   useDeletePersonnelDocument,
@@ -15,12 +16,6 @@ const ACCEPT = Object.keys(DOCUMENT_EXTENSIONS)
   .map((ext) => `.${ext}`)
   .join(',');
 const MAX_MB = Math.round(DOCUMENT_MAX_BYTES / 1024 / 1024);
-
-function formatSize(bytes) {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
-}
 
 function UploadForm({ employeeId, onMessage }) {
   const upload = useUploadPersonnelDocument();
@@ -97,22 +92,10 @@ export function PersonnelDocuments({ employeeId, editable }) {
   const [busyId, setBusyId] = useState(null);
 
   async function handleOpen(doc, preview) {
-    const win = preview ? window.open('', '_blank') : null;
     setBusyId(doc.id);
     try {
-      const blob = await leaveApi.downloadPersonnelDocument(doc.id);
-      const url = URL.createObjectURL(blob);
-      if (win) {
-        win.location.href = url;
-      } else {
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = doc.fileName;
-        link.click();
-      }
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      await openProtectedFile(() => leaveApi.downloadPersonnelDocument(doc.id), doc.fileName, preview);
     } catch (err) {
-      win?.close();
       window.alert(err.message || '파일을 열지 못했습니다.');
     } finally {
       setBusyId(null);
@@ -173,7 +156,7 @@ export function PersonnelDocuments({ employeeId, editable }) {
                 <tr key={doc.id}>
                   <td className="whitespace-nowrap">{doc.docType}</td>
                   <td className="break-all max-w-[260px]">{doc.fileName}</td>
-                  <td className="whitespace-nowrap font-mono text-[13px]">{formatSize(doc.sizeBytes)}</td>
+                  <td className="whitespace-nowrap font-mono text-[13px]">{formatFileSize(doc.sizeBytes)}</td>
                   <td className="whitespace-pre-wrap break-words max-w-[200px]">
                     {doc.notes || <span className="muted">-</span>}
                   </td>

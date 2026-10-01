@@ -5,7 +5,34 @@ export const personnelKeys = {
   all: ['personnel'],
   card: (id) => ['personnel', 'card', id],
   mine: ['personnel', 'mine'],
+  documents: (id) => ['personnel', 'documents', id],
 };
+
+export function usePersonnelDocuments(employeeId) {
+  return useQuery({
+    queryKey: personnelKeys.documents(employeeId),
+    queryFn: () => leaveApi.getPersonnelDocuments(employeeId),
+    enabled: Boolean(employeeId),
+  });
+}
+
+export function useUploadPersonnelDocument() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ employeeId, ...data }) => leaveApi.uploadPersonnelDocument(employeeId, data),
+    onSuccess: (_data, { employeeId }) =>
+      queryClient.invalidateQueries({ queryKey: personnelKeys.documents(employeeId) }),
+  });
+}
+
+export function useDeletePersonnelDocument() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ docId }) => leaveApi.deletePersonnelDocument(docId),
+    onSuccess: (_data, { employeeId }) =>
+      queryClient.invalidateQueries({ queryKey: personnelKeys.documents(employeeId) }),
+  });
+}
 
 export function usePersonnelCard(employeeId) {
   return useQuery({

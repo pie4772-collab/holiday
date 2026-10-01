@@ -3,6 +3,7 @@ import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { PersonnelCard } from '../../components/personnel/PersonnelCard';
+import { PersonnelDocuments } from '../../components/personnel/PersonnelDocuments';
 import { useCurrentEmployee } from '../../hooks/useLeaveData';
 import {
   useDeletePersonnelRecord,
@@ -41,6 +42,7 @@ export function AdminPersonnelCard() {
           deleteRecord: (recordId) => deleteRecord.mutateAsync({ recordId }),
           isSaving: saveProfile.isPending || saveRecord.isPending || deleteRecord.isPending,
         }}
+        documents={<PersonnelDocuments employeeId={id} editable={hasPermission(currentEmployee, 'records.edit')} />}
       />
     </div>
   );

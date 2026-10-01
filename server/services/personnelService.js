@@ -1,5 +1,11 @@
+import { createHash } from 'node:crypto';
 import { getDb } from '../db.js';
+import { decryptBytes, encryptBytes } from '../secrets.js';
 import {
+  DOCUMENT_EXTENSIONS,
+  DOCUMENT_MAX_BYTES,
+  DOCUMENT_PREVIEW_EXTENSIONS,
+  DOCUMENT_TYPES,
   PROFILE_FIELDS,
   RECORD_CATEGORIES,
   RECORD_CATEGORY_KEYS,
@@ -222,6 +228,117 @@ export async function updateRecord(id, data, actorId) {
 export async function deleteRecord(id) {
   const result = await getDb().prepare('DELETE FROM employee_records WHERE id = ?').run(Number(id));
   if (!result.changes) throw httpError('이력을 찾을 수 없습니다.', 404);
+}
+
+// ----- 입사 증명서류 -----
+
+const DOCUMENT_SIGNATURES = {
+  pdf: (b) => b.subarray(0, 4).toString('latin1') === '%PDF',
+  png: (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+  jpg: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  jpeg: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  gif: (b) => b.subarray(0, 4).toString('latin1') === 'GIF8',
+  webp: (b) => b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP',
+};
+
+function cleanFileName(value) {
+  const base = [...text(value).split(/[\\/]/).pop()]
+    .filter((ch) => ch.charCodeAt(0) >= 32 && ch.charCodeAt(0) !== 127)
+    .join('')
+    .replace(/["<>|:*?]/g, '')
+    .trim();
+  if (!base) throw httpError('파일 이름이 없습니다.');
+  if (base.length <= 150) return base;
+  const dot = base.lastIndexOf('.');
+  const ext = dot > 0 ? base.slice(dot) : '';
+  return base.slice(0, 150 - ext.length) + ext;
+}
+
+function mapDocumentRow(row) {
+  return {
+    id: String(row.id),
+    docType: row.doc_type,
+    fileName: row.file_name,
+    extension: row.extension,
+    sizeBytes: Number(row.size_bytes),
+    notes: row.notes || '',
+    uploadedBy: row.uploader_name || '',
+    createdAt: row.created_at,
+    previewable: DOCUMENT_PREVIEW_EXTENSIONS.includes(row.extension),
+  };
+}
+
+const DOCUMENT_LIST_SQL = `
+  SELECT d.id, d.employee_id, d.doc_type, d.file_name, d.extension, d.size_bytes, d.notes, d.created_at,
+         u.name AS uploader_name
+  FROM employee_documents d
+  LEFT JOIN employees u ON u.id = d.uploaded_by`;
+
+export async function listDocuments(employeeId) {
+  const employee = await getEmployee(employeeId);
+  const rows = await getDb()
+    .prepare(`${DOCUMENT_LIST_SQL} WHERE d.employee_id = ? ORDER BY d.id DESC`)
+    .all(employee.id);
+  return rows.map(mapDocumentRow);
+}
+
+/** 파일 내용(Buffer)을 암호화해 저장합니다. */
+export async function createDocument(employeeId, { docType, fileName, notes, content }, actorId) {
+  const employee = await getEmployee(employeeId);
+  const type = text(docType);
+  if (!DOCUMENT_TYPES.includes(type)) throw httpError('서류 종류를 선택하세요.');
+  const name = cleanFileName(fileName);
+  const dot = name.lastIndexOf('.');
+  const extension = dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
+  if (!DOCUMENT_EXTENSIONS[extension]) {
+    throw httpError(`올릴 수 없는 파일 형식입니다. (${Object.keys(DOCUMENT_EXTENSIONS).join(', ')})`);
+  }
+  if (!Buffer.isBuffer(content) || !content.length) throw httpError('파일 내용이 비어 있습니다.');
+  if (content.length > DOCUMENT_MAX_BYTES) {
+    throw httpError(`파일은 ${Math.round(DOCUMENT_MAX_BYTES / 1024 / 1024)}MB 이하만 올릴 수 있습니다.`, 413);
+  }
+  if (DOCUMENT_SIGNATURES[extension] && !DOCUMENT_SIGNATURES[extension](content)) {
+    throw httpError(`파일 내용이 확장자(.${extension})와 맞지 않습니다.`);
+  }
+  const memo = cleanValue('notes', notes, '메모');
+  const result = await getDb()
+    .prepare(
+      `INSERT INTO employee_documents
+         (employee_id, doc_type, file_name, extension, size_bytes, sha256, notes, content, uploaded_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      employee.id,
+      type,
+      name,
+      extension,
+      content.length,
+      createHash('sha256').update(content).digest('hex'),
+      memo,
+      encryptBytes(content),
+      actorId ? Number(actorId) : null
+    );
+  const row = await getDb().prepare(`${DOCUMENT_LIST_SQL} WHERE d.id = ?`).get(result.lastInsertRowid);
+  return mapDocumentRow(row);
+}
+
+/** 내려받기용으로 복호화한 파일을 돌려줍니다. */
+export async function getDocumentFile(id) {
+  const row = await getDb().prepare('SELECT * FROM employee_documents WHERE id = ?').get(Number(id));
+  if (!row) throw httpError('서류를 찾을 수 없습니다.', 404);
+  const content = decryptBytes(row.content);
+  if (!content) throw httpError('서류를 복호화하지 못했습니다. 비밀 키가 바뀌었는지 확인하세요.', 500);
+  return {
+    fileName: row.file_name,
+    contentType: DOCUMENT_EXTENSIONS[row.extension] || 'application/octet-stream',
+    previewable: DOCUMENT_PREVIEW_EXTENSIONS.includes(row.extension),
+    content,
+  };
+}
+
+export async function deleteDocument(id) {
+  const result = await getDb().prepare('DELETE FROM employee_documents WHERE id = ?').run(Number(id));
+  if (!result.changes) throw httpError('서류를 찾을 수 없습니다.', 404);
 }
 
 // ----- CSV 내려받기(양식 겸 현재 데이터)·올리기 -----

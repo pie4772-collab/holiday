@@ -10,6 +10,7 @@ import * as mailService from '../services/mailService.js';
 import * as personnelService from '../services/personnelService.js';
 import * as attendanceService from '../services/attendanceService.js';
 import { getClientIp, describeClientIp } from '../utils/clientIp.js';
+import { DOCUMENT_MAX_BYTES } from '../../src/constants/personnel.js';
 import { getDb } from '../db.js';
 
 const router = express.Router();
@@ -611,6 +612,76 @@ router.delete('/admin/personnel/records/:recordId', requirePermission('records.e
   try {
     if (!(await requireCoveredRecord(req, res, 'records.edit', 'employee_records', req.params.recordId))) return;
     await personnelService.deleteRecord(req.params.recordId);
+    res.json({ success: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const parseDocumentBody = express.raw({ type: 'application/octet-stream', limit: DOCUMENT_MAX_BYTES });
+
+function readDocumentBody(req, res, next) {
+  parseDocumentBody(req, res, (err) => {
+    if (err?.type === 'entity.too.large') {
+      return res.status(413).json({ message: `파일은 ${Math.round(DOCUMENT_MAX_BYTES / 1024 / 1024)}MB 이하만 올릴 수 있습니다.` });
+    }
+    next(err);
+  });
+}
+
+router.get('/admin/employees/:id/personnel/documents', requirePermission('records.view'), async (req, res, next) => {
+  try {
+    if (!(await requireCoveredEmployee(req, res, 'records.view', req.params.id))) return;
+    res.json(await personnelService.listDocuments(req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** 본문은 파일 원본(application/octet-stream), 종류·이름·메모는 쿼리로 받습니다. */
+router.post(
+  '/admin/employees/:id/personnel/documents',
+  requirePermission('records.edit'),
+  readDocumentBody,
+  async (req, res, next) => {
+    try {
+      if (!(await requireCoveredEmployee(req, res, 'records.edit', req.params.id))) return;
+      const document = await personnelService.createDocument(
+        req.params.id,
+        {
+          docType: req.query.docType,
+          fileName: req.query.fileName,
+          notes: req.query.notes,
+          content: Buffer.isBuffer(req.body) ? req.body : null,
+        },
+        req.user.employeeId
+      );
+      res.status(201).json(document);
+    } catch (e) {
+      next(e);
+    }
+  }
+);
+
+router.get('/admin/personnel/documents/:docId/file', requirePermission('records.view'), async (req, res, next) => {
+  try {
+    if (!(await requireCoveredRecord(req, res, 'records.view', 'employee_documents', req.params.docId))) return;
+    const file = await personnelService.getDocumentFile(req.params.docId);
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Content-Length', String(file.content.length));
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.end(file.content);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete('/admin/personnel/documents/:docId', requirePermission('records.edit'), async (req, res, next) => {
+  try {
+    if (!(await requireCoveredRecord(req, res, 'records.edit', 'employee_documents', req.params.docId))) return;
+    await personnelService.deleteDocument(req.params.docId);
     res.json({ success: true });
   } catch (e) {
     next(e);

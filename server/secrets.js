@@ -40,6 +40,7 @@ function deriveKey(purpose) {
 }
 
 const FIELD_KEY = deriveKey('field-encryption');
+const FILE_KEY = deriveKey('file-encryption');
 
 /** SESSION_SECRET이 있으면 그 값을, 없으면 비밀 키에서 파생한 값을 세션 서명에 씁니다. */
 export const SESSION_SECRET = (() => {
@@ -71,6 +72,27 @@ export function decryptField(value) {
     const decipher = createDecipheriv('aes-256-gcm', FIELD_KEY, raw.subarray(0, 12));
     decipher.setAuthTag(raw.subarray(12, 28));
     return Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** 파일 내용(Buffer)을 암호화해 문자열로 돌려줍니다. */
+export function encryptBytes(buffer) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', FILE_KEY, iv);
+  const body = Buffer.concat([cipher.update(buffer), cipher.final()]);
+  return ENCRYPTED_PREFIX + Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64');
+}
+
+/** encryptBytes 결과를 Buffer로 되돌립니다. 키가 달라 풀 수 없으면 null입니다. */
+export function decryptBytes(value) {
+  if (!isEncrypted(value)) return null;
+  try {
+    const raw = Buffer.from(value.slice(ENCRYPTED_PREFIX.length), 'base64');
+    const decipher = createDecipheriv('aes-256-gcm', FILE_KEY, raw.subarray(0, 12));
+    decipher.setAuthTag(raw.subarray(12, 28));
+    return Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]);
   } catch {
     return null;
   }

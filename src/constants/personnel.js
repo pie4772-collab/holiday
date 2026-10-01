@@ -81,3 +81,41 @@ export const RECORD_CATEGORY_KEYS = RECORD_CATEGORIES.map((c) => c.key);
 
 /** 직원 본인 화면에서는 평가 결과를 보여주지 않습니다. */
 export const SELF_HIDDEN_CATEGORIES = ['evaluation'];
+
+/** 입사 증명서류 종류. 관리자(인사기록카드 조회 권한)만 볼 수 있습니다. */
+export const DOCUMENT_TYPES = [
+  '이력서',
+  '자기소개서',
+  '주민등록등본',
+  '가족관계증명서',
+  '최종학력증명서',
+  '성적증명서',
+  '경력증명서',
+  '자격증 사본',
+  '건강진단서',
+  '통장 사본',
+  '신분증 사본',
+  '근로계약서',
+  '기타',
+];
+
+export const DOCUMENT_MAX_BYTES = 10 * 1024 * 1024;
+
+/** 확장자 → 내려받을 때 쓰는 형식. 미리보기는 PDF·이미지만 합니다. */
+export const DOCUMENT_EXTENSIONS = {
+  pdf: 'application/pdf',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  hwp: 'application/x-hwp',
+  hwpx: 'application/haansofthwpx',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  zip: 'application/zip',
+};
+
+export const DOCUMENT_PREVIEW_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp'];

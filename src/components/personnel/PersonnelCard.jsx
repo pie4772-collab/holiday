@@ -325,10 +325,15 @@ function RecordSection({ category, records, editable, onSave, onDelete, isSaving
 /**
  * 인사기록카드 화면. editable 이면 수정 버튼을 보여 줍니다.
  * handlers: { saveProfile(data), saveRecord(recordId, data), deleteRecord(recordId), isSaving }
+ * documents 를 넘기면(관리자 화면) 증명서류 탭을 붙입니다.
  */
-export function PersonnelCard({ card, editable = false, handlers = {} }) {
+export function PersonnelCard({ card, editable = false, handlers = {}, documents = null }) {
   const categories = RECORD_CATEGORIES.filter((c) => card.records[c.key]);
-  const tabs = [...PROFILE_TABS, ...categories.map((c) => ({ key: c.key, label: c.label }))];
+  const tabs = [
+    ...PROFILE_TABS,
+    ...categories.map((c) => ({ key: c.key, label: c.label })),
+    ...(documents ? [{ key: 'documents', label: '증명서류' }] : []),
+  ];
   const [tab, setTab] = useState('basic');
   const category = categories.find((c) => c.key === tab);
 
@@ -356,7 +361,9 @@ export function PersonnelCard({ card, editable = false, handlers = {} }) {
         })}
       </div>
 
-      {category ? (
+      {tab === 'documents' ? (
+        documents
+      ) : category ? (
         <RecordSection
           key={category.key}
           category={category}

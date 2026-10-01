@@ -361,6 +361,44 @@ export const leaveApi = {
     return apiClient(`/admin/personnel/records/${recordId}`, { method: 'DELETE' });
   },
 
+  async getPersonnelDocuments(employeeId) {
+    return apiClient(`/admin/employees/${employeeId}/personnel/documents`);
+  },
+
+  async uploadPersonnelDocument(employeeId, { file, docType, notes }) {
+    const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+    const token = getAuthToken();
+    const q = new URLSearchParams({ docType, fileName: file.name, ...(notes ? { notes } : {}) });
+    const response = await fetch(`${API_BASE}/admin/employees/${employeeId}/personnel/documents?${q}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: file,
+    });
+    const data = await response.json().catch(() => ({ message: '업로드 실패' }));
+    if (!response.ok) throw new Error(data.message || `HTTP ${response.status}`);
+    return data;
+  },
+
+  async downloadPersonnelDocument(docId) {
+    const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+    const token = getAuthToken();
+    const response = await fetch(`${API_BASE}/admin/personnel/documents/${docId}/file`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: '내려받기 실패' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.blob();
+  },
+
+  async deletePersonnelDocument(docId) {
+    return apiClient(`/admin/personnel/documents/${docId}`, { method: 'DELETE' });
+  },
+
   async downloadPersonnelCsv(type) {
     const API_BASE = import.meta.env.VITE_API_BASE || '/api';
     const token = getAuthToken();

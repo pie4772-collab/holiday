@@ -1,4 +1,5 @@
 import { Badge } from './ui/Badge';
+import { formatLeaveType } from '../utils/leaveCalculations';
 
 const STATUS = {
   pending: { label: '승인 대기', variant: 'warning' },
@@ -28,7 +29,7 @@ export function LeaveUsageList({ usages = [], emptyText = '신청 내역이 없�
             </div>
             <div className="flex flex-col items-end gap-1 shrink-0">
               <Badge variant={usage.type === 'full' ? 'info' : 'warning'}>
-                {usage.type === 'full' ? '연차' : '반차'}
+                {formatLeaveType(usage.type, usage.halfPeriod)}
               </Badge>
               <Badge variant={status.variant}>{status.label}</Badge>
             </div>

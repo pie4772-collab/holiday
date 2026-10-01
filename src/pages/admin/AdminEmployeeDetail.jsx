@@ -166,7 +166,7 @@ export function AdminEmployeeDetail() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge variant={usage.type === 'full' ? 'info' : 'warning'}>
-                        {formatLeaveType(usage.type)}
+                        {formatLeaveType(usage.type, usage.halfPeriod)}
                       </Badge>
                       <Badge
                         variant={

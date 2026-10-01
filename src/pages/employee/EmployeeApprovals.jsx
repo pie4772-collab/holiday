@@ -8,6 +8,7 @@ import { Button } from '../../components/ui/Button';
 import { SortButton } from '../../components/ui/SortButton';
 import { usePendingApprovals, useDecideLeaveRequest } from '../../hooks/useLeaveData';
 import { useTableSort } from '../../hooks/useTableSort';
+import { formatLeaveType } from '../../utils/leaveCalculations';
 
 function requestSortValue(item, key) {
   switch (key) {
@@ -72,7 +73,7 @@ export function EmployeeApprovals() {
                       )}
                     </div>
                     <Badge variant={item.type === 'full' ? 'info' : 'warning'}>
-                      {item.type === 'full' ? '연차' : '반차'}
+                      {formatLeaveType(item.type, item.halfPeriod)}
                     </Badge>
                   </div>
                   <p className="mt-2 text-sm font-mono text-stripe-text">{item.date}</p>
@@ -124,7 +125,7 @@ export function EmployeeApprovals() {
                       <td className="font-mono text-[13px] whitespace-nowrap">{item.date}</td>
                       <td>
                         <Badge variant={item.type === 'full' ? 'info' : 'warning'}>
-                          {item.type === 'full' ? '연차' : '반차'}
+                          {formatLeaveType(item.type, item.halfPeriod)}
                         </Badge>
                       </td>
                       <td className="text-[13px] text-primary-600 whitespace-nowrap">

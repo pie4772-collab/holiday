@@ -22,6 +22,10 @@ import { EmployeeTeam } from './pages/employee/EmployeeTeam';
 import { EmployeeProfile } from './pages/employee/EmployeeProfile';
 import { AdminPersonnelList } from './pages/admin/AdminPersonnelList';
 import { AdminPersonnelCard } from './pages/admin/AdminPersonnelCard';
+import { EmployeeAttendance } from './pages/employee/EmployeeAttendance';
+import { AdminAttendance } from './pages/admin/AdminAttendance';
+import { AdminAttendanceEmployee } from './pages/admin/AdminAttendanceEmployee';
+import { AdminAttendanceSettings } from './pages/admin/AdminAttendanceSettings';
 import { AdminApprovalLines } from './pages/admin/AdminApprovalLines';
 import { AdminApprovalHistory } from './pages/admin/AdminApprovalHistory';
 import { AdminLeaveReport } from './pages/admin/AdminLeaveReport';
@@ -124,6 +128,7 @@ function AppRoutes() {
           <Route path="request" element={<EmployeeRequest />} />
           <Route path="approvals" element={<EmployeeApprovals />} />
           <Route path="profile" element={<EmployeeProfile />} />
+          <Route path="attendance" element={<EmployeeAttendance />} />
           <Route
             path="team"
             element={
@@ -141,6 +146,9 @@ function AppRoutes() {
           <Route path="roster" element={guard('employees.view', <AdminEmployeeRoster />)} />
           <Route path="personnel" element={guard('records.view', <AdminPersonnelList />)} />
           <Route path="personnel/:id" element={guard('records.view', <AdminPersonnelCard />)} />
+          <Route path="attendance" element={guard('attendance.view', <AdminAttendance />)} />
+          <Route path="attendance/:id" element={guard('attendance.view', <AdminAttendanceEmployee />)} />
+          <Route path="attendance-settings" element={guard('attendance.manage', <AdminAttendanceSettings />)} />
           <Route path="approval-lines" element={guard('approvalLines.manage', <AdminApprovalLines />)} />
           <Route path="employees" element={<Navigate to="/admin/leave-manage" replace />} />
           <Route path="employees/:id" element={guard('leave.view', <AdminEmployeeDetail />)} />

@@ -74,7 +74,7 @@ if (SERVE_STATIC) {
 
 app.use((err, req, res, _next) => {
   if (!err.status || err.status >= 500) console.error(err);
-  res.status(err.status || 500).json({ message: err.message || '서버 오류' });
+  res.status(err.status || 500).json({ ...(err.status && err.code ? { code: err.code } : {}), message: err.message || '서버 오류' });
 });
 
 const server = app.listen(PORT, HOST, () => {

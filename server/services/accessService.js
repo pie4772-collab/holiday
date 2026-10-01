@@ -21,15 +21,17 @@ const ROLE_PERMISSIONS = {
     'admin', 'employees.view', 'employees.manage', 'leave.view', 'leave.edit',
     'reports.view', 'reports.save', 'approvalLogs.view', 'approvalLines.manage',
     'payroll', 'mail.manage', 'roles.manage', 'records.view', 'records.edit',
+    'attendance.view', 'attendance.edit', 'attendance.manage',
   ],
   hr: [
     'admin', 'employees.view', 'employees.manage', 'leave.view', 'leave.edit',
     'reports.view', 'reports.save', 'approvalLogs.view', 'approvalLines.manage',
-    'records.view', 'records.edit',
+    'records.view', 'records.edit', 'attendance.view', 'attendance.edit', 'attendance.manage',
   ],
-  payroll: ['admin', 'employees.view', 'reports.view', 'payroll'],
+  payroll: ['admin', 'employees.view', 'reports.view', 'payroll', 'attendance.view'],
   site_admin: [
     'admin', 'employees.view', 'leave.view', 'leave.edit', 'reports.view', 'approvalLogs.view', 'records.view',
+    'attendance.view', 'attendance.edit',
   ],
   dept_head: ['team.view'],
 };

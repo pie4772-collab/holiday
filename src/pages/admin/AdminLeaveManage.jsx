@@ -236,7 +236,7 @@ export function AdminLeaveManage() {
                     <td className="font-mono text-[13px] font-medium">{item.date}</td>
                     <td>
                       <Badge variant={item.type === 'full' ? 'info' : 'warning'}>
-                        {formatLeaveType(item.type)}
+                        {formatLeaveType(item.type, item.halfPeriod)}
                       </Badge>
                     </td>
                     <td className="muted text-[13px]">{item.reason}</td>

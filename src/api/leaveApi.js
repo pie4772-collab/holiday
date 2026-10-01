@@ -437,4 +437,69 @@ export const leaveApi = {
     }
     return apiClient(`/admin/employees/${id}/reactivate`, { method: 'POST' });
   },
+
+  async getMyAttendanceToday() {
+    return apiClient('/attendance/me/today');
+  },
+
+  async checkIn(data) {
+    return apiClient('/attendance/check-in', { method: 'POST', body: data });
+  },
+
+  async checkOut(data) {
+    return apiClient('/attendance/check-out', { method: 'POST', body: data });
+  },
+
+  async getMyAttendanceMonth(month) {
+    return apiClient(`/attendance/me?month=${month}`);
+  },
+
+  async getAttendanceDaily(date) {
+    return apiClient(`/admin/attendance/daily?date=${date}`);
+  },
+
+  async getAttendanceMonthly(month) {
+    return apiClient(`/admin/attendance/monthly?month=${month}`);
+  },
+
+  async getEmployeeAttendance(employeeId, month) {
+    return apiClient(`/admin/attendance/employees/${employeeId}?month=${month}`);
+  },
+
+  async correctAttendance(employeeId, date, data) {
+    return apiClient(`/admin/attendance/employees/${employeeId}/days/${date}`, { method: 'PUT', body: data });
+  },
+
+  async closeAttendanceMonth(month) {
+    return apiClient('/admin/attendance/closings', { method: 'POST', body: { month } });
+  },
+
+  async reopenAttendanceMonth(month) {
+    return apiClient(`/admin/attendance/closings/${month}`, { method: 'DELETE' });
+  },
+
+  async getAttendanceSettings() {
+    return apiClient('/admin/attendance/settings');
+  },
+
+  async saveAttendanceSettings(data) {
+    return apiClient('/admin/attendance/settings', { method: 'PUT', body: data });
+  },
+
+  async checkAttendanceIp() {
+    return apiClient('/admin/attendance/ip-check');
+  },
+
+  async downloadAttendanceCsv(month) {
+    const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+    const token = getAuthToken();
+    const response = await fetch(`${API_BASE}/admin/attendance/monthly/export?month=${month}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: '내려받기 실패' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.blob();
+  },
 };

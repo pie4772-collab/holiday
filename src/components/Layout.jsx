@@ -17,6 +17,8 @@ import {
   Mail,
   Users,
   Contact,
+  Clock,
+  Settings2,
 } from 'lucide-react';
 import { ASSIGNABLE_ROLES, ROLE_LABELS, canAccessAdmin, hasPermission } from '../utils/access';
 import { useAppStore } from '../store/useAppStore';
@@ -27,6 +29,7 @@ import { BrandLockup } from './BrandLockup';
 
 const employeeNav = [
   { to: '/employee', icon: LayoutDashboard, label: 'Home', end: true },
+  { to: '/employee/attendance', icon: Clock, label: '출퇴근' },
   { to: '/employee/history', icon: History, label: '연차 사용현황' },
   { to: '/employee/calendar', icon: Calendar, label: '캘린더' },
   { to: '/employee/request', icon: FilePlus, label: '연차 신청' },
@@ -40,6 +43,8 @@ const adminNav = [
   { to: '/admin/approval-history', icon: ScrollText, label: '승인·반려 이력', permission: 'approvalLogs.view' },
   { to: '/admin/roster', icon: ClipboardList, label: '사원 명부', permission: 'employees.view' },
   { to: '/admin/personnel', icon: Contact, label: '인사기록카드', permission: 'records.view' },
+  { to: '/admin/attendance', icon: Clock, label: '근태 현황', permission: 'attendance.view' },
+  { to: '/admin/attendance-settings', icon: Settings2, label: '근태 설정', permission: 'attendance.manage' },
   { to: '/admin/approval-lines', icon: GitBranch, label: '결재 라인', permission: 'approvalLines.manage' },
   { to: '/admin/leave-reports', icon: FileSpreadsheet, label: '연차 보고서', permission: 'reports.view' },
   { to: '/admin/leave-settlements', icon: Scale, label: 'IFRS 연차부채', permission: 'payroll' },

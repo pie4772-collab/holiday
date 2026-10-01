@@ -11,6 +11,7 @@ import { useCurrentEmployee, useLeaveUsages } from '../../hooks/useLeaveData';
 import { formatDate } from '../../utils/leaveCalculations';
 import { LeaveUsageList } from '../../components/LeaveUsageList';
 import { useAppStore } from '../../store/useAppStore';
+import { AttendanceTodayCard } from '../../components/attendance/AttendanceTodayCard';
 
 export function EmployeeDashboard() {
   const { lastRequestMessage } = useAppStore();
@@ -52,6 +53,10 @@ export function EmployeeDashboard() {
           {leaveSummary.isFirstYear && <Badge variant="warning">첫해 근무 중</Badge>}
         </div>
       </PageHeader>
+
+      <div className="mb-8 max-w-xl">
+        <AttendanceTodayCard showLink />
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-8">
         <LeaveSummaryCard

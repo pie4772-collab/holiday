@@ -96,6 +96,10 @@ export async function saveMailSettings(data) {
   return getMailSettings();
 }
 
+function halfLabel(period) {
+  return period === 'am' ? '오전 반차' : period === 'pm' ? '오후 반차' : '반차';
+}
+
 function uniqueEmails(employees) {
   const seen = new Set();
   const result = [];
@@ -299,7 +303,7 @@ export async function notifyLeaveSubmitted(employee, items, approvalHint) {
       console.warn('[mail] no line approver email for', employee.name, approvalHint);
       return;
     }
-    const typeLabel = items?.[0]?.type === 'half' ? '반차' : '연차';
+    const typeLabel = items?.[0]?.type === 'half' ? halfLabel(items[0].halfPeriod) : '연차';
     const dates = datesText(items);
     const reason = items?.[0]?.reason || '';
     const href = approvalUrl(settings, false);
@@ -326,7 +330,8 @@ export async function notifyLeaveFinal(employee, usage, decision, rejectReason, 
   try {
     const settings = rowToPublic(await getRow(), true);
     if (!settings.enabled) return;
-    const typeLabel = usage.type === 'half' || usage.usage_type === 'half' ? '반차' : '연차';
+    const typeLabel =
+      usage.type === 'half' || usage.usage_type === 'half' ? halfLabel(usage.halfPeriod ?? usage.half_period) : '연차';
     const date = usage.date || usage.usage_date;
     const approved = decision === 'approve' || usage.status === 'approved' || options.intermediate;
     const resultLabel = !approved

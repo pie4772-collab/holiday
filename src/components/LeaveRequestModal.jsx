@@ -3,6 +3,7 @@ import { format } from 'date-fns';
 import { X } from 'lucide-react';
 import { Button } from './ui/Button';
 import { LEAVE_REASON_PRESETS } from '../constants/hr';
+import { HALF_PERIODS } from '../constants/attendance';
 import {
   calendarSpanDays,
   describeLeaveDates,
@@ -24,6 +25,7 @@ export function LeaveRequestModal({
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
   const [type, setType] = useState('full');
+  const [halfPeriod, setHalfPeriod] = useState('');
   const [reason, setReason] = useState('');
 
   useEffect(() => {
@@ -32,6 +34,7 @@ export function LeaveRequestModal({
     setStartDate(next);
     setEndDate(next);
     setType('full');
+    setHalfPeriod('');
     setReason('');
   }, [isOpen, initialDate]);
 
@@ -50,6 +53,7 @@ export function LeaveRequestModal({
   async function handleSubmit(e) {
     e.preventDefault();
     if (!reason.trim() || !employeeId || isSubmitting) return;
+    if (type === 'half' && !halfPeriod) return;
     try {
       await onSubmit({
         employeeId,
@@ -57,6 +61,7 @@ export function LeaveRequestModal({
         endDate: type === 'half' ? startDate : endDate,
         date: startDate,
         type,
+        ...(type === 'half' ? { halfPeriod } : {}),
         reason: reason.trim(),
       });
     } catch {
@@ -147,6 +152,31 @@ export function LeaveRequestModal({
             <p className="text-[13px] text-[#df1b41]">{blockedHalf}</p>
           )}
 
+          {type === 'half' && (
+            <div>
+              <label className="stripe-label">반차 시간대</label>
+              <div className="grid grid-cols-2 gap-2">
+                {HALF_PERIODS.map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setHalfPeriod(opt.key)}
+                    className={`rounded-md border px-3 py-2.5 text-sm font-medium transition-all ${
+                      halfPeriod === opt.key
+                        ? 'border-primary-500 bg-primary-50 text-primary-700'
+                        : 'border-stripe-border text-stripe-muted hover:border-[#c1cad6]'
+                    }`}
+                  >
+                    {opt.label} 반차
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[12px] text-stripe-muted">
+                점심시간을 기준으로 나눕니다. 오전 반차는 점심시간 이후 출근, 오후 반차는 점심시간 전에 퇴근합니다.
+              </p>
+            </div>
+          )}
+
           <div>
             <label className="stripe-label">사유</label>
             <select
@@ -188,6 +218,7 @@ export function LeaveRequestModal({
                 isSubmitting ||
                 !reason.trim() ||
                 !employeeId ||
+                (type === 'half' && !halfPeriod) ||
                 !previewDates.length ||
                 endBeforeStart ||
                 rangeTooLong
@@ -196,7 +227,7 @@ export function LeaveRequestModal({
               {isSubmitting
                 ? '신청 중...'
                 : type === 'half'
-                  ? '반차 신청하기'
+                  ? `${halfPeriod === 'am' ? '오전 ' : halfPeriod === 'pm' ? '오후 ' : ''}반차 신청하기`
                   : `${previewDates.length || 0}일 신청하기`}
             </Button>
           </div>

@@ -5,6 +5,7 @@ import { leaveBlockedReason } from '../../utils/leaveRequestDates';
 import { Button } from '../ui/Button';
 import { SelectOrInput } from '../ui/SelectOrInput';
 import { ACCRUAL_DESCRIPTION_PRESETS, LEAVE_REASON_PRESETS } from '../../constants/hr';
+import { HALF_PERIODS } from '../../constants/attendance';
 
 const ACCRUAL_TYPES = [
   { value: 'first_year_monthly', label: '첫해 월차' },
@@ -126,10 +127,11 @@ export function LeaveUsageFormModal({ isOpen, onClose, onSubmit, isSubmitting, i
           ? {
               date: initial.date,
               type: initial.type || 'full',
+              halfPeriod: initial.halfPeriod || '',
               reason: initial.reason || '',
               status: initial.status || 'approved',
             }
-          : { date: todayLocalIsoDate(), type: 'full', reason: '', status: 'approved' }
+          : { date: todayLocalIsoDate(), type: 'full', halfPeriod: '', reason: '', status: 'approved' }
       );
     }
   }, [isOpen, initial]);
@@ -190,6 +192,23 @@ export function LeaveUsageFormModal({ isOpen, onClose, onSubmit, isSubmitting, i
               ))}
             </div>
           </div>
+          {form.type === 'half' && (
+            <div>
+              <label className="stripe-label">반차 시간대</label>
+              <select
+                value={form.halfPeriod || ''}
+                onChange={(e) => setForm({ ...form, halfPeriod: e.target.value })}
+                className="stripe-input"
+              >
+                <option value="">미지정 (출근 시각으로 판정)</option>
+                {HALF_PERIODS.map((opt) => (
+                  <option key={opt.key} value={opt.key}>
+                    {opt.label} 반차
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label className="stripe-label">사유</label>
             <SelectOrInput

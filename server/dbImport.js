@@ -180,6 +180,8 @@ async function runImport(backend, source, sourceLabel, tx) {
     });
     const rows = applyOrphanRules(table, converted, foreignKeys, parentIds, orphanReport);
 
+    // 마이그레이션이 넣어 둔 기본값(예: 근태 사업장 설정)은 원본 데이터로 대체합니다.
+    await backend.raw(`DELETE FROM "${table}"`, [], tx);
     const perInsert = Math.max(1, Math.floor(MAX_PARAMS_PER_INSERT / Math.max(1, columnNames.length)));
     const columnList = columnNames.map((name) => `"${name}"`).join(', ');
     for (let offset = 0; offset < rows.length; offset += perInsert) {

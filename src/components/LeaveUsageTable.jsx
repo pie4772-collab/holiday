@@ -65,7 +65,7 @@ export function LeaveUsageTable({ usages, isLoading }) {
                 </div>
                 <div className="flex flex-col items-end gap-1 shrink-0">
                   <Badge variant={usage.type === 'full' ? 'info' : 'warning'} className={compactBadgeClass}>
-                    {formatLeaveType(usage.type)}
+                    {formatLeaveType(usage.type, usage.halfPeriod)}
                   </Badge>
                   <Badge variant={status.variant} className={compactBadgeClass}>
                     {status.label}
@@ -104,7 +104,7 @@ export function LeaveUsageTable({ usages, isLoading }) {
                   <td className="font-mono text-[13px] whitespace-nowrap">{usage.date}</td>
                   <td>
                     <Badge variant={usage.type === 'full' ? 'info' : 'warning'} className={compactBadgeClass}>
-                      {formatLeaveType(usage.type)}
+                      {formatLeaveType(usage.type, usage.halfPeriod)}
                     </Badge>
                   </td>
                   <td className="text-right tabular-nums font-medium">{daysLabel(usage)}</td>

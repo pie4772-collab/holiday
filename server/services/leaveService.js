@@ -86,6 +86,10 @@ function shouldUseImportedSnapshot(row, hireDate, asOfDate) {
   return Boolean(periodStart) && snap >= periodStart;
 }
 
+function normalizeHalfPeriod(value) {
+  return value === 'am' || value === 'pm' ? value : null;
+}
+
 function toApiId(dbId) {
   return String(dbId);
 }
@@ -101,6 +105,7 @@ function mapUsageRow(row) {
     position: row.position || undefined,
     date: row.usage_date,
     type: row.usage_type,
+    ...(row.usage_type === 'half' ? { halfPeriod: row.half_period || null } : {}),
     days: row.days,
     reason: row.reason,
     status: row.status,
@@ -1664,6 +1669,7 @@ export async function submitLeaveRequest(data) {
   if (!type) throw httpError('연차 유형을 선택해주세요.');
   const reason = String(data.reason || '').trim();
   if (!reason) throw httpError('연차 사유를 입력해주세요.');
+  const halfPeriod = type === 'half' ? normalizeHalfPeriod(data.halfPeriod) : null;
 
   const startDate = data.startDate || data.date;
   const endDate = type === 'half' ? startDate : data.endDate || data.date || startDate;
@@ -1698,14 +1704,14 @@ export async function submitLeaveRequest(data) {
   const firstStep = autoApprove ? null : chain[0]?.role || '팀장';
 
   const insertPending = db.prepare(
-    `INSERT INTO leave_usages (employee_id, usage_date, usage_type, days, reason, status, created_by, approval_step)
-     VALUES (?, ?, ?, ?, ?, 'pending', 'employee', ?)`
+    `INSERT INTO leave_usages (employee_id, usage_date, usage_type, half_period, days, reason, status, created_by, approval_step)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', 'employee', ?)`
   );
   const insertApproved = db.prepare(
     `INSERT INTO leave_usages (
-       employee_id, usage_date, usage_type, days, reason, status, created_by, approval_step,
+       employee_id, usage_date, usage_type, half_period, days, reason, status, created_by, approval_step,
        approved_by, approved_at
-     ) VALUES (?, ?, ?, ?, ?, 'approved', 'employee', NULL, ?, datetime('now', 'localtime'))`
+     ) VALUES (?, ?, ?, ?, ?, ?, 'approved', 'employee', NULL, ?, datetime('now', 'localtime'))`
   );
 
   const items = await db.transaction(async () => {
@@ -1730,8 +1736,8 @@ export async function submitLeaveRequest(data) {
     const created = [];
     for (const date of dates) {
       const result = autoApprove
-        ? await insertApproved.run(dbId, date, type, daysPerDate, reason, dbId)
-        : await insertPending.run(dbId, date, type, daysPerDate, reason, firstStep);
+        ? await insertApproved.run(dbId, date, type, halfPeriod, daysPerDate, reason, dbId)
+        : await insertPending.run(dbId, date, type, halfPeriod, daysPerDate, reason, firstStep);
       const usageRow = await db.prepare('SELECT * FROM leave_usages WHERE id = ?').get(result.lastInsertRowid);
       if (autoApprove) {
         await recordApprovalLog({
@@ -1968,12 +1974,13 @@ export async function createUsage(data) {
   if (blocked) throw httpError(blocked);
 
   const days = data.type === 'half' ? 0.5 : 1;
+  const halfPeriod = data.type === 'half' ? normalizeHalfPeriod(data.halfPeriod) : null;
   const result = await getDb()
     .prepare(
-      `INSERT INTO leave_usages (employee_id, usage_date, usage_type, days, reason, status, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, 'admin')`
+      `INSERT INTO leave_usages (employee_id, usage_date, usage_type, half_period, days, reason, status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'admin')`
     )
-    .run(dbId, data.date, data.type, days, data.reason, data.status || 'approved');
+    .run(dbId, data.date, data.type, halfPeriod, days, data.reason, data.status || 'approved');
 
   return mapUsageRow(
     await getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(result.lastInsertRowid)
@@ -1988,15 +1995,16 @@ export async function updateUsage(id, data) {
   if (blocked) throw httpError(blocked);
 
   const days = data.type === 'half' ? 0.5 : 1;
+  const halfPeriod = data.type === 'half' ? normalizeHalfPeriod(data.halfPeriod) : null;
   const status = data.status === 'pending' || data.status === 'rejected' ? data.status : 'approved';
   await getDb()
     .prepare(
       `UPDATE leave_usages
-       SET usage_date = ?, usage_type = ?, days = ?, reason = ?, status = ?,
+       SET usage_date = ?, usage_type = ?, half_period = ?, days = ?, reason = ?, status = ?,
            updated_at = datetime('now', 'localtime')
        WHERE id = ?`
     )
-    .run(data.date, data.type, days, data.reason, status, id);
+    .run(data.date, data.type, halfPeriod, days, data.reason, status, id);
 
   return mapUsageRow(await getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(id));
 }

@@ -204,7 +204,10 @@ export function getLeavePhase(hireDate, asOfDate = new Date()) {
   return 'annual';
 }
 
-export function formatLeaveType(type) {
+export function formatLeaveType(type, halfPeriod) {
+  if (type === 'half' && (halfPeriod === 'am' || halfPeriod === 'pm')) {
+    return halfPeriod === 'am' ? '오전 반차' : '오후 반차';
+  }
   const labels = {
     first_year_monthly: '첫해 월차',
     prorated: '비례 연차',

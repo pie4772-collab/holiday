@@ -8,6 +8,8 @@ import { isEmployeeAdmin } from '../services/authService.js';
 import * as approvalService from '../services/approvalService.js';
 import * as mailService from '../services/mailService.js';
 import * as personnelService from '../services/personnelService.js';
+import * as attendanceService from '../services/attendanceService.js';
+import { getClientIp, describeClientIp } from '../utils/clientIp.js';
 import { getDb } from '../db.js';
 
 const router = express.Router();
@@ -639,6 +641,144 @@ router.post('/admin/personnel/import', requirePermission('records.edit'), async 
     res.status(result.applied ? 200 : 400).json(
       result.applied ? result : { ...result, message: `오류 ${result.errors.length}건이 있어 반영하지 않았습니다.` }
     );
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ───────────── 근태 ───────────── */
+
+async function requestIp(req) {
+  return getClientIp(req, await attendanceService.getProxyHops());
+}
+
+function csvResponse(res, filename, headers, rows) {
+  const escape = (value) => {
+    const cell = value == null ? '' : String(value);
+    return /[",\r\n]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell;
+  };
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(`\uFEFF${[headers, ...rows].map((row) => row.map(escape).join(',')).join('\r\n')}`);
+}
+
+router.get('/attendance/me/today', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await attendanceService.getMyToday(req.user.employeeId, await requestIp(req)));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/attendance/check-in', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await attendanceService.checkIn(req.user.employeeId, req.body || {}, await requestIp(req)));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/attendance/check-out', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await attendanceService.checkOut(req.user.employeeId, req.body || {}, await requestIp(req)));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/attendance/me', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await attendanceService.getEmployeeMonth(req.user.employeeId, String(req.query.month || '')));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/attendance/daily', requirePermission('attendance.view'), async (req, res, next) => {
+  try {
+    const ids = await accessService.scopedEmployeeIds(req.access, 'attendance.view');
+    res.json(await attendanceService.getDailyBoard(String(req.query.date || ''), ids));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/attendance/monthly', requirePermission('attendance.view'), async (req, res, next) => {
+  try {
+    const ids = await accessService.scopedEmployeeIds(req.access, 'attendance.view');
+    res.json(await attendanceService.getMonthlyReport(String(req.query.month || ''), ids));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/attendance/monthly/export', requirePermission('attendance.view'), async (req, res, next) => {
+  try {
+    const ids = await accessService.scopedEmployeeIds(req.access, 'attendance.view');
+    const { headers, rows, month } = await attendanceService.exportMonthly(String(req.query.month || ''), ids);
+    csvResponse(res, `attendance-${month}.csv`, headers, rows);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/attendance/employees/:id', requirePermission('attendance.view'), async (req, res, next) => {
+  try {
+    if (!(await requireCoveredEmployee(req, res, 'attendance.view', req.params.id))) return;
+    res.json(
+      await attendanceService.getEmployeeMonth(req.params.id, String(req.query.month || ''), { includeLogs: true })
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.put('/admin/attendance/employees/:id/days/:date', requirePermission('attendance.edit'), async (req, res, next) => {
+  try {
+    if (!(await requireCoveredEmployee(req, res, 'attendance.edit', req.params.id))) return;
+    res.json(
+      await attendanceService.correctDay(req.params.id, req.params.date, req.body || {}, req.user.employeeId)
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/attendance/closings', requirePermission('attendance.manage'), async (req, res, next) => {
+  try {
+    res.json(await attendanceService.closeMonth(String(req.body?.month || ''), req.user.employeeId));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete('/admin/attendance/closings/:month', requirePermission('attendance.manage'), async (req, res, next) => {
+  try {
+    res.json(await attendanceService.reopenMonth(req.params.month));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/attendance/settings', requirePermission('attendance.manage'), async (req, res, next) => {
+  try {
+    res.json(await attendanceService.getSettings());
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.put('/admin/attendance/settings', requirePermission('attendance.manage'), async (req, res, next) => {
+  try {
+    res.json(await attendanceService.saveSettings(req.body || {}, req.user.employeeId));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/attendance/ip-check', requirePermission('attendance.manage'), async (req, res, next) => {
+  try {
+    res.json(describeClientIp(req, await attendanceService.getProxyHops()));
   } catch (e) {
     next(e);
   }

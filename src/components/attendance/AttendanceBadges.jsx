@@ -22,12 +22,14 @@ export function AttendanceFlags({ flags = [], leave, limit }) {
   );
 }
 
-export function WorkTypeLabel({ type, place }) {
-  if (!type || type === 'office') return null;
+/** site: 소속과 다른 사업장에서 기록했을 때 그 사업장 이름 */
+export function WorkTypeLabel({ type, place, site }) {
+  const remote = type && type !== 'office';
+  if (!remote && !site) return null;
   return (
     <span className="text-[12px] text-[#6d28d9]">
-      {WORK_TYPE_LABELS[type] || type}
-      {place ? ` · ${place}` : ''}
+      {remote ? WORK_TYPE_LABELS[type] || type : `${site} 사업장`}
+      {remote && place ? ` · ${place}` : ''}
     </span>
   );
 }

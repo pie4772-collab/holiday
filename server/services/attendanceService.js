@@ -166,9 +166,19 @@ function publicSite(site) {
   return rest;
 }
 
+/** 기록 표시에 쓰는 마지막으로 읽은 사업장 목록 (사업장 이름, 이전 기록의 IP → 사업장 판정) */
+let cachedSites = new Map();
+
 async function loadSites() {
   const rows = await getDb().prepare('SELECT * FROM attendance_sites ORDER BY workplace_code').all();
-  return new Map(rows.map((row) => [String(row.workplace_code), mapSite(row)]));
+  cachedSites = new Map(rows.map((row) => [String(row.workplace_code), mapSite(row)]));
+  return cachedSites;
+}
+
+/** 기록한 사업장 코드. 이 값을 저장하기 전 기록은 접속 IP로 판정합니다. */
+function punchSiteCode(storedCode, ip) {
+  if (storedCode) return String(storedCode);
+  return ip ? matchIpSite(ip, cachedSites)?.code || null : null;
 }
 
 function siteFor(employee, sites) {
@@ -318,6 +328,8 @@ function mapRecord(row) {
     checkOutIp: row.check_out_ip || null,
     checkOutType: row.check_out_type || null,
     checkOutPlace: row.check_out_place || null,
+    checkInSite: row.check_in_at ? punchSiteCode(row.check_in_site, row.check_in_ip) : null,
+    checkOutSite: row.check_out_at ? punchSiteCode(row.check_out_site, row.check_out_ip) : null,
     corrected: Boolean(row.corrected),
     note: row.note || null,
     remoteStatus: row.remote_status || null,
@@ -375,6 +387,10 @@ export function evaluateDay({ employee, site, date, record, leave, today, nowMin
   if (isTrip) flags.add('trip');
   else if (remoteApproved) flags.add('outside');
   else if (remote) flags.add(record.remoteStatus === 'rejected' ? 'remote_rejected' : 'remote_pending');
+  // 다른 사업장에서 찍은 출근·퇴근은 표시만 하고, 판정은 소속 사업장 근무시간으로 합니다.
+  const otherSiteName = (code) => (code && site && code !== site.code ? cachedSites.get(code)?.name || code : null);
+  const crossSite = { in: otherSiteName(record?.checkInSite), out: otherSiteName(record?.checkOutSite) };
+  if (crossSite.in || crossSite.out) flags.add('cross_site');
 
   let workMinutes = 0;
   let overtimeMinutes = 0;
@@ -422,6 +438,7 @@ export function evaluateDay({ employee, site, date, record, leave, today, nowMin
     workMinutes,
     overtimeMinutes: Math.max(0, overtimeMinutes),
     nightMinutes,
+    crossSite,
     exempt,
     isWorkingDay: !nonWorking,
     holidayName: nonWorking ? nonWorkingDayReason(date) || null : getHolidayName(date),
@@ -722,17 +739,18 @@ export async function checkIn(employeeId, data, ip, nowDate = new Date()) {
     if (existing) {
       await db
         .prepare(
-          `UPDATE attendance_records SET check_in_at = ?, check_in_ip = ?, check_in_type = ?, check_in_place = ?,
-             updated_at = datetime('now', 'localtime') WHERE id = ?`
+          `UPDATE attendance_records SET check_in_at = ?, check_in_ip = ?, check_in_site = ?, check_in_type = ?,
+             check_in_place = ?, updated_at = datetime('now', 'localtime') WHERE id = ?`
         )
-        .run(ctx.now.stamp, ip || null, input.type, input.place, existing.id);
+        .run(ctx.now.stamp, ip || null, ctx.ipSite?.code ?? null, input.type, input.place, existing.id);
     } else {
       await db
         .prepare(
-          `INSERT INTO attendance_records (employee_id, work_date, check_in_at, check_in_ip, check_in_type, check_in_place)
-           VALUES (?, ?, ?, ?, ?, ?)`
+          `INSERT INTO attendance_records
+             (employee_id, work_date, check_in_at, check_in_ip, check_in_site, check_in_type, check_in_place)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
-        .run(ctx.employee.id, ctx.workDate, ctx.now.stamp, ip || null, input.type, input.place);
+        .run(ctx.employee.id, ctx.workDate, ctx.now.stamp, ip || null, ctx.ipSite?.code ?? null, input.type, input.place);
     }
     const next = nextRemoteStatus(ctx.employee, input, existing, 'in');
     notify = needsRemoteNotice(next, existing, input);
@@ -768,17 +786,18 @@ export async function checkOut(employeeId, data, ip, nowDate = new Date()) {
     if (existing) {
       await db
         .prepare(
-          `UPDATE attendance_records SET check_out_at = ?, check_out_ip = ?, check_out_type = ?, check_out_place = ?,
-             updated_at = datetime('now', 'localtime') WHERE id = ?`
+          `UPDATE attendance_records SET check_out_at = ?, check_out_ip = ?, check_out_site = ?, check_out_type = ?,
+             check_out_place = ?, updated_at = datetime('now', 'localtime') WHERE id = ?`
         )
-        .run(ctx.now.stamp, ip || null, input.type, input.place, existing.id);
+        .run(ctx.now.stamp, ip || null, ctx.ipSite?.code ?? null, input.type, input.place, existing.id);
     } else {
       await db
         .prepare(
-          `INSERT INTO attendance_records (employee_id, work_date, check_out_at, check_out_ip, check_out_type, check_out_place)
-           VALUES (?, ?, ?, ?, ?, ?)`
+          `INSERT INTO attendance_records
+             (employee_id, work_date, check_out_at, check_out_ip, check_out_site, check_out_type, check_out_place)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
-        .run(ctx.employee.id, ctx.workDate, ctx.now.stamp, ip || null, input.type, input.place);
+        .run(ctx.employee.id, ctx.workDate, ctx.now.stamp, ip || null, ctx.ipSite?.code ?? null, input.type, input.place);
     }
     const next = nextRemoteStatus(ctx.employee, input, existing, 'out');
     notify = needsRemoteNotice(next, existing, input);
@@ -1017,8 +1036,10 @@ export async function correctDay(employeeId, date, data, actorId, nowDate = new 
           `UPDATE attendance_records
            SET check_in_at = ?, check_in_type = ?, check_in_place = ?,
                check_in_ip = CASE WHEN check_in_at = ? THEN check_in_ip ELSE NULL END,
+               check_in_site = CASE WHEN check_in_at = ? THEN check_in_site ELSE NULL END,
                check_out_at = ?, check_out_type = ?, check_out_place = ?,
                check_out_ip = CASE WHEN check_out_at = ? THEN check_out_ip ELSE NULL END,
+               check_out_site = CASE WHEN check_out_at = ? THEN check_out_site ELSE NULL END,
                corrected = 1, note = ?, updated_at = datetime('now', 'localtime')
            WHERE id = ?`
         )
@@ -1027,9 +1048,11 @@ export async function correctDay(employeeId, date, data, actorId, nowDate = new 
           inType?.type ?? null,
           inType?.place ?? null,
           checkInAt ?? '',
+          checkInAt ?? '',
           checkOutAt,
           outType?.type ?? null,
           outType?.place ?? null,
+          checkOutAt ?? '',
           checkOutAt ?? '',
           note,
           Number(before.id)
@@ -1094,6 +1117,7 @@ function remoteSignature(record) {
 /* ───────────── 외근·출장 확인 ───────────── */
 
 async function loadReviewRows(where, params) {
+  await loadSites();
   return getDb()
     .prepare(
       `SELECT r.*, e.name AS employee_name, e.emp_no, e.workplace, e.workplace_code, e.department, e.department_code,

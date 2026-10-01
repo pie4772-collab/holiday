@@ -8,14 +8,14 @@ import { AttendanceFlags, WorkTypeLabel } from './AttendanceBadges';
 import { useAttendanceToday, useCheckAttendance } from '../../hooks/useAttendance';
 import { PLACE_MAX_LENGTH, REMOTE_WORK_TYPES, WORK_TYPES, formatClock } from '../../constants/attendance';
 
-function TimeBox({ label, stamp, workDate, type, place }) {
+function TimeBox({ label, stamp, workDate, type, place, site }) {
   return (
     <div className="rounded-md border border-stripe-border px-3 py-2.5">
       <p className="text-[12px] text-stripe-muted">{label}</p>
       <p className="mt-0.5 text-lg font-semibold tabular-nums text-stripe-text">
         {stamp ? formatClock(stamp, workDate) : '--:--'}
       </p>
-      <WorkTypeLabel type={type} place={place} />
+      <WorkTypeLabel type={type} place={place} site={site} />
     </div>
   );
 }
@@ -103,6 +103,7 @@ export function AttendanceTodayCard({ showLink = false }) {
             workDate={today.workDate}
             type={today.record?.checkInType}
             place={today.record?.checkInPlace}
+            site={today.evaluation?.crossSite?.in}
           />
           <TimeBox
             label="퇴근"
@@ -110,6 +111,7 @@ export function AttendanceTodayCard({ showLink = false }) {
             workDate={today.workDate}
             type={today.record?.checkOutType}
             place={today.record?.checkOutPlace}
+            site={today.evaluation?.crossSite?.out}
           />
         </div>
 

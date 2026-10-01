@@ -64,13 +64,21 @@ export function AttendanceMonthTable({ days = [], onEdit, canEditDay }) {
                 <td className="whitespace-nowrap">
                   <span className="tabular-nums">{formatClock(day.record?.checkInAt, day.date) || '-'}</span>
                   <div>
-                    <WorkTypeLabel type={day.record?.checkInType} place={day.record?.checkInPlace} />
+                    <WorkTypeLabel
+                      type={day.record?.checkInType}
+                      place={day.record?.checkInPlace}
+                      site={day.evaluation?.crossSite?.in}
+                    />
                   </div>
                 </td>
                 <td className="whitespace-nowrap">
                   <span className="tabular-nums">{formatClock(day.record?.checkOutAt, day.date) || '-'}</span>
                   <div>
-                    <WorkTypeLabel type={day.record?.checkOutType} place={day.record?.checkOutPlace} />
+                    <WorkTypeLabel
+                      type={day.record?.checkOutType}
+                      place={day.record?.checkOutPlace}
+                      site={day.evaluation?.crossSite?.out}
+                    />
                   </div>
                 </td>
                 <td>

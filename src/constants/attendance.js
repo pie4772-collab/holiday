@@ -49,6 +49,7 @@ export const ATTENDANCE_FLAGS = [
   { key: 'holiday_work', label: '휴일 근무', variant: 'purple' },
   { key: 'trip', label: '출장', variant: 'purple' },
   { key: 'outside', label: '외근', variant: 'purple' },
+  { key: 'cross_site', label: '타 사업장', variant: 'default' },
   { key: 'overtime', label: '연장', variant: 'default' },
   { key: 'normal', label: '정상', variant: 'success' },
   { key: 'holiday', label: '휴일', variant: 'default' },

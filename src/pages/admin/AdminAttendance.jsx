@@ -148,13 +148,21 @@ function DailyView({ canEdit }) {
                         <span className="ml-1 font-mono text-[11px] text-stripe-muted">{row.record.checkInIp}</span>
                       )}
                       <div>
-                        <WorkTypeLabel type={row.record?.checkInType} place={row.record?.checkInPlace} />
+                        <WorkTypeLabel
+                          type={row.record?.checkInType}
+                          place={row.record?.checkInPlace}
+                          site={row.evaluation?.crossSite?.in}
+                        />
                       </div>
                     </td>
                     <td className="whitespace-nowrap">
                       <span className="tabular-nums">{formatClock(row.record?.checkOutAt, row.date) || '-'}</span>
                       <div>
-                        <WorkTypeLabel type={row.record?.checkOutType} place={row.record?.checkOutPlace} />
+                        <WorkTypeLabel
+                          type={row.record?.checkOutType}
+                          place={row.record?.checkOutPlace}
+                          site={row.evaluation?.crossSite?.out}
+                        />
                       </div>
                     </td>
                     <td>

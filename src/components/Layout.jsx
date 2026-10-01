@@ -108,10 +108,12 @@ export function Layout() {
   const navigate = useNavigate();
   const canAdmin = canAccessAdmin(currentEmployee);
   const canApprove = Boolean(currentEmployee?.canApprove);
+  const canReviewRemote =
+    (canApprove && currentEmployee?.position !== '대표이사') || hasPermission(currentEmployee, 'attendance.edit');
   const employeeItems = [
     ...employeeNav,
     ...(canApprove ? [{ to: '/employee/approvals', icon: ClipboardCheck, label: '연차 승인' }] : []),
-    ...(canApprove || hasPermission(currentEmployee, 'attendance.edit')
+    ...(canReviewRemote
       ? [{ to: '/employee/attendance-reviews', icon: MapPinCheck, label: '외근·출장 확인' }]
       : []),
     ...(hasPermission(currentEmployee, 'team.view')
@@ -119,7 +121,7 @@ export function Layout() {
       : []),
   ];
   const adminItems = adminNav.filter((item) => !item.permission || hasPermission(currentEmployee, item.permission));
-  if (canApprove || hasPermission(currentEmployee, 'attendance.edit')) {
+  if (canReviewRemote) {
     const index = adminItems.findIndex((item) => item.to === '/admin/attendance');
     adminItems.splice(index >= 0 ? index + 1 : adminItems.length, 0, {
       to: '/admin/attendance-reviews',

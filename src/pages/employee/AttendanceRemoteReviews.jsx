@@ -54,7 +54,7 @@ export function AttendanceRemoteReviews() {
     <div>
       <PageHeader
         title="외근·출장 확인"
-        description="확인한 외근·출장은 지각·조퇴 판정에서 빠집니다. 팀원은 팀장, 팀장은 공장장·임원이 확인합니다."
+        description="확인한 외근·출장은 지각·조퇴 판정에서 빠집니다. 팀원은 팀장, 팀장은 임원·공장장이 확인합니다."
       />
       <div className="mb-4 inline-flex rounded-md border border-stripe-border p-0.5">
         {[

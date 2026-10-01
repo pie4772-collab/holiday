@@ -96,22 +96,21 @@ export function remoteReviewRequired(employee) {
 }
 
 export function remoteReviewerLabel(employee) {
-  return requesterTier(employee) === '팀장' ? '공장장·임원' : '팀장';
+  return requesterTier(employee) === '팀장' ? '임원·공장장' : '팀장';
 }
 
-async function isUpperFor(approver, requester) {
-  if (approver.position === '대표이사') return true;
-  if (isFactoryOrExecFor(approver, requester, EXECUTIVE_POSITIONS)) return true;
-  return isSeatHolder(approver, await findSeatForDepartment('임원', requester));
-}
-
-/** 팀원은 팀장(또는 그 위 공장장·임원), 팀장은 같은 사업장 공장장·임원·소관 임원·대표이사가 확인합니다. */
+/** 팀원은 팀장만, 팀장은 같은 사업장 임원·공장장 또는 부서 소관 임원만 확인합니다. 대표이사는 확인하지 않습니다. */
 export async function canReviewRemote(approver, requester) {
   if (!approver?.is_active || !requester) return false;
-  if (Number(approver.id) === Number(requester.id)) return false;
+  if (Number(approver.id) === Number(requester.id) || approver.position === '대표이사') return false;
   const tier = requesterTier(requester);
-  if (tier === '팀원') return isTeamLeaderFor(approver, requester) || (await isUpperFor(approver, requester));
-  if (tier === '팀장') return isUpperFor(approver, requester);
+  if (tier === '팀원') return isTeamLeaderFor(approver, requester);
+  if (tier === '팀장') {
+    return (
+      isFactoryOrExecFor(approver, requester, EXECUTIVE_POSITIONS) ||
+      isSeatHolder(approver, await findSeatForDepartment('임원', requester))
+    );
+  }
   return false;
 }
 

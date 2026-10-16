@@ -419,8 +419,12 @@ async function buildLeaveSummary(row, options = {}) {
 
   if (useSnapshot) {
     // 스냅샷 기준일 다음날부터의 사용만 추가 차감 (기준일까지는 스냅샷 used/remaining에 포함)
+    // 월말 보고서처럼 consumptionAsOf가 기준일 다음날이어도 기준일 이후 사용은 빼야 합니다.
     const newUsages = approvedUsages.filter((usage) => usage.date > snapshotAsOf);
-    const extraUsed = sumUsageDays(filterConsumedUsages(newUsages, consumptionAsOf));
+    const asOfKey = toDateKey(asOf);
+    const extraUsed = sumUsageDays(
+      filterConsumedUsages(newUsages.filter((usage) => usage.date <= asOfKey), consumptionAsOf)
+    );
     const scheduledDays = sumUsageDays(filterScheduledUsages(newUsages, consumptionAsOf));
     // 첫해: 엔진 누적 월차와 스냅샷 발생의 차이를 보정해
     // (스냅샷 이후 대응일 + 스냅샷 시점 과소계상 모두 반영)

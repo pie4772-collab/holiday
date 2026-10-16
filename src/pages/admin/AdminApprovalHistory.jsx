@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Download, Search, ScrollText } from 'lucide-react';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { ErrorMessage } from '../../components/ErrorMessage';
@@ -10,6 +10,8 @@ import { LeaveSummaryCard } from '../../components/LeaveSummaryCard';
 import { SortButton } from '../../components/ui/SortButton';
 import { useLeaveApprovalHistory } from '../../hooks/useLeaveData';
 import { useTableSort } from '../../hooks/useTableSort';
+
+const SEARCH_DELAY_MS = 300;
 
 function historySortValue(item, key) {
   switch (key) {
@@ -96,18 +98,25 @@ export function AdminApprovalHistory() {
   const [workplace, setWorkplace] = useState('');
   const [action, setAction] = useState('');
   const [query, setQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // 한글은 자모마다 입력값이 바뀌므로 입력이 잠시 멈춘 뒤에 조회합니다.
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchQuery(query.trim()), SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [query]);
 
   const filters = useMemo(
     () => ({
       year: year || undefined,
       workplace: workplace || undefined,
       action: action || undefined,
-      query: query.trim() || undefined,
+      query: searchQuery || undefined,
     }),
-    [year, workplace, action, query]
+    [year, workplace, action, searchQuery]
   );
 
-  const { data, isLoading, isError, refetch } = useLeaveApprovalHistory(filters);
+  const { data, isLoading, isError, isFetching, refetch } = useLeaveApprovalHistory(filters);
   const items = data?.items || [];
   const summary = data?.summary || { total: 0, submitted: 0, approved: 0, stepApproved: 0, rejected: 0 };
   const years = data?.years?.length ? data.years : [currentYear];
@@ -189,7 +198,7 @@ export function AdminApprovalHistory() {
         처리 시점의 신청자·처리자·사업장·사유를 스냅샷으로 남깁니다. 이후 인사정보가 바뀌어도 당시 기록은 유지됩니다.
       </p>
 
-      <Panel>
+      <Panel className={`transition-opacity ${isFetching ? 'opacity-60' : ''}`}>
         <div className="settlement-cards mobile-card-list">
           {items.length === 0 ? (
             <p className="py-12 text-center text-sm text-stripe-muted">조건에 맞는 이력이 없습니다.</p>

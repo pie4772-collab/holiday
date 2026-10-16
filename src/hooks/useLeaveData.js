@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { leaveApi } from '../api/leaveApi';
 
 export const leaveKeys = {
@@ -222,6 +222,8 @@ export function useLeaveApprovalHistory(filters = {}) {
   return useQuery({
     queryKey: leaveKeys.leaveApprovalHistory(filters),
     queryFn: () => leaveApi.getLeaveApprovalHistory(filters),
+    // 필터를 바꾸는 동안 이전 결과를 유지해야 화면(검색창 포함)이 로딩 화면으로 바뀌지 않습니다.
+    placeholderData: keepPreviousData,
   });
 }
 

@@ -123,7 +123,12 @@ const APPROVAL_ACTION_LABELS = {
   step_approve: '단계승인',
   approve: '최종승인',
   reject: '반려',
+  admin_create: '관리자 등록',
+  admin_update: '관리자 수정',
+  admin_delete: '관리자 삭제',
 };
+
+const ADMIN_ACTIONS = ['admin_create', 'admin_update', 'admin_delete'];
 
 async function recordApprovalLog({ usage, employee, actor, action, step = null, note = null, createdAt = null }) {
   if (!usage || !employee || !action) return;
@@ -268,9 +273,10 @@ export async function getLeaveApprovalHistory(filters = {}) {
       if (item.action === 'approve' || item.action === 'auto_approve') acc.approved += 1;
       if (item.action === 'step_approve') acc.stepApproved += 1;
       if (item.action === 'reject') acc.rejected += 1;
+      if (ADMIN_ACTIONS.includes(item.action)) acc.adminEdited += 1;
       return acc;
     },
-    { total: 0, submitted: 0, approved: 0, stepApproved: 0, rejected: 0 }
+    { total: 0, submitted: 0, approved: 0, stepApproved: 0, rejected: 0, adminEdited: 0 }
   );
 
   return {
@@ -1970,7 +1976,23 @@ export async function deleteAccrual(id) {
   if (result.changes === 0) throw new Error('수동 발생 내역을 찾을 수 없습니다.');
 }
 
-export async function createUsage(data) {
+const USAGE_STATUS_LABELS = { approved: '승인', pending: '대기', rejected: '반려' };
+
+function describeUsageRow(row) {
+  const type = row.usage_type === 'half' ? '반차' : '연차';
+  return `${row.usage_date} ${type} ${row.days}일 · ${USAGE_STATUS_LABELS[row.status] || row.status}`;
+}
+
+function usageStatusNote(row) {
+  return row.status === 'approved' ? null : `상태: ${USAGE_STATUS_LABELS[row.status] || row.status}`;
+}
+
+async function recordAdminUsageLog(usage, actor, action, note) {
+  const employee = await getDb().prepare('SELECT * FROM employees WHERE id = ?').get(usage.employee_id);
+  await recordApprovalLog({ usage, employee, actor, action, note });
+}
+
+export async function createUsage(data, actor = null) {
   const dbId = parseEmployeeId(data.employeeId);
   if (!dbId) throw new Error('유효하지 않은 직원 ID입니다.');
   if (!isValidLeaveDate(data.date)) throw new Error('날짜를 확인해주세요.');
@@ -1979,20 +2001,25 @@ export async function createUsage(data) {
 
   const days = data.type === 'half' ? 0.5 : 1;
   const halfPeriod = data.type === 'half' ? normalizeHalfPeriod(data.halfPeriod) : null;
-  const result = await getDb()
-    .prepare(
-      `INSERT INTO leave_usages (employee_id, usage_date, usage_type, half_period, days, reason, status, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'admin')`
-    )
-    .run(dbId, data.date, data.type, halfPeriod, days, data.reason, data.status || 'approved');
+  const db = getDb();
+  const row = await db.transaction(async () => {
+    const result = await db
+      .prepare(
+        `INSERT INTO leave_usages (employee_id, usage_date, usage_type, half_period, days, reason, status, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'admin')`
+      )
+      .run(dbId, data.date, data.type, halfPeriod, days, data.reason, data.status || 'approved');
+    const created = await db.prepare('SELECT * FROM leave_usages WHERE id = ?').get(result.lastInsertRowid);
+    await recordAdminUsageLog(created, actor, 'admin_create', usageStatusNote(created));
+    return created;
+  });
 
-  return mapUsageRow(
-    await getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(result.lastInsertRowid)
-  );
+  return mapUsageRow(row);
 }
 
-export async function updateUsage(id, data) {
-  const row = await getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(id);
+export async function updateUsage(id, data, actor = null) {
+  const db = getDb();
+  const row = await db.prepare('SELECT * FROM leave_usages WHERE id = ?').get(id);
   if (!row) throw new Error('사용 내역을 찾을 수 없습니다.');
   if (!isValidLeaveDate(data.date)) throw new Error('날짜를 확인해주세요.');
   const blocked = leaveBlockedReason(data.date);
@@ -2001,19 +2028,30 @@ export async function updateUsage(id, data) {
   const days = data.type === 'half' ? 0.5 : 1;
   const halfPeriod = data.type === 'half' ? normalizeHalfPeriod(data.halfPeriod) : null;
   const status = data.status === 'pending' || data.status === 'rejected' ? data.status : 'approved';
-  await getDb()
-    .prepare(
-      `UPDATE leave_usages
-       SET usage_date = ?, usage_type = ?, half_period = ?, days = ?, reason = ?, status = ?,
-           updated_at = datetime('now', 'localtime')
-       WHERE id = ?`
-    )
-    .run(data.date, data.type, halfPeriod, days, data.reason, status, id);
+  const updated = await db.transaction(async () => {
+    await db
+      .prepare(
+        `UPDATE leave_usages
+         SET usage_date = ?, usage_type = ?, half_period = ?, days = ?, reason = ?, status = ?,
+             updated_at = datetime('now', 'localtime')
+         WHERE id = ?`
+      )
+      .run(data.date, data.type, halfPeriod, days, data.reason, status, id);
+    const after = await db.prepare('SELECT * FROM leave_usages WHERE id = ?').get(id);
+    await recordAdminUsageLog(after, actor, 'admin_update', `변경 전: ${describeUsageRow(row)}`);
+    return after;
+  });
 
-  return mapUsageRow(await getDb().prepare('SELECT * FROM leave_usages WHERE id = ?').get(id));
+  return mapUsageRow(updated);
 }
 
-export async function deleteUsage(id) {
-  const result = await getDb().prepare('DELETE FROM leave_usages WHERE id = ?').run(id);
-  if (result.changes === 0) throw new Error('사용 내역을 찾을 수 없습니다.');
+export async function deleteUsage(id, actor = null) {
+  const db = getDb();
+  await db.transaction(async () => {
+    const row = await db.prepare('SELECT * FROM leave_usages WHERE id = ?').get(id);
+    if (!row) throw new Error('사용 내역을 찾을 수 없습니다.');
+    // 이력이 사용 내역을 참조하므로 지우기 전에 남깁니다(삭제 후에는 참조만 비워집니다).
+    await recordAdminUsageLog(row, actor, 'admin_delete', usageStatusNote(row));
+    await db.prepare('DELETE FROM leave_usages WHERE id = ?').run(row.id);
+  });
 }

@@ -539,7 +539,7 @@ router.delete('/admin/accruals/:id', requirePermission('leave.edit'), async (req
 router.post('/admin/usages', requirePermission('leave.edit'), async (req, res, next) => {
   try {
     if (!(await requireCoveredEmployee(req, res, 'leave.edit', req.body?.employeeId))) return;
-    const result = await leaveService.createUsage(req.body);
+    const result = await leaveService.createUsage(req.body, req.access.employee);
     res.status(201).json(result);
   } catch (e) {
     next(e);
@@ -549,7 +549,7 @@ router.post('/admin/usages', requirePermission('leave.edit'), async (req, res, n
 router.put('/admin/usages/:id', requirePermission('leave.edit'), async (req, res, next) => {
   try {
     if (!(await requireCoveredRecord(req, res, 'leave.edit', 'leave_usages', req.params.id))) return;
-    const result = await leaveService.updateUsage(req.params.id, req.body);
+    const result = await leaveService.updateUsage(req.params.id, req.body, req.access.employee);
     res.json(result);
   } catch (e) {
     next(e);
@@ -559,7 +559,7 @@ router.put('/admin/usages/:id', requirePermission('leave.edit'), async (req, res
 router.delete('/admin/usages/:id', requirePermission('leave.edit'), async (req, res, next) => {
   try {
     if (!(await requireCoveredRecord(req, res, 'leave.edit', 'leave_usages', req.params.id))) return;
-    await leaveService.deleteUsage(req.params.id);
+    await leaveService.deleteUsage(req.params.id, req.access.employee);
     res.json({ success: true });
   } catch (e) {
     next(e);

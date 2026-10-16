@@ -36,6 +36,8 @@ function actionBadgeVariant(action) {
   if (action === 'reject') return 'warning';
   if (action === 'approve' || action === 'auto_approve') return 'success';
   if (action === 'step_approve') return 'purple';
+  if (action === 'admin_delete') return 'danger';
+  if (action.startsWith('admin_')) return 'default';
   return 'info';
 }
 
@@ -118,7 +120,14 @@ export function AdminApprovalHistory() {
 
   const { data, isLoading, isError, isFetching, refetch } = useLeaveApprovalHistory(filters);
   const items = data?.items || [];
-  const summary = data?.summary || { total: 0, submitted: 0, approved: 0, stepApproved: 0, rejected: 0 };
+  const summary = data?.summary || {
+    total: 0,
+    submitted: 0,
+    approved: 0,
+    stepApproved: 0,
+    rejected: 0,
+    adminEdited: 0,
+  };
   const years = data?.years?.length ? data.years : [currentYear];
   const workplaces = data?.workplaces || [];
   const actions = data?.actions || [];
@@ -140,7 +149,7 @@ export function AdminApprovalHistory() {
     <div>
       <PageHeader
         title="승인·반려 이력"
-        description="연차 신청·단계승인·최종승인·반려 기록을 보관합니다. 근로감독 등 증빙용으로 CSV 내려받기가 가능합니다."
+        description="연차 신청·단계승인·최종승인·반려와 관리자의 직접 등록·수정·삭제 기록을 보관합니다. 근로감독 등 증빙용으로 CSV 내려받기가 가능합니다."
         actions={
           <Button variant="secondary" onClick={() => downloadCsv(sorted, year)}>
             <Download className="h-4 w-4" />
@@ -185,12 +194,18 @@ export function AdminApprovalHistory() {
         </select>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
         <LeaveSummaryCard title="조회 건수" value={summary.total} unit="건" subtitle="필터 적용 결과" />
         <LeaveSummaryCard title="신청" value={summary.submitted} unit="건" />
         <LeaveSummaryCard title="단계승인" value={summary.stepApproved} unit="건" />
         <LeaveSummaryCard title="최종·본인승인" value={summary.approved} unit="건" highlight />
         <LeaveSummaryCard title="반려" value={summary.rejected} unit="건" />
+        <LeaveSummaryCard
+          title="관리자 처리"
+          value={summary.adminEdited || 0}
+          unit="건"
+          subtitle="연차 수정 화면 등록·수정·삭제"
+        />
       </div>
 
       <p className="text-[13px] text-stripe-muted mb-4 flex items-start gap-2">

@@ -13,8 +13,8 @@ export function PageHeader({ title, description, backTo, backLabel, actions, chi
           {backLabel || '뒤로'}
         </Link>
       )}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
+      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+        <div className="min-w-0 sm:flex-[1_1_16rem]">
           <h1 className="text-xl sm:text-[22px] font-semibold text-stripe-text tracking-tight break-keep">
             {title}
           </h1>

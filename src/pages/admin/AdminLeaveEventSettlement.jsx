@@ -22,7 +22,7 @@ function csvCell(value) {
 
 function formatWon(value) {
   if (value == null || Number.isNaN(Number(value))) return '—';
-  return `${Number(value).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}원`;
+  return `${Math.round(Number(value)).toLocaleString('ko-KR')}원`;
 }
 
 function eventBadgeVariant(type) {
@@ -197,7 +197,7 @@ export function AdminLeaveEventSettlement() {
           employees,
           eventCount: employees.length,
           settledDays: Math.round(settledDays * 10) / 10,
-          allowance: Math.round(allowance * 10) / 10,
+          allowance: Math.round(allowance),
           wageMissingCount,
         };
       })
@@ -214,7 +214,7 @@ export function AdminLeaveEventSettlement() {
         eventCount: acc.eventCount + group.eventCount,
         employeeCount: acc.employeeCount + new Set(group.employees.map((e) => e.employeeId)).size,
         settledDays: Math.round((acc.settledDays + group.settledDays) * 10) / 10,
-        allowance: Math.round((acc.allowance + group.allowance) * 10) / 10,
+        allowance: acc.allowance + group.allowance,
         wageMissingCount: acc.wageMissingCount + group.wageMissingCount,
       }),
       { eventCount: 0, employeeCount: 0, settledDays: 0, allowance: 0, wageMissingCount: 0 }
@@ -382,7 +382,7 @@ export function AdminLeaveEventSettlement() {
         <LeaveSummaryCard title="정산일수" value={visibleTotals.settledDays} subtitle="전기 잔여 합 (부여일 아님)" />
         <LeaveSummaryCard
           title="수당 합계"
-          value={visibleTotals.allowance.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}
+          value={visibleTotals.allowance.toLocaleString('ko-KR')}
           unit="원"
           subtitle="일급 × 전기 잔여"
           highlight

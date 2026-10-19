@@ -863,14 +863,9 @@ export function calculateOrdinaryDailyRate(ordinaryWage) {
   return Math.floor((wage / ORDINARY_WAGE_HOURS) * ORDINARY_DAILY_HOURS);
 }
 
-/** 수당 = 일급(원 단위) × 일수(0.1일 단위). 반올림·절사 없이 소수 첫째 자리까지 그대로 둡니다. */
+/** 수당 = 일급(원 단위) × 일수(0.1일 단위), 원 미만 절사 */
 function multiplyAllowance(dailyRate, days) {
-  return (dailyRate * Math.round((Number(days) || 0) * 10)) / 10;
-}
-
-/** 수당 합계에는 소수 첫째 자리까지만 생기므로 부동소수 오차만 정리합니다. */
-function cleanMoney(value) {
-  return Math.round((Number(value) || 0) * 10) / 10;
+  return Math.floor((dailyRate * Math.round((Number(days) || 0) * 10)) / 10);
 }
 
 function getSavedPaySettlement(year, month) {
@@ -1216,14 +1211,13 @@ export async function getLeavePaySettlement(year, month) {
   const workplaces = [...workplaceMap.values()].map((group) => ({
     ...group,
     remaining: round1(group.remaining),
-    allowance: cleanMoney(group.allowance),
   }));
 
   const totals = workplaces.reduce(
     (acc, group) => ({
       employeeCount: acc.employeeCount + group.employeeCount,
       remaining: round1(acc.remaining + group.remaining),
-      allowance: cleanMoney(acc.allowance + group.allowance),
+      allowance: acc.allowance + group.allowance,
       wageMissingCount: acc.wageMissingCount + group.wageMissingCount,
     }),
     { employeeCount: 0, remaining: 0, allowance: 0, wageMissingCount: 0 }
@@ -1556,7 +1550,6 @@ export async function getLeaveEventSettlement(year) {
   const workplaces = [...workplaceMap.values()].map((group) => ({
     ...group,
     settledDays: round1(group.settledDays),
-    allowance: cleanMoney(group.allowance),
   }));
 
   const totals = workplaces.reduce(
@@ -1564,7 +1557,7 @@ export async function getLeaveEventSettlement(year) {
       eventCount: acc.eventCount + group.eventCount,
       employeeCount: acc.employeeCount + new Set(group.employees.map((e) => e.employeeId)).size,
       settledDays: round1(acc.settledDays + group.settledDays),
-      allowance: cleanMoney(acc.allowance + group.allowance),
+      allowance: acc.allowance + group.allowance,
       wageMissingCount: acc.wageMissingCount + group.wageMissingCount,
     }),
     { eventCount: 0, employeeCount: 0, settledDays: 0, allowance: 0, wageMissingCount: 0 }

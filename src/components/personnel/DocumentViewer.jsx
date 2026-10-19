@@ -1,12 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Download, ExternalLink, RotateCw, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { LoadingSpinner } from '../LoadingSpinner';
 import { leaveApi } from '../../api/leaveApi';
 import { usePersonnelDocuments } from '../../hooks/usePersonnel';
 import { openProtectedFile } from '../../utils/fileDownload';
+import { DOCUMENT_TYPES } from '../../constants/personnel';
 
 const ZOOM_STEPS = [50, 75, 100, 125, 150, 200, 300];
+
+function typeOrder(docType) {
+  const index = DOCUMENT_TYPES.indexOf(docType);
+  return index === -1 ? DOCUMENT_TYPES.length : index;
+}
 
 function useDocumentUrl(doc) {
   const blob = useQuery({
@@ -91,7 +97,11 @@ function ToolButton({ title, onClick, disabled, children }) {
  * docId 를 넘기면 그 서류를 엽니다(목록에서 "보기"를 누른 경우).
  */
 export function DocumentViewer({ employeeId, docId, onSelect, onClose, className = '' }) {
-  const { data: documents = [], isLoading: listLoading } = usePersonnelDocuments(employeeId);
+  const { data: list, isLoading: listLoading } = usePersonnelDocuments(employeeId);
+  const documents = useMemo(
+    () => (list || []).slice().sort((a, b) => typeOrder(a.docType) - typeOrder(b.docType)),
+    [list]
+  );
   const fallback = documents.find((d) => d.previewable) || documents[0];
   const doc = documents.find((d) => d.id === docId) || fallback;
   const { url, isLoading, error } = useDocumentUrl(doc);

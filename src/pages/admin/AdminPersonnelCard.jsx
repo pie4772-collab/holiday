@@ -64,7 +64,7 @@ export function AdminPersonnelCard() {
             docId={viewerDocId}
             onSelect={setViewerDocId}
             onClose={() => toggleViewer(false)}
-            className="h-[65vh] xl:h-[calc(100vh-4rem)] xl:sticky xl:top-8"
+            className="h-[65vh] xl:order-last xl:h-[calc(100vh-4rem)] xl:sticky xl:top-8"
           />
         )}
         <div className="min-w-0">

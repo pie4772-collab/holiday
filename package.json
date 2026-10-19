@@ -21,6 +21,8 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.2",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "@tesseract.js-data/kor": "^1.0.0",
     "cors": "^2.8.6",
     "date-fns": "^4.4.0",
     "express": "^5.2.1",
@@ -32,6 +34,7 @@
     "react-dom": "^19.2.7",
     "react-router-dom": "^7.18.1",
     "sql.js": "^1.14.2",
+    "tesseract.js": "^7.0.0",
     "zustand": "^5.0.14"
   },
   "devDependencies": {

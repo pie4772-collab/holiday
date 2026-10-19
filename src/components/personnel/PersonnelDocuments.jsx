@@ -1,11 +1,18 @@
 import { useRef, useState } from 'react';
-import { Download, Eye, Lock, Trash2, Upload } from 'lucide-react';
+import { Download, Eye, Lock, ScanText, Trash2, Upload } from 'lucide-react';
 import { Panel, PanelBody, PanelHeader } from '../ui/Panel';
 import { Button } from '../ui/Button';
 import { LoadingSpinner } from '../LoadingSpinner';
+import { DocumentOcrModal } from './DocumentOcrModal';
 import { leaveApi } from '../../api/leaveApi';
 import { formatFileSize, openProtectedFile } from '../../utils/fileDownload';
-import { DOCUMENT_EXTENSIONS, DOCUMENT_MAX_BYTES, DOCUMENT_TYPES } from '../../constants/personnel';
+import {
+  DOCUMENT_EXTENSIONS,
+  DOCUMENT_MAX_BYTES,
+  DOCUMENT_TYPES,
+  OCR_BLOCKED_DOCUMENT_TYPES,
+  OCR_EXTENSIONS,
+} from '../../constants/personnel';
 import {
   useDeletePersonnelDocument,
   usePersonnelDocuments,
@@ -44,7 +51,11 @@ function UploadForm({ employeeId, onMessage }) {
     if (!file) return setError('파일을 선택하세요.');
     try {
       await upload.mutateAsync({ employeeId, file, docType, notes: notes.trim() });
-      onMessage(`${docType} "${file.name}"을(를) 올렸습니다.`);
+      const extension = file.name.split('.').pop().toLowerCase();
+      const readable = OCR_EXTENSIONS.includes(extension) && !OCR_BLOCKED_DOCUMENT_TYPES.includes(docType);
+      onMessage(
+        `${docType} "${file.name}"을(를) 올렸습니다.${readable ? ' 목록의 내용 읽기 버튼으로 인사기록카드 입력 후보를 볼 수 있습니다.' : ''}`
+      );
       setDocType('');
       setNotes('');
       setFile(null);
@@ -90,6 +101,8 @@ export function PersonnelDocuments({ employeeId, editable }) {
   const remove = useDeletePersonnelDocument();
   const [message, setMessage] = useState('');
   const [busyId, setBusyId] = useState(null);
+  const [ocrDoc, setOcrDoc] = useState(null);
+  const canRead = (doc) => OCR_EXTENSIONS.includes(doc.extension) && !OCR_BLOCKED_DOCUMENT_TYPES.includes(doc.docType);
 
   async function handleOpen(doc, preview) {
     setBusyId(doc.id);
@@ -163,6 +176,15 @@ export function PersonnelDocuments({ employeeId, editable }) {
                   <td className="whitespace-nowrap">{doc.uploadedBy || '-'}</td>
                   <td className="whitespace-nowrap font-mono text-[13px]">{String(doc.createdAt).slice(0, 10)}</td>
                   <td className="text-right whitespace-nowrap">
+                    {editable && canRead(doc) && (
+                      <button
+                        className="p-1 text-stripe-muted hover:text-primary-500"
+                        title="내용 읽기 (스캔 글자를 읽어 인사기록카드 입력)"
+                        onClick={() => setOcrDoc(doc)}
+                      >
+                        <ScanText className="h-4 w-4" />
+                      </button>
+                    )}
                     {doc.previewable && (
                       <button
                         className="p-1 text-stripe-muted hover:text-primary-500 disabled:opacity-40"
@@ -196,6 +218,17 @@ export function PersonnelDocuments({ employeeId, editable }) {
             </tbody>
           </table>
         </div>
+      )}
+      {ocrDoc && (
+        <DocumentOcrModal
+          employeeId={employeeId}
+          doc={ocrDoc}
+          onClose={() => setOcrDoc(null)}
+          onDone={(text) => {
+            setOcrDoc(null);
+            setMessage(text);
+          }}
+        />
       )}
     </Panel>
   );

@@ -120,3 +120,9 @@ export const DOCUMENT_EXTENSIONS = {
 };
 
 export const DOCUMENT_PREVIEW_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp'];
+
+/** 스캔 서류 글자 읽기(OCR) 대상 형식. PDF 는 스캔 이미지가 들어 있는 것만 읽힙니다. */
+export const OCR_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
+
+/** 인사기록카드에 넣을 항목이 없거나 민감 정보(계좌·가족·건강·신분증)라 글자 읽기를 하지 않는 서류 */
+export const OCR_BLOCKED_DOCUMENT_TYPES = ['가족관계증명서', '건강진단서', '통장 사본', '신분증 사본'];

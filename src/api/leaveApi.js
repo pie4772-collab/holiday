@@ -458,6 +458,10 @@ export const leaveApi = {
     return response.blob();
   },
 
+  async readPersonnelDocument(docId) {
+    return apiClient(`/admin/personnel/documents/${docId}/ocr`, { method: 'POST' });
+  },
+
   async deletePersonnelDocument(docId) {
     return apiClient(`/admin/personnel/documents/${docId}`, { method: 'DELETE' });
   },

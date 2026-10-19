@@ -8,6 +8,7 @@ import { isEmployeeAdmin } from '../services/authService.js';
 import * as approvalService from '../services/approvalService.js';
 import * as mailService from '../services/mailService.js';
 import * as personnelService from '../services/personnelService.js';
+import * as ocrService from '../services/ocrService.js';
 import * as attendanceService from '../services/attendanceService.js';
 import * as noticeService from '../services/noticeService.js';
 import { sendFile } from '../utils/fileUpload.js';
@@ -675,6 +676,17 @@ router.get('/admin/personnel/documents/:docId/file', requirePermission('records.
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.end(file.content);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** 스캔 서류의 글자를 읽어 인사기록카드 입력 후보를 돌려줍니다. 저장은 화면에서 확인 후 따로 합니다. */
+router.post('/admin/personnel/documents/:docId/ocr', requirePermission('records.edit'), async (req, res, next) => {
+  try {
+    if (!(await requireCoveredRecord(req, res, 'records.edit', 'employee_documents', req.params.docId))) return;
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(await ocrService.readPersonnelDocument(req.params.docId));
   } catch (e) {
     next(e);
   }

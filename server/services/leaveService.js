@@ -863,8 +863,14 @@ export function calculateOrdinaryDailyRate(ordinaryWage) {
   return Math.floor((wage / ORDINARY_WAGE_HOURS) * ORDINARY_DAILY_HOURS);
 }
 
-function roundMoney(value) {
-  return Math.round(Number(value) || 0);
+/** 수당 = 일급(원 단위) × 일수(0.1일 단위). 반올림·절사 없이 소수 첫째 자리까지 그대로 둡니다. */
+function multiplyAllowance(dailyRate, days) {
+  return (dailyRate * Math.round((Number(days) || 0) * 10)) / 10;
+}
+
+/** 수당 합계에는 소수 첫째 자리까지만 생기므로 부동소수 오차만 정리합니다. */
+function cleanMoney(value) {
+  return Math.round((Number(value) || 0) * 10) / 10;
 }
 
 function getSavedPaySettlement(year, month) {
@@ -1163,7 +1169,7 @@ export async function getLeavePaySettlement(year, month) {
     const overusedDays = Number(summary.overusedDays) || 0;
     const dailyRate = calculateOrdinaryDailyRate(ordinaryWage);
     const allowance =
-      dailyRate != null ? roundMoney(dailyRate * remaining) : ordinaryWage != null ? 0 : null;
+      dailyRate != null ? multiplyAllowance(dailyRate, remaining) : ordinaryWage != null ? 0 : null;
 
     employees.push({
       id: base.id,
@@ -1210,14 +1216,14 @@ export async function getLeavePaySettlement(year, month) {
   const workplaces = [...workplaceMap.values()].map((group) => ({
     ...group,
     remaining: round1(group.remaining),
-    allowance: roundMoney(group.allowance),
+    allowance: cleanMoney(group.allowance),
   }));
 
   const totals = workplaces.reduce(
     (acc, group) => ({
       employeeCount: acc.employeeCount + group.employeeCount,
       remaining: round1(acc.remaining + group.remaining),
-      allowance: roundMoney(acc.allowance + group.allowance),
+      allowance: cleanMoney(acc.allowance + group.allowance),
       wageMissingCount: acc.wageMissingCount + group.wageMissingCount,
     }),
     { employeeCount: 0, remaining: 0, allowance: 0, wageMissingCount: 0 }
@@ -1493,7 +1499,7 @@ export async function getLeaveEventSettlement(year) {
 
     for (const event of events) {
       const allowance =
-        dailyRate != null ? roundMoney(dailyRate * event.settledDays) : ordinaryWage != null ? 0 : null;
+        dailyRate != null ? multiplyAllowance(dailyRate, event.settledDays) : ordinaryWage != null ? 0 : null;
       items.push({
         id: `${base.id}-${event.type}-${event.date}`,
         employeeId: base.id,
@@ -1550,7 +1556,7 @@ export async function getLeaveEventSettlement(year) {
   const workplaces = [...workplaceMap.values()].map((group) => ({
     ...group,
     settledDays: round1(group.settledDays),
-    allowance: roundMoney(group.allowance),
+    allowance: cleanMoney(group.allowance),
   }));
 
   const totals = workplaces.reduce(
@@ -1558,7 +1564,7 @@ export async function getLeaveEventSettlement(year) {
       eventCount: acc.eventCount + group.eventCount,
       employeeCount: acc.employeeCount + new Set(group.employees.map((e) => e.employeeId)).size,
       settledDays: round1(acc.settledDays + group.settledDays),
-      allowance: roundMoney(acc.allowance + group.allowance),
+      allowance: cleanMoney(acc.allowance + group.allowance),
       wageMissingCount: acc.wageMissingCount + group.wageMissingCount,
     }),
     { eventCount: 0, employeeCount: 0, settledDays: 0, allowance: 0, wageMissingCount: 0 }

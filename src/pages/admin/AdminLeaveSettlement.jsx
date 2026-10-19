@@ -35,7 +35,7 @@ function csvCell(value) {
 
 function formatWon(value) {
   if (value == null || Number.isNaN(Number(value))) return '—';
-  return `${Math.round(Number(value)).toLocaleString('ko-KR')}원`;
+  return `${Number(value).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}원`;
 }
 
 function matchesKeyword(emp, keyword) {
@@ -156,7 +156,7 @@ export function AdminLeaveSettlement() {
           employees,
           employeeCount: employees.length,
           remaining: Math.round(remaining * 10) / 10,
-          allowance: Math.round(allowance),
+          allowance: Math.round(allowance * 10) / 10,
           wageMissingCount,
         };
       })
@@ -168,7 +168,7 @@ export function AdminLeaveSettlement() {
       (acc, group) => ({
         employeeCount: acc.employeeCount + group.employeeCount,
         remaining: Math.round((acc.remaining + group.remaining) * 10) / 10,
-        allowance: acc.allowance + group.allowance,
+        allowance: Math.round((acc.allowance + group.allowance) * 10) / 10,
         wageMissingCount: acc.wageMissingCount + group.wageMissingCount,
       }),
       { employeeCount: 0, remaining: 0, allowance: 0, wageMissingCount: 0 }
@@ -353,7 +353,7 @@ export function AdminLeaveSettlement() {
         <LeaveSummaryCard title="잔여 합계" value={visibleTotals.remaining} subtitle="월말 미사용(음수는 0)" />
         <LeaveSummaryCard
           title="부채 합계"
-          value={visibleTotals.allowance.toLocaleString('ko-KR')}
+          value={visibleTotals.allowance.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}
           unit="원"
           subtitle="일급 × max(0, 잔여)"
           highlight

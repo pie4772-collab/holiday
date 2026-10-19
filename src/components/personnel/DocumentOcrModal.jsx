@@ -194,7 +194,13 @@ function OcrResult({ employeeId, result, card, onClose, onDone }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 p-5">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-stripe-text mb-2">
-            읽은 글자 <span className="font-normal text-stripe-muted">· {result.pages}쪽 · 인식 정확도 {result.confidence}%</span>
+            읽은 글자{' '}
+            <span className="font-normal text-stripe-muted">
+              · {result.pages}쪽 ·{' '}
+              {result.method === 'text'
+                ? 'PDF 글자 정보 사용'
+                : `${result.method === 'mixed' ? '일부 쪽 ' : ''}인식 정확도 ${result.confidence}%`}
+            </span>
           </h3>
           <pre className="whitespace-pre-wrap break-words rounded-md border border-stripe-border bg-[#f6f9fc] p-3 text-[13px] leading-relaxed max-h-[60vh] overflow-y-auto">
             {result.text.trim() || '(읽은 글자가 없습니다)'}

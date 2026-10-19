@@ -4,12 +4,13 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { getDb } from '../db.js';
 import { getDocumentFile } from './personnelService.js';
-import { extractPdfImages } from '../utils/pdfImages.js';
+import { readPdfPages } from '../utils/pdfReader.js';
 import { parsePersonnelText } from '../utils/personnelTextParser.js';
 import { OCR_BLOCKED_DOCUMENT_TYPES, OCR_EXTENSIONS } from '../../src/constants/personnel.js';
 
 /**
  * 스캔 증명서류 글자 읽기(OCR). 서버 안에서 tesseract.js(WASM)로 처리하고 외부로 보내지 않습니다.
+ * PDF 에 글자 정보가 있으면 OCR 없이 그 글자를 씁니다.
  * 읽은 글자는 저장하지 않고 화면에 후보로만 돌려줍니다.
  */
 
@@ -97,26 +98,23 @@ function enqueue(task) {
   return run;
 }
 
-function pagesOf(extension, content) {
-  if (extension !== 'pdf') return { images: [content], skipped: [] };
-  let result;
-  try {
-    result = extractPdfImages(content, { maxImages: MAX_PAGES });
-  } catch (error) {
-    throw httpError(error.message);
-  }
-  if (!result.images.length) {
+/** 이미지는 그대로, PDF 는 쪽마다 글자(글자 정보가 있을 때) 또는 스캔 그림으로 나눕니다. */
+async function sourcePages(extension, content) {
+  if (extension !== 'pdf') return { totalPages: 1, pages: [{ image: content }], garbledPages: 0 };
+  const result = await readPdfPages(content, { maxPages: MAX_PAGES });
+  if (!result.pages.length) {
     throw httpError(
-      result.skipped.length
-        ? '이 PDF의 스캔 방식(흑백 팩스·JBIG2 등)은 읽을 수 없습니다. 컬러·회색조로 스캔하거나 JPG·PNG로 올려 주세요.'
-        : 'PDF에서 스캔 이미지를 찾지 못했습니다. 스캔한 PDF이거나 JPG·PNG 파일이어야 합니다.'
+      result.garbledPages
+        ? '글자 정보가 깨져 있는 PDF라 읽을 수 없습니다. 인쇄해서 스캔하거나 JPG·PNG로 올려 주세요.'
+        : 'PDF에서 글자나 스캔 이미지를 찾지 못했습니다.'
     );
   }
-  return { images: result.images.map((img) => img.buffer), skipped: result.skipped };
+  return result;
 }
 
 /**
- * @returns {{ docType, pages, confidence, text, profile, records, warnings }}
+ * @returns {{ docType, method, pages, confidence, text, profile, records, warnings }}
+ *   method: 'text'(PDF 글자 정보), 'ocr'(스캔 글자 인식), 'mixed'
  */
 export async function readPersonnelDocument(docId) {
   const row = await getDb()
@@ -130,31 +128,42 @@ export async function readPersonnelDocument(docId) {
     throw httpError('글자 읽기는 PDF·JPG·PNG·WEBP 파일만 됩니다.');
   }
   const file = await getDocumentFile(row.id);
-  const { images, skipped } = pagesOf(row.extension, file.content);
 
   const modes = FORM_DOCUMENT_TYPES.includes(row.doc_type) ? [PSM_SINGLE_BLOCK, PSM_SINGLE_COLUMN] : [PSM_SINGLE_BLOCK];
-  const pages = await enqueue(async () => {
-    const worker = await getWorker();
+  const { source, pages } = await enqueue(async () => {
+    const source = await sourcePages(row.extension, file.content);
     const out = [];
-    for (const image of images) {
+    for (const page of source.pages) {
+      if (page.text) {
+        out.push({ text: page.text, confidence: null });
+        continue;
+      }
+      const worker = await getWorker();
       const texts = [];
       let confidence = 0;
       for (const mode of modes) {
         await worker.setParameters({ tessedit_pageseg_mode: mode });
-        const { data } = await worker.recognize(image);
+        const { data } = await worker.recognize(page.image);
         texts.push((data.text || '').trim());
         confidence = Math.max(confidence, Number(data.confidence) || 0);
       }
       out.push({ text: texts.join(`\n\n${SECOND_PASS_DIVIDER}\n`), confidence });
     }
-    return out;
+    return { source, pages: out };
   });
 
   const parsed = parsePersonnelText(pages.map((p) => p.text).join('\n\n'), row.doc_type);
-  const confidence = Math.round(pages.reduce((sum, p) => sum + p.confidence, 0) / pages.length);
+  const ocrPages = pages.filter((p) => p.confidence !== null);
+  const confidence = ocrPages.length
+    ? Math.round(ocrPages.reduce((sum, p) => sum + p.confidence, 0) / ocrPages.length)
+    : null;
+  const method = !ocrPages.length ? 'text' : ocrPages.length === pages.length ? 'ocr' : 'mixed';
+  const readPages = Math.min(source.totalPages, MAX_PAGES);
   const warnings = [];
-  if (confidence < 70) warnings.push('글자 인식 정확도가 낮습니다. 후보 값을 원본과 꼭 대조하세요.');
-  if (skipped.length) warnings.push(`읽지 못한 이미지 ${skipped.length}개가 있습니다.`);
-  if (row.extension === 'pdf' && images.length >= MAX_PAGES) warnings.push(`앞쪽 ${MAX_PAGES}쪽까지만 읽었습니다.`);
-  return { docType: row.doc_type, pages: pages.length, confidence, ...parsed, warnings };
+  if (confidence !== null && confidence < 70) warnings.push('글자 인식 정확도가 낮습니다. 후보 값을 원본과 꼭 대조하세요.');
+  if (pages.length < readPages) {
+    warnings.push(`읽을 내용이 없거나 글자 정보가 깨진 ${readPages - pages.length}쪽은 건너뛰었습니다.`);
+  }
+  if (source.totalPages > MAX_PAGES) warnings.push(`전체 ${source.totalPages}쪽 중 앞쪽 ${MAX_PAGES}쪽까지만 읽었습니다.`);
+  return { docType: row.doc_type, method, pages: pages.length, confidence, ...parsed, warnings };
 }

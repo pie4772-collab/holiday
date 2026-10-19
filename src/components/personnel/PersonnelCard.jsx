@@ -19,7 +19,7 @@ function fieldLabel(category, key) {
   return key === 'notes' ? '비고' : category.fields[key];
 }
 
-function EmployeeSummary({ employee }) {
+function EmployeeSummary({ employee, compact }) {
   const items = [
     ['사번', employee.empNo || '-'],
     ['사업장', employee.workplace || '-'],
@@ -38,7 +38,7 @@ function EmployeeSummary({ employee }) {
           <h2 className="text-lg font-semibold text-stripe-text">{employee.name}</h2>
           {employee.isActive ? <Badge variant="success">재직</Badge> : <Badge variant="default">퇴사</Badge>}
         </div>
-        <dl className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-6 gap-y-3">
+        <dl className={`grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-3 ${compact ? '' : 'lg:grid-cols-5'}`}>
           {items.map(([label, value]) => (
             <div key={label} className="min-w-0">
               <dt className="text-[11px] text-stripe-muted">{label}</dt>
@@ -149,7 +149,7 @@ function ProfileSection({ section, profile, editable, onSave, isSaving }) {
   );
 }
 
-function RecordFormModal({ category, record, onClose, onSubmit, isSaving }) {
+function RecordForm({ category, record, onClose, onSubmit, isSaving, columns = 1 }) {
   const keys = fieldOrder(category);
   const [form, setForm] = useState(() => Object.fromEntries(keys.map((k) => [k, record?.[k] || ''])));
   const [error, setError] = useState('');
@@ -165,6 +165,58 @@ function RecordFormModal({ category, record, onClose, onSubmit, isSaving }) {
   }
 
   return (
+    <form onSubmit={handleSubmit} className="space-y-3">
+      <div className={columns === 2 ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : 'space-y-3'}>
+        {keys.map((key) => {
+          const isDate = key === 'startDate' || key === 'endDate';
+          const isLong = key === 'detail' || key === 'notes';
+          const listId = category.suggestions?.[key] ? `personnel-${category.key}-${key}` : undefined;
+          return (
+            <div key={key} className={columns === 2 && isLong ? 'sm:col-span-2' : ''}>
+              <label className="stripe-label">{fieldLabel(category, key)}</label>
+              {isLong ? (
+                <textarea
+                  rows={2}
+                  className="stripe-input resize-none"
+                  value={form[key]}
+                  onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                />
+              ) : (
+                <input
+                  type="text"
+                  className={`stripe-input ${isDate ? 'font-mono' : ''}`}
+                  placeholder={isDate ? 'YYYY-MM-DD 또는 YYYY-MM' : undefined}
+                  list={listId}
+                  value={form[key]}
+                  onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                />
+              )}
+              {listId && (
+                <datalist id={listId}>
+                  {category.suggestions[key].map((option) => (
+                    <option key={option} value={option} />
+                  ))}
+                </datalist>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {error && <p className="text-sm text-[#df1b41]">{error}</p>}
+      <div className="flex justify-end gap-2 pt-2">
+        <Button type="button" variant="secondary" onClick={onClose}>
+          취소
+        </Button>
+        <Button type="submit" disabled={isSaving}>
+          {isSaving ? '저장 중…' : '저장'}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function RecordFormModal({ category, record, onClose, onSubmit, isSaving }) {
+  return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4">
       <div className="absolute inset-0 bg-[#0a2540]/40" onClick={onClose} />
       <div className="relative w-full sm:max-w-md stripe-panel shadow-xl rounded-t-xl sm:rounded-lg max-h-[92vh] overflow-y-auto safe-bottom">
@@ -176,57 +228,15 @@ function RecordFormModal({ category, record, onClose, onSubmit, isSaving }) {
             <X className="h-4 w-4 text-stripe-muted" />
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="p-5 space-y-3">
-          {keys.map((key) => {
-            const isDate = key === 'startDate' || key === 'endDate';
-            const isLong = key === 'detail' || key === 'notes';
-            const listId = category.suggestions?.[key] ? `personnel-${category.key}-${key}` : undefined;
-            return (
-              <div key={key}>
-                <label className="stripe-label">{fieldLabel(category, key)}</label>
-                {isLong ? (
-                  <textarea
-                    rows={2}
-                    className="stripe-input resize-none"
-                    value={form[key]}
-                    onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-                  />
-                ) : (
-                  <input
-                    type="text"
-                    className={`stripe-input ${isDate ? 'font-mono' : ''}`}
-                    placeholder={isDate ? 'YYYY-MM-DD 또는 YYYY-MM' : undefined}
-                    list={listId}
-                    value={form[key]}
-                    onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-                  />
-                )}
-                {listId && (
-                  <datalist id={listId}>
-                    {category.suggestions[key].map((option) => (
-                      <option key={option} value={option} />
-                    ))}
-                  </datalist>
-                )}
-              </div>
-            );
-          })}
-          {error && <p className="text-sm text-[#df1b41]">{error}</p>}
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="secondary" onClick={onClose}>
-              취소
-            </Button>
-            <Button type="submit" disabled={isSaving}>
-              {isSaving ? '저장 중…' : '저장'}
-            </Button>
-          </div>
-        </form>
+        <div className="p-5">
+          <RecordForm category={category} record={record} onClose={onClose} onSubmit={onSubmit} isSaving={isSaving} />
+        </div>
       </div>
     </div>
   );
 }
 
-function RecordSection({ category, records, editable, onSave, onDelete, isSaving }) {
+function RecordSection({ category, records, editable, onSave, onDelete, isSaving, inlineForms }) {
   const [modal, setModal] = useState(null);
   const keys = fieldOrder(category);
 
@@ -251,7 +261,8 @@ function RecordSection({ category, records, editable, onSave, onDelete, isSaving
         title={category.label}
         description={`${records.length}건`}
         actions={
-          editable && (
+          editable &&
+          !(inlineForms && modal) && (
             <Button variant="secondary" onClick={() => setModal({ record: null })}>
               <Plus className="h-4 w-4" />
               추가
@@ -259,6 +270,22 @@ function RecordSection({ category, records, editable, onSave, onDelete, isSaving
           )
         }
       />
+      {inlineForms && modal && (
+        <PanelBody className="border-b border-stripe-border bg-[#f6f9fc]">
+          <h4 className="mb-3 text-sm font-semibold text-stripe-text">
+            {category.label} {modal.record ? '수정' : '추가'}
+          </h4>
+          <RecordForm
+            key={modal.record?.id || 'new'}
+            category={category}
+            record={modal.record}
+            onClose={() => setModal(null)}
+            onSubmit={handleSubmit}
+            isSaving={isSaving}
+            columns={2}
+          />
+        </PanelBody>
+      )}
       {records.length === 0 ? (
         <p className="py-10 text-center text-sm text-stripe-muted">등록된 {category.label} 내역이 없습니다.</p>
       ) : (
@@ -309,7 +336,7 @@ function RecordSection({ category, records, editable, onSave, onDelete, isSaving
           </table>
         </div>
       )}
-      {modal && (
+      {modal && !inlineForms && (
         <RecordFormModal
           category={category}
           record={modal.record}
@@ -326,8 +353,9 @@ function RecordSection({ category, records, editable, onSave, onDelete, isSaving
  * 인사기록카드 화면. editable 이면 수정 버튼을 보여 줍니다.
  * handlers: { saveProfile(data), saveRecord(recordId, data), deleteRecord(recordId), isSaving }
  * documents 를 넘기면(관리자 화면) 증명서류 탭을 붙입니다.
+ * inlineForms 이면 이력 추가·수정 칸을 팝업 대신 목록 위에 펼칩니다(옆에 띄운 서류를 가리지 않도록).
  */
-export function PersonnelCard({ card, editable = false, handlers = {}, documents = null }) {
+export function PersonnelCard({ card, editable = false, handlers = {}, documents = null, inlineForms = false }) {
   const categories = RECORD_CATEGORIES.filter((c) => card.records[c.key]);
   const tabs = [
     ...PROFILE_TABS,
@@ -339,7 +367,7 @@ export function PersonnelCard({ card, editable = false, handlers = {}, documents
 
   return (
     <div>
-      <EmployeeSummary employee={card.employee} />
+      <EmployeeSummary employee={card.employee} compact={inlineForms} />
 
       <div className="mb-4 flex gap-1 overflow-x-auto border-b border-stripe-border">
         {tabs.map((item) => {
@@ -372,6 +400,7 @@ export function PersonnelCard({ card, editable = false, handlers = {}, documents
           onSave={handlers.saveRecord}
           onDelete={handlers.deleteRecord}
           isSaving={handlers.isSaving}
+          inlineForms={inlineForms}
         />
       ) : (
         <ProfileSection

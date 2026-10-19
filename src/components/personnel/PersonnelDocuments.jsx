@@ -95,8 +95,11 @@ function UploadForm({ employeeId, onMessage }) {
   );
 }
 
-/** 입사 증명서류. 인사기록카드 조회 권한이 있는 관리자 화면에서만 씁니다. */
-export function PersonnelDocuments({ employeeId, editable }) {
+/**
+ * 입사 증명서류. 인사기록카드 조회 권한이 있는 관리자 화면에서만 씁니다.
+ * onPreview 를 넘기면 "보기"가 새 창 대신 옆 서류 보기 칸에 엽니다.
+ */
+export function PersonnelDocuments({ employeeId, editable, onPreview }) {
   const { data: documents = [], isLoading, isError, error } = usePersonnelDocuments(employeeId);
   const remove = useDeletePersonnelDocument();
   const [message, setMessage] = useState('');
@@ -190,7 +193,7 @@ export function PersonnelDocuments({ employeeId, editable }) {
                         className="p-1 text-stripe-muted hover:text-primary-500 disabled:opacity-40"
                         title="보기"
                         disabled={busyId === doc.id}
-                        onClick={() => handleOpen(doc, true)}
+                        onClick={() => (onPreview ? onPreview(doc) : handleOpen(doc, true))}
                       >
                         <Eye className="h-4 w-4" />
                       </button>

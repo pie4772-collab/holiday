@@ -86,6 +86,7 @@ export const SELF_HIDDEN_CATEGORIES = ['evaluation'];
 export const DOCUMENT_TYPES = [
   '이력서',
   '자기소개서',
+  '면접심사표',
   '주민등록등본',
   '가족관계증명서',
   '최종학력증명서',

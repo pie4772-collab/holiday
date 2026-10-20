@@ -33,7 +33,8 @@ export function EvaluationPrintSheet({ data, scores, total, comment, reviewerCom
   ];
 
   return createPortal(
-    <div className="evaluation-print text-[11.5px] leading-snug text-black">
+    // 표가 인쇄 영역 경계에 닿으면 바깥선이 잘려서 둘레에 여유를 둡니다.
+    <div className="evaluation-print p-0.5 text-[11.5px] leading-snug text-black">
       <div className="mb-3 flex items-stretch justify-between gap-4">
         <div className="flex flex-1 flex-col justify-between">
           <h1 className="pt-2 text-[22px] font-bold tracking-tight">

@@ -5,6 +5,9 @@ import * as approvalService from './approvalService.js';
 import { WORK_TYPE_LABELS } from '../../src/constants/attendance.js';
 import { OUTCOMES, REMINDER_DAYS } from '../../src/constants/evaluation.js';
 
+const SUBJECT_PREFIX = '[동양철관 관리팀]';
+const APP_NAME = '동양철관 인사관리';
+
 const DEFAULTS = {
   enabled: false,
   smtpHost: 'smtp.mailplug.co.kr',
@@ -218,33 +221,37 @@ function htmlLayout(title, body, buttonLabel, href) {
     <p style="margin:24px 0;">
       <a href="${escapeHtml(href)}" style="display:inline-block;background:#635bff;color:#fff;text-decoration:none;padding:10px 16px;border-radius:6px;">${escapeHtml(buttonLabel)}</a>
     </p>
-    <p style="font-size:12px;color:#6b7c93;">Holiday 연차 관리 시스템</p>
+    <p style="font-size:12px;color:#6b7c93;">${APP_NAME} 시스템</p>
   </div>
 </body>
 </html>`;
 }
 
-async function sendWithSettings(settings, to, subject, html) {
+async function sendWithSettings(settings, to, subject, html, cc = []) {
   if (!settings.smtpHost || !settings.username || !settings.password) {
     return { skipped: true, reason: 'incomplete' };
   }
   if (!to.length) return { skipped: true, reason: 'no-recipients' };
 
+  const toSet = new Set(to.map((email) => email.toLowerCase()));
+  const ccList = [...new Set(cc.filter((email) => !toSet.has(email.toLowerCase())))];
   const transporter = createTransport(settings);
   const fromEmail = settings.fromEmail || settings.username;
   const result = await transporter.sendMail({
     from: `"${settings.fromName}" <${fromEmail}>`,
     to: to.join(', '),
-    subject,
+    ...(ccList.length ? { cc: ccList.join(', ') } : {}),
+    subject: `${SUBJECT_PREFIX} ${subject}`,
     html,
   });
   return { skipped: false, messageId: result.messageId };
 }
 
+/** options.cc: 참조로 받을 직원 행 목록 */
 async function sendMail(to, subject, html, options = {}) {
   const settings = rowToPublic(await getRow(), true);
   if (!options.force && !settings.enabled) return { skipped: true, reason: 'disabled' };
-  return sendWithSettings(settings, to, subject, html);
+  return sendWithSettings(settings, to, subject, html, uniqueEmails(options.cc).map((r) => r.email));
 }
 
 export async function sendTestMail(toEmail, overrides = {}) {
@@ -258,8 +265,8 @@ export async function sendTestMail(toEmail, overrides = {}) {
   }
   const html = htmlLayout(
     '메일 서버 연결 테스트',
-    '<p>Holiday 연차 관리 메일 서버가 정상적으로 연결되었습니다.</p>',
-    'Holiday 열기',
+    `<p>${APP_NAME} 메일 서버가 정상적으로 연결되었습니다.</p>`,
+    `${APP_NAME} 열기`,
     settings.appUrl || DEFAULTS.appUrl
   );
 
@@ -268,7 +275,7 @@ export async function sendTestMail(toEmail, overrides = {}) {
   for (let i = 0; i < attempts.length; i += 1) {
     const attempt = attempts[i];
     try {
-      const result = await sendWithSettings(attempt, [to], '[Holiday] 메일 서버 테스트', html);
+      const result = await sendWithSettings(attempt, [to], '메일 서버 테스트', html);
       if (result.skipped) {
         throw Object.assign(new Error('메일을 보내지 못했습니다. 설정을 확인해주세요.'), { status: 400 });
       }
@@ -316,7 +323,7 @@ export async function notifyLeaveSubmitted(employee, items, approvalHint) {
     `;
     await sendMail(
       approvers.map((a) => a.email),
-      `[Holiday] ${employee.name} 연차 승인 요청 (${dates})`,
+      `${employee.name} 연차 승인 요청 (${dates})`,
       htmlLayout('연차 승인 요청', body, '승인하러 가기', href)
     );
   } catch (error) {
@@ -350,11 +357,11 @@ export async function notifyLeaveFinal(employee, usage, decision, rejectReason, 
       ${!approved && rejectReason ? `<br/>반려 사유: ${escapeHtml(rejectReason)}` : ''}
       ${nextHint}</p>
     `;
-    const subject = `[Holiday] ${employee.name} 연차 ${resultLabel} (${date})`;
+    const subject = `${employee.name} 연차 ${resultLabel} (${date})`;
     const html = htmlLayout(
       `연차 ${resultLabel}`,
       body,
-      options.intermediate ? '승인 현황 보기' : 'Holiday 열기',
+      options.intermediate ? '승인 현황 보기' : `${APP_NAME} 열기`,
       options.intermediate
         ? approvalUrl(settings, false)
         : `${settings.appUrl || DEFAULTS.appUrl}/login?next=${encodeURIComponent('/employee/history')}`
@@ -418,7 +425,7 @@ export async function notifyRemoteSubmitted(employee, info, reviewers, { forAdmi
     `;
     await sendMail(
       to.map((r) => r.email),
-      `[Holiday] ${employee.name} ${label} 확인 요청 (${info.workDate})`,
+      `${employee.name} ${label} 확인 요청 (${info.workDate})`,
       htmlLayout(`${label} 확인 요청`, body, '확인하러 가기', `${settings.appUrl || DEFAULTS.appUrl}/login?next=${encodeURIComponent(path)}`)
     );
   } catch (error) {
@@ -458,8 +465,8 @@ function evaluationRows(items, { withEvaluator = false } = {}) {
     </tr>${rows}</table>`;
 }
 
-/** 평가자 지정(또는 수습 연장으로 다음 차수 생성) 알림 */
-export async function notifyEvaluationAssigned(evaluator, items, actor = null) {
+/** 평가자 지정(또는 수습 연장으로 다음 차수 생성) 알림. cc: 참조로 받을 인사담당 */
+export async function notifyEvaluationAssigned(evaluator, items, actor = null, cc = []) {
   try {
     const settings = rowToPublic(await getRow(), true);
     if (!settings.enabled) return;
@@ -473,8 +480,9 @@ export async function notifyEvaluationAssigned(evaluator, items, actor = null) {
     `;
     await sendMail(
       to.map((r) => r.email),
-      `[Holiday] 평가 요청: ${first.employee.name} ${first.label} (기한 ${first.dueDate})`,
-      htmlLayout('평가 요청', body, '평가 작성하러 가기', pageUrl(settings, '/employee/evaluations'))
+      `평가 요청: ${first.employee.name} ${first.label} (기한 ${first.dueDate})`,
+      htmlLayout('평가 요청', body, '평가 작성하러 가기', pageUrl(settings, '/employee/evaluations')),
+      { cc }
     );
   } catch (error) {
     console.error('[mail] notifyEvaluationAssigned failed:', error.message);
@@ -482,7 +490,7 @@ export async function notifyEvaluationAssigned(evaluator, items, actor = null) {
 }
 
 /** 기한 임박·경과 알림. forManager 면 인사담당용 전체 목록 */
-export async function notifyEvaluationReminder(recipients, items, { forManager = false } = {}) {
+export async function notifyEvaluationReminder(recipients, items, { forManager = false, cc = [] } = {}) {
   try {
     const settings = rowToPublic(await getRow(), true);
     if (!settings.enabled) return;
@@ -502,8 +510,8 @@ export async function notifyEvaluationReminder(recipients, items, { forManager =
       <p>기한 안에 평가표를 작성해 제출해주세요.</p>
     `;
     const subject = forManager
-      ? `[Holiday] 평가 기한 안내 ${items.length}건${overdue ? ` (기한 지남 ${overdue}건)` : ''}`
-      : `[Holiday] 평가 기한 안내: ${items.map((item) => `${item.employee.name} ${item.label}`).join(', ')}`;
+      ? `평가 기한 안내 ${items.length}건${overdue ? ` (기한 지남 ${overdue}건)` : ''}`
+      : `평가 기한 안내: ${items.map((item) => `${item.employee.name} ${item.label}`).join(', ')}`;
     await sendMail(
       to.map((r) => r.email),
       subject,
@@ -512,7 +520,8 @@ export async function notifyEvaluationReminder(recipients, items, { forManager =
         body,
         forManager ? '평가 일정 보기' : '평가 작성하러 가기',
         pageUrl(settings, forManager ? '/admin/evaluations' : '/employee/evaluations')
-      )
+      ),
+      { cc }
     );
   } catch (error) {
     console.error('[mail] notifyEvaluationReminder failed:', error.message);
@@ -528,7 +537,7 @@ function evaluationScoreText(item) {
 }
 
 /** 팀장 제출 → 지정된 임원에게 평가의견(임원) 요청 */
-export async function notifyEvaluationReviewRequested(reviewer, item) {
+export async function notifyEvaluationReviewRequested(reviewer, item, cc = []) {
   try {
     const settings = rowToPublic(await getRow(), true);
     if (!settings.enabled) return;
@@ -541,8 +550,9 @@ export async function notifyEvaluationReviewRequested(reviewer, item) {
     `;
     await sendMail(
       to.map((r) => r.email),
-      `[Holiday] 임원 의견 요청: ${item.employee.name} ${item.label}`,
-      htmlLayout('평가 임원 의견 요청', body, '의견 작성하러 가기', pageUrl(settings, '/employee/evaluations'))
+      `임원 의견 요청: ${item.employee.name} ${item.label}`,
+      htmlLayout('평가 임원 의견 요청', body, '의견 작성하러 가기', pageUrl(settings, '/employee/evaluations')),
+      { cc }
     );
   } catch (error) {
     console.error('[mail] notifyEvaluationReviewRequested failed:', error.message);
@@ -563,7 +573,7 @@ export async function notifyEvaluationSubmitted(managers, item) {
     `;
     await sendMail(
       to.map((r) => r.email),
-      `[Holiday] 평가 제출: ${item.employee.name} ${item.label}`,
+      `평가 제출: ${item.employee.name} ${item.label}`,
       htmlLayout('평가 제출 · 확정 요청', body, '확정하러 가기', pageUrl(settings, '/admin/evaluations'))
     );
   } catch (error) {
@@ -571,7 +581,7 @@ export async function notifyEvaluationSubmitted(managers, item) {
   }
 }
 
-export async function notifyEvaluationReturned(evaluator, item, note, actor = null) {
+export async function notifyEvaluationReturned(evaluator, item, note, actor = null, cc = []) {
   try {
     const settings = rowToPublic(await getRow(), true);
     if (!settings.enabled) return;
@@ -584,8 +594,9 @@ export async function notifyEvaluationReturned(evaluator, item, note, actor = nu
     `;
     await sendMail(
       to.map((r) => r.email),
-      `[Holiday] 평가 반려: ${item.employee.name} ${item.label}`,
-      htmlLayout('평가 반려', body, '평가 고치러 가기', pageUrl(settings, '/employee/evaluations'))
+      `평가 반려: ${item.employee.name} ${item.label}`,
+      htmlLayout('평가 반려', body, '평가 고치러 가기', pageUrl(settings, '/employee/evaluations')),
+      { cc }
     );
   } catch (error) {
     console.error('[mail] notifyEvaluationReturned failed:', error.message);
@@ -611,7 +622,7 @@ export async function notifyRemoteReviewed(employee, info, decision, reviewer, r
     `;
     await sendMail(
       to.map((r) => r.email),
-      `[Holiday] ${label} ${result} (${info.workDate})`,
+      `${label} ${result} (${info.workDate})`,
       htmlLayout(`${label} ${result}`, body, '근태 보기', `${settings.appUrl || DEFAULTS.appUrl}/login?next=${encodeURIComponent('/employee/attendance')}`)
     );
   } catch (error) {

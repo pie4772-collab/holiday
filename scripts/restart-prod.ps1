@@ -1,4 +1,4 @@
-# Holiday 프로덕션 서버 재시작
+# 동양철관 인사관리 프로덕션 서버 재시작
 # - 3001 포트 사용 중인 기존 프로세스 종료
 # - npm run prod (빌드 + 서버 시작)
 # 사용: npm run restart  또는 start-holiday.bat
@@ -19,7 +19,7 @@ if ($lines) {
 }
 
 Write-Host ""
-Write-Host "Holiday 서버 시작 (빌드 + 실행)..."
+Write-Host "동양철관 인사관리 서버 시작 (빌드 + 실행)..."
 Write-Host "이 창을 닫으면 서버가 종료됩니다."
 Write-Host ""
 npm run prod

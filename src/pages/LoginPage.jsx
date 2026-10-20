@@ -85,7 +85,7 @@ export function LoginPage() {
                 <h1 className="text-3xl leading-[2.75rem] font-semibold text-stripe-text tracking-tight">
                   KBI 동양철관
                 </h1>
-                <p className="text-lg text-stripe-muted mt-1.5">연차관리</p>
+                <p className="text-lg text-stripe-muted mt-1.5">인사관리</p>
               </div>
             </div>
           </aside>

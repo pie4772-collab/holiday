@@ -433,8 +433,12 @@ export async function assignEvaluator(id, data, actor) {
     if (reviewerId && reviewerChanged && status === 'reviewing') notifyReviewer = reviewerId;
   });
   const updated = mapEvaluation(await getRow(id));
-  if (notifyEvaluator) mailService.notifyEvaluationAssigned(await getEmployee(notifyEvaluator), [updated], actor);
-  if (notifyReviewer) mailService.notifyEvaluationReviewRequested(await getEmployee(notifyReviewer), updated);
+  if (notifyEvaluator) {
+    mailService.notifyEvaluationAssigned(await getEmployee(notifyEvaluator), [updated], actor, await listEvaluationManagers());
+  }
+  if (notifyReviewer) {
+    mailService.notifyEvaluationReviewRequested(await getEmployee(notifyReviewer), updated, await listEvaluationManagers());
+  }
   return updated;
 }
 
@@ -531,7 +535,7 @@ export async function saveEvaluation(id, data, access) {
   });
   const updated = mapEvaluation(await getRow(id));
   if (nextStatus === 'reviewing') {
-    mailService.notifyEvaluationReviewRequested(await getEmployee(updated.reviewerId), updated);
+    mailService.notifyEvaluationReviewRequested(await getEmployee(updated.reviewerId), updated, await listEvaluationManagers());
   } else if (nextStatus === 'submitted' && !manager) {
     mailService.notifyEvaluationSubmitted(await listEvaluationManagers(), updated);
   }
@@ -681,7 +685,9 @@ export async function confirmEvaluation(id, data, actor) {
 
   if (nextRound) {
     const next = mapEvaluation(await getRow(nextRound));
-    if (next.evaluatorId) mailService.notifyEvaluationAssigned(await getEmployee(next.evaluatorId), [next], actor);
+    if (next.evaluatorId) {
+      mailService.notifyEvaluationAssigned(await getEmployee(next.evaluatorId), [next], actor, await listEvaluationManagers());
+    }
   }
   return mapEvaluation(await getRow(id));
 }
@@ -702,7 +708,7 @@ export async function returnEvaluation(id, data, actor) {
   });
   const updated = mapEvaluation(await getRow(id));
   if (updated.evaluatorId) {
-    mailService.notifyEvaluationReturned(await getEmployee(updated.evaluatorId), updated, note, actor);
+    mailService.notifyEvaluationReturned(await getEmployee(updated.evaluatorId), updated, note, actor, await listEvaluationManagers());
   }
   return updated;
 }
@@ -782,10 +788,11 @@ export async function sendDueReminders(today = kstToday()) {
     if (!byEvaluator.has(item.evaluatorId)) byEvaluator.set(item.evaluatorId, []);
     byEvaluator.get(item.evaluatorId).push(item);
   }
+  const managers = await listEvaluationManagers();
   for (const [evaluatorId, list] of byEvaluator) {
-    await mailService.notifyEvaluationReminder([await getEmployee(evaluatorId)], list, { forManager: false });
+    await mailService.notifyEvaluationReminder([await getEmployee(evaluatorId)], list, { forManager: false, cc: managers });
   }
-  await mailService.notifyEvaluationReminder(await listEvaluationManagers(), items, { forManager: true });
+  await mailService.notifyEvaluationReminder(managers, items, { forManager: true });
 
   for (const row of rows) {
     await db

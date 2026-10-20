@@ -172,7 +172,7 @@ export function Layout() {
               subtitle={
                 currentEmployee
                   ? `${currentEmployee.name}${role === 'admin' ? ` · ${adminLabel}` : ` · ${currentEmployee.department}`}`
-                  : '연차관리'
+                  : '인사관리'
               }
               markClassName="h-8 w-8"
             />

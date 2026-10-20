@@ -13,7 +13,7 @@ export function BrandMark({ className = 'h-8 w-8' }) {
 
 export function BrandLockup({
   title = 'KBI 동양철관',
-  subtitle = '연차관리',
+  subtitle = '인사관리',
   titleClassName = 'text-sm font-semibold text-white tracking-tight',
   subtitleClassName = 'text-[11px] text-stripe-sidebar-muted',
   markClassName = 'h-8 w-8',

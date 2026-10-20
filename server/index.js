@@ -10,7 +10,7 @@ import { optionalAuth } from './middleware/auth.js';
 import { syncUsersFromEmployees } from './services/authService.js';
 import { encryptStoredMailPassword } from './services/mailService.js';
 import { startReminderSchedule } from './services/evaluationService.js';
-import { fillMissingOrgCodes } from './services/employeeService.js';
+import { repairOrgCodes } from './services/employeeService.js';
 import { getLocalIp, getShareUrl } from './utils/network.js';
 
 loadEnvFile();
@@ -18,9 +18,11 @@ const userCount = await syncUsersFromEmployees();
 if (await encryptStoredMailPassword()) {
   console.error('[mail] 평문으로 저장돼 있던 SMTP 비밀번호를 암호화했습니다.');
 }
-const filledOrgCodes = await fillMissingOrgCodes();
-if (filledOrgCodes) {
-  console.error(`[employees] 사업장·부서 코드가 비어 있던 직원 ${filledOrgCodes}명을 채웠습니다.`);
+const repairedOrgCodes = await repairOrgCodes();
+if (repairedOrgCodes.length) {
+  console.error(
+    `[employees] 사업장·부서 코드를 바로잡은 직원 ${repairedOrgCodes.length}명: ${repairedOrgCodes.join(', ')}`
+  );
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

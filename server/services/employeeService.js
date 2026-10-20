@@ -60,7 +60,7 @@ async function lookupOrgCode(db, group, name, excludeId) {
       .prepare(
         `SELECT ${codeCol} AS code, COUNT(*) AS n FROM employees
          WHERE ${nameCol} = ? AND id <> ? AND ${codeCol} IS NOT NULL AND ${codeCol} <> ''
-         GROUP BY ${codeCol} ORDER BY n DESC LIMIT 1`
+         GROUP BY ${codeCol} ORDER BY n DESC, ${codeCol} LIMIT 1`
       )
       .get(name, excludeId);
     if (row?.code) return String(row.code);
@@ -81,7 +81,7 @@ async function nextOrgCode(db, group) {
 }
 
 /**
- * 이름이 그대로면 기존 코드를 유지하고, 바뀌었거나 코드가 없으면 같은 이름을 쓰는 직원의 코드를 따릅니다.
+ * 같은 이름을 쓰는 다른 직원이 있으면 그 코드를 따릅니다. 없으면 이름이 그대로일 때 기존 코드를 유지하고,
  * 처음 보는 이름이면 그 코드 체계의 다음 번호를 붙입니다.
  */
 async function syncOrgCodes(db, id, previous = null) {
@@ -91,11 +91,10 @@ async function syncOrgCodes(db, id, previous = null) {
   for (const { column, code, group } of ORG_CODES) {
     const name = String(row[column] || '').trim();
     const current = row[code] ? String(row[code]) : null;
-    let value = null;
-    if (name && current && previous && String(previous[column] || '').trim() === name) {
-      value = current;
-    } else if (name) {
-      value = (await lookupOrgCode(db, group, name, row.id)) || (await nextOrgCode(db, group));
+    const unchanged = Boolean(previous) && String(previous[column] || '').trim() === name;
+    let value = unchanged ? current : null;
+    if (name) {
+      value = (await lookupOrgCode(db, group, name, row.id)) || value || (await nextOrgCode(db, group));
     }
     if (value !== current) {
       sets.push(`${code} = ?`);
@@ -107,23 +106,15 @@ async function syncOrgCodes(db, id, previous = null) {
   return true;
 }
 
-/** 사원 명부에서 등록·수정하면서 코드가 비어 버린 직원을 채웁니다. 서버 시작 때 실행합니다. */
-export async function fillMissingOrgCodes() {
+/** 사원 명부에서 등록·수정하면서 비거나 이름과 어긋난 코드를 바로잡습니다. 서버 시작 때 실행합니다. */
+export async function repairOrgCodes() {
   const db = getDb();
-  const rows = await db
-    .prepare(
-      `SELECT * FROM employees
-       WHERE (COALESCE(workplace, '') <> '' AND COALESCE(workplace_code, '') = '')
-          OR (COALESCE(department, '') <> '' AND COALESCE(department_code, '') = '')
-          OR (COALESCE(concurrent_dept, '') <> '' AND COALESCE(concurrent_dept_code, '') = '')
-       ORDER BY id`
-    )
-    .all();
-  let filled = 0;
+  const rows = await db.prepare('SELECT * FROM employees ORDER BY id').all();
+  const repaired = [];
   for (const row of rows) {
-    if (await syncOrgCodes(db, row.id, row)) filled += 1;
+    if (await syncOrgCodes(db, row.id, row)) repaired.push(row.emp_no);
   }
-  return filled;
+  return repaired;
 }
 
 function getEmployeeRowAny(id) {

@@ -28,26 +28,23 @@ function splitStamp(value) {
 /**
  * 결재란: 지정된 사람 이름과, 지금 상태에서 끝난 단계의 처리 일시.
  * 반려되면 이전 제출 일시가 남아 있어서 상태와 처리 순서로 끝난 단계인지 판단합니다.
- * 지정된 사람이 아닌 인사담당이 대신 처리했으면 대리 처리자를 함께 적습니다.
+ * 지정된 사람이 없어 인사담당이 입력했으면 "(인사 대리 입력)"을 적습니다.
  */
 function signerBoxes(data) {
   const submitted = ['reviewing', 'submitted', 'confirmed'].includes(data.status) && Boolean(data.submittedAt);
   const reviewed =
     ['submitted', 'confirmed'].includes(data.status) && Boolean(data.reviewedAt) && submitted && data.reviewedAt >= data.submittedAt;
-  const proxy = (assignedId, actorId, actorName) => (assignedId && actorId && assignedId !== actorId ? actorName : '');
   return [
     {
       role: '평가자',
       name: data.evaluatorName || (submitted ? data.submittedByName : ''),
       at: submitted ? data.submittedAt : '',
-      proxy: submitted ? proxy(data.evaluatorId, data.submittedById, data.submittedByName) : '',
       proxyOnly: submitted && !data.evaluatorId,
     },
     {
       role: '임원',
       name: data.reviewerName || (reviewed ? data.reviewedByName : ''),
       at: reviewed ? data.reviewedAt : '',
-      proxy: reviewed ? proxy(data.reviewerId, data.reviewedById, data.reviewedByName) : '',
       proxyOnly: reviewed && !data.reviewerId,
     },
     {
@@ -101,7 +98,7 @@ export function EvaluationPrintSheet({ data, scores, total, comment, reviewerCom
               ))}
             </tr>
             <tr>
-              {signers.map(({ role, name, at, proxy, proxyOnly }) => {
+              {signers.map(({ role, name, at, proxyOnly }) => {
                 const stamp = splitStamp(at);
                 return (
                   <td key={role} className={`${cell} h-20 px-1 text-center align-middle`}>
@@ -112,9 +109,7 @@ export function EvaluationPrintSheet({ data, scores, total, comment, reviewerCom
                         <div>{stamp.time}</div>
                       </div>
                     )}
-                    {(proxy || proxyOnly) && (
-                      <div className="mt-0.5 text-[9px] leading-tight">{proxyOnly ? '(인사 대리 입력)' : `대리 ${proxy}`}</div>
-                    )}
+                    {proxyOnly && <div className="mt-0.5 text-[9px] leading-tight">(인사 대리 입력)</div>}
                   </td>
                 );
               })}

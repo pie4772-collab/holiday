@@ -465,20 +465,26 @@ function evaluationRows(items, { withEvaluator = false } = {}) {
     </tr>${rows}</table>`;
 }
 
-/** 평가자 지정(또는 수습 연장으로 다음 차수 생성) 알림. cc: 참조로 받을 인사담당 */
-export async function notifyEvaluationAssigned(evaluator, items, actor = null, cc = []) {
+/**
+ * 평가자 지정(또는 수습 연장으로 다음 차수 생성) 알림. cc: 참조로 받을 인사담당
+ * resend 면 인사담당이 직접 다시 보내는 요청입니다. 결과({ skipped } / { error } / 발송 결과)를 돌려줍니다.
+ */
+export async function notifyEvaluationAssigned(evaluator, items, actor = null, cc = [], { resend = false } = {}) {
   try {
     const settings = rowToPublic(await getRow(), true);
-    if (!settings.enabled) return;
+    if (!settings.enabled) return { skipped: true, reason: 'disabled' };
     const to = uniqueEmails([evaluator]);
-    if (!to.length) return;
+    if (!to.length) return { skipped: true, reason: 'no-recipients' };
     const first = items[0];
+    const by = actor?.name ? ` (${resend ? '요청' : '지정'}: ${escapeHtml(actor.name)})` : '';
     const body = `
-      <p>${escapeHtml(evaluator.name)}님이 아래 평가의 평가자로 지정되었습니다${actor?.name ? ` (지정: ${escapeHtml(actor.name)})` : ''}.</p>
+      <p>${escapeHtml(evaluator.name)}님${
+        resend ? `, 아래 평가의 작성을 요청드립니다${by}.` : `이 아래 평가의 평가자로 지정되었습니다${by}.`
+      }</p>
       ${evaluationRows(items)}
       <p>기한 안에 근무평가서(20개 항목 점수·평가의견)를 작성해 제출해주세요.</p>
     `;
-    await sendMail(
+    return await sendMail(
       to.map((r) => r.email),
       `평가 요청: ${first.employee.name} ${first.label} (기한 ${first.dueDate})`,
       htmlLayout('평가 요청', body, '평가 작성하러 가기', pageUrl(settings, '/employee/evaluations')),
@@ -486,6 +492,7 @@ export async function notifyEvaluationAssigned(evaluator, items, actor = null, c
     );
   } catch (error) {
     console.error('[mail] notifyEvaluationAssigned failed:', error.message);
+    return { error: error.message };
   }
 }
 
@@ -536,19 +543,21 @@ function evaluationScoreText(item) {
   }</p>`;
 }
 
-/** 팀장 제출 → 지정된 임원에게 평가의견(임원) 요청 */
-export async function notifyEvaluationReviewRequested(reviewer, item, cc = []) {
+/** 팀장 제출 → 지정된 임원에게 평가의견(임원) 요청. 결과는 notifyEvaluationAssigned 와 같습니다. */
+export async function notifyEvaluationReviewRequested(reviewer, item, cc = [], { actor = null } = {}) {
   try {
     const settings = rowToPublic(await getRow(), true);
-    if (!settings.enabled) return;
+    if (!settings.enabled) return { skipped: true, reason: 'disabled' };
     const to = uniqueEmails([reviewer]);
-    if (!to.length) return;
+    if (!to.length) return { skipped: true, reason: 'no-recipients' };
     const body = `
-      <p>${escapeHtml(item.submittedByName || item.evaluatorName)}님이 평가표를 제출했습니다. 평가 내용을 확인하고 평가의견(임원)을 작성해 제출해주세요.</p>
+      <p>${escapeHtml(item.submittedByName || item.evaluatorName)}님이 평가표를 제출했습니다. 평가 내용을 확인하고 평가의견(임원)을 작성해 제출해주세요.${
+        actor?.name ? ` (요청: ${escapeHtml(actor.name)})` : ''
+      }</p>
       ${evaluationRows([item])}
       ${evaluationScoreText(item)}
     `;
-    await sendMail(
+    return await sendMail(
       to.map((r) => r.email),
       `임원 의견 요청: ${item.employee.name} ${item.label}`,
       htmlLayout('평가 임원 의견 요청', body, '의견 작성하러 가기', pageUrl(settings, '/employee/evaluations')),
@@ -556,6 +565,7 @@ export async function notifyEvaluationReviewRequested(reviewer, item, cc = []) {
     );
   } catch (error) {
     console.error('[mail] notifyEvaluationReviewRequested failed:', error.message);
+    return { error: error.message };
   }
 }
 

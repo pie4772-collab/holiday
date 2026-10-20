@@ -130,8 +130,10 @@ function mapEvaluation(row, today = kstToday()) {
     outcomeDate: row.outcome_date || '',
     hrNote: row.hr_note || '',
     submittedAt: row.submitted_at || '',
+    submittedById: row.submitted_by == null ? '' : String(row.submitted_by),
     submittedByName: row.submitted_by_name || '',
     reviewedAt: row.reviewed_at || '',
+    reviewedById: row.reviewed_by == null ? '' : String(row.reviewed_by),
     reviewedByName: row.reviewed_by_name || '',
     confirmedAt: row.confirmed_at || '',
     confirmedByName: row.confirmed_by_name || '',
@@ -690,6 +692,45 @@ export async function confirmEvaluation(id, data, actor) {
     }
   }
   return mapEvaluation(await getRow(id));
+}
+
+/**
+ * 인사담당이 요청 메일을 직접 보냅니다. 작성 대기면 평가자에게 평가 요청,
+ * 임원 의견 대기면 임원에게 의견 요청을 보내고 인사담당은 참조로 받습니다.
+ */
+export async function sendRequestMail(id, actor) {
+  const row = await getRow(id);
+  const toReviewer = row.status === 'reviewing';
+  if (!['pending', 'reviewing'].includes(row.status)) {
+    throw httpError(
+      row.status === 'submitted' ? '확정 대기 중인 평가는 보낼 요청 메일이 없습니다. 확정하거나 반려하세요.' : '진행 중인 평가만 요청 메일을 보낼 수 있습니다.'
+    );
+  }
+  const personId = toReviewer ? row.reviewer_id : row.evaluator_id;
+  const role = toReviewer ? '임원' : '평가자';
+  const roleObj = toReviewer ? '임원을' : '평가자를';
+  if (!personId) throw httpError(`${roleObj} 먼저 지정하세요.`);
+  const person = await getEmployee(personId);
+  if (!person.is_active) throw httpError(`${role}(${person.name})는 퇴사했습니다. ${roleObj} 다시 지정하세요.`);
+  if (!text(person.email)) throw httpError(`${person.name}님의 이메일 주소가 없습니다. 사원 정보에서 이메일을 등록하세요.`);
+  if (!(await mailService.isMailEnabled())) throw httpError('메일 발송이 꺼져 있습니다. 메일 설정에서 발송을 켜세요.');
+
+  const item = mapEvaluation(row);
+  const cc = await listEvaluationManagers();
+  const result = toReviewer
+    ? await mailService.notifyEvaluationReviewRequested(person, item, cc, { actor })
+    : await mailService.notifyEvaluationAssigned(person, [item], actor, cc, { resend: true });
+  if (result?.error) throw httpError(`메일을 보내지 못했습니다: ${result.error}`, 502);
+  if (!result || result.skipped) {
+    throw httpError(result?.reason === 'incomplete' ? '메일 설정(SMTP 계정·비밀번호)을 먼저 완성하세요.' : '메일을 보내지 못했습니다.');
+  }
+
+  if (!toReviewer && diffDays(row.due_date, kstToday()) <= REMINDER_DAYS) {
+    await getDb()
+      .prepare(`UPDATE employee_evaluations SET reminded_at = datetime('now', 'localtime') WHERE id = ?`)
+      .run(row.id);
+  }
+  return { role, name: person.name, email: text(person.email), ccCount: cc.filter((m) => text(m.email)).length };
 }
 
 export async function returnEvaluation(id, data, actor) {

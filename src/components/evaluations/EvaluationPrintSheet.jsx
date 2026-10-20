@@ -20,17 +20,51 @@ function dateWithWeekday(value) {
 const cell = 'border border-black px-2 py-1';
 const head = `${cell} bg-[#f2f2f2] text-center font-semibold`;
 
+function splitStamp(value) {
+  const text = String(value || '').replace('T', ' ');
+  return { date: text.slice(0, 10), time: text.slice(11, 16) };
+}
+
+/**
+ * 결재란: 지정된 사람 이름과, 지금 상태에서 끝난 단계의 처리 일시.
+ * 반려되면 이전 제출 일시가 남아 있어서 상태와 처리 순서로 끝난 단계인지 판단합니다.
+ * 지정된 사람이 아닌 인사담당이 대신 처리했으면 대리 처리자를 함께 적습니다.
+ */
+function signerBoxes(data) {
+  const submitted = ['reviewing', 'submitted', 'confirmed'].includes(data.status) && Boolean(data.submittedAt);
+  const reviewed =
+    ['submitted', 'confirmed'].includes(data.status) && Boolean(data.reviewedAt) && submitted && data.reviewedAt >= data.submittedAt;
+  const proxy = (assignedId, actorId, actorName) => (assignedId && actorId && assignedId !== actorId ? actorName : '');
+  return [
+    {
+      role: '평가자',
+      name: data.evaluatorName || (submitted ? data.submittedByName : ''),
+      at: submitted ? data.submittedAt : '',
+      proxy: submitted ? proxy(data.evaluatorId, data.submittedById, data.submittedByName) : '',
+      proxyOnly: submitted && !data.evaluatorId,
+    },
+    {
+      role: '임원',
+      name: data.reviewerName || (reviewed ? data.reviewedByName : ''),
+      at: reviewed ? data.reviewedAt : '',
+      proxy: reviewed ? proxy(data.reviewerId, data.reviewedById, data.reviewedByName) : '',
+      proxyOnly: reviewed && !data.reviewerId,
+    },
+    {
+      role: '인사',
+      name: data.confirmedByName,
+      at: data.status === 'confirmed' ? data.confirmedAt : '',
+    },
+  ];
+}
+
 /** 근무평가서 양식 그대로 인쇄합니다. 화면에는 보이지 않고 인쇄할 때만 나옵니다. */
 export function EvaluationPrintSheet({ data, scores, total, comment, reviewerComment, recommendation }) {
   const kind = EVALUATION_KINDS[data.kind];
   const isProbation = data.kind === 'probation';
   const result = data.outcome || recommendation;
   const scoreText = `${total != null ? `${total} / ${MAX_TOTAL_SCORE}` : ''} 점`;
-  const signers = [
-    ['평가자', data.evaluatorName || data.submittedByName],
-    ['임원', data.reviewerName || data.reviewedByName],
-    ['인사', data.confirmedByName],
-  ];
+  const signers = signerBoxes(data);
 
   return createPortal(
     // 표가 인쇄 영역 경계에 닿으면 바깥선이 잘려서 둘레에 여유를 둡니다.
@@ -60,18 +94,30 @@ export function EvaluationPrintSheet({ data, scores, total, comment, reviewerCom
               <td rowSpan={2} className={`${head} w-6 px-1 [writing-mode:vertical-rl]`}>
                 결 재
               </td>
-              {signers.map(([role]) => (
-                <td key={role} className={`${head} w-20`}>
+              {signers.map(({ role }) => (
+                <td key={role} className={`${head} w-24`}>
                   {role}
                 </td>
               ))}
             </tr>
             <tr>
-              {signers.map(([role, name]) => (
-                <td key={role} className={`${cell} h-16 text-center align-middle`}>
-                  {name || ''}
-                </td>
-              ))}
+              {signers.map(({ role, name, at, proxy, proxyOnly }) => {
+                const stamp = splitStamp(at);
+                return (
+                  <td key={role} className={`${cell} h-20 px-1 text-center align-middle`}>
+                    <div className="font-medium">{name || ''}</div>
+                    {at && (
+                      <div className="mt-0.5 text-[9.5px] leading-tight tabular-nums">
+                        <div>{stamp.date}</div>
+                        <div>{stamp.time}</div>
+                      </div>
+                    )}
+                    {(proxy || proxyOnly) && (
+                      <div className="mt-0.5 text-[9px] leading-tight">{proxyOnly ? '(인사 대리 입력)' : `대리 ${proxy}`}</div>
+                    )}
+                  </td>
+                );
+              })}
             </tr>
           </tbody>
         </table>

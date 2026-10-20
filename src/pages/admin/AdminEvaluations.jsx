@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { Mail, Search } from 'lucide-react';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
@@ -91,6 +91,21 @@ function UntypedPanel({ employees, onMessage }) {
   );
 }
 
+function NotifyLink({ item, sending, onClick }) {
+  return (
+    <button
+      type="button"
+      disabled={sending}
+      onClick={() => onClick(item)}
+      title={item.status === 'reviewing' ? '임원에게 의견 요청 메일 보내기' : '평가자에게 평가 요청 메일 보내기'}
+      className="ml-2 inline-flex items-center gap-0.5 text-[12px] text-primary-600 hover:text-primary-700 disabled:opacity-50"
+    >
+      <Mail className="h-3 w-3" />
+      {sending ? '보내는 중' : '요청 메일'}
+    </button>
+  );
+}
+
 function CancelForm({ item, onDone, onCancel }) {
   const action = useEvaluationAction();
   const [note, setNote] = useState('');
@@ -132,6 +147,8 @@ export function AdminEvaluations() {
   const [view, setView] = useState('active');
   const { data, isLoading, isError, error, refetch } = useEvaluations(view);
   const restore = useEvaluationAction();
+  const notify = useEvaluationAction();
+  const [sendingId, setSendingId] = useState(null);
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState('');
   const [openId, setOpenId] = useState(null);
@@ -165,6 +182,25 @@ export function AdminEvaluations() {
     }
   }
 
+  async function handleNotify(item) {
+    const toReviewer = item.status === 'reviewing';
+    const name = toReviewer ? item.reviewerName : item.evaluatorName;
+    const what = toReviewer ? '임원 의견 요청' : '평가 요청';
+    if (!window.confirm(`${name}님에게 ${item.employee.name} ${item.label} ${what} 메일을 보낼까요?\n인사담당은 참조로 받습니다.`)) return;
+    setSendingId(item.id);
+    try {
+      const result = await notify.mutateAsync({ id: item.id, action: 'notify' });
+      setMessage({
+        type: 'ok',
+        text: `${result.name}님(${result.email})에게 ${what} 메일을 보냈습니다${result.ccCount ? ` (인사담당 ${result.ccCount}명 참조)` : ''}.`,
+      });
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message });
+    } finally {
+      setSendingId(null);
+    }
+  }
+
   if (isLoading && !data) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -180,7 +216,7 @@ export function AdminEvaluations() {
     <div>
       <PageHeader
         title="수습·정기 평가"
-        description={`신입은 수습평가(입사 3개월)와 입사 1년 평가, 경력은 3개월 평가를 합니다. 팀장 작성 → 임원 의견 → 인사담당 확정 순서이고, 기한 ${REMINDER_DAYS}일 전에 평가자와 인사담당에게 메일로 알립니다.`}
+        description={`신입은 수습평가(입사 3개월)와 입사 1년 평가, 경력은 3개월 평가를 합니다. 팀장 작성 → 임원 의견 → 인사담당 확정 순서이고, 기한 ${REMINDER_DAYS}일 전에 평가자와 인사담당에게 메일로 알리고, "요청 메일"로 언제든 직접 보낼 수도 있습니다.`}
       />
 
       {message && (
@@ -297,10 +333,16 @@ export function AdminEvaluations() {
                             {item.evaluatorId || item.reviewerId ? '변경' : '지정'}
                           </button>
                         )}
+                        {item.status === 'pending' && item.evaluatorId && (
+                          <NotifyLink item={item} sending={sendingId === item.id} onClick={handleNotify} />
+                        )}
                       </div>
                       <div className="text-[13px]">
                         <span className="text-[12px] text-stripe-muted">임원 </span>
                         {item.reviewerName || <span className="text-stripe-muted">-</span>}
+                        {item.status === 'reviewing' && item.reviewerId && (
+                          <NotifyLink item={item} sending={sendingId === item.id} onClick={handleNotify} />
+                        )}
                       </div>
                     </td>
                     <td className="whitespace-nowrap">

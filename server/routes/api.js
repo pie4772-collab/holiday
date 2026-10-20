@@ -799,6 +799,14 @@ router.post('/admin/evaluations/:id/confirm', requirePermission('evaluations.man
   }
 });
 
+router.post('/admin/evaluations/:id/notify', requirePermission('evaluations.manage'), async (req, res, next) => {
+  try {
+    res.json(await evaluationService.sendRequestMail(req.params.id, req.access.employee));
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.post('/admin/evaluations/:id/return', requirePermission('evaluations.manage'), async (req, res, next) => {
   try {
     res.json(await evaluationService.returnEvaluation(req.params.id, req.body || {}, req.access.employee));

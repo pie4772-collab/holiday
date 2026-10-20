@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { SelectOrInput } from '../ui/SelectOrInput';
 import { DEFAULT_POSITION, JOB_TYPES, POSITIONS } from '../../constants/hr';
+import { HIRE_TYPES } from '../../constants/evaluation';
 
 function uniqueSorted(values) {
   return [...new Set(values.map((v) => String(v || '').trim()).filter(Boolean))].sort((a, b) =>
@@ -14,6 +15,7 @@ const emptyForm = {
   empNo: '',
   name: '',
   hireDate: new Date().toISOString().slice(0, 10),
+  hireType: '',
   workplace: '',
   department: '',
   jobType: '사무직',
@@ -62,6 +64,7 @@ export function EmployeeFormModal({
           empNo: initial.empNo || '',
           name: initial.name || '',
           hireDate: initial.hireDate || '',
+          hireType: initial.hireType || '',
           workplace: initial.workplace || '',
           department: initial.department || '',
           jobType: initial.jobType || '사무직',
@@ -158,16 +161,38 @@ export function EmployeeFormModal({
                 />
               </div>
             </div>
-            <div>
-              <label className="stripe-label">입사일 *</label>
-              <input
-                type="date"
-                value={form.hireDate}
-                onChange={(e) => setForm({ ...form, hireDate: e.target.value })}
-                required
-                className="stripe-input"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="stripe-label">입사일 *</label>
+                <input
+                  type="date"
+                  value={form.hireDate}
+                  onChange={(e) => setForm({ ...form, hireDate: e.target.value })}
+                  required
+                  className="stripe-input"
+                />
+              </div>
+              <div>
+                <label className="stripe-label">입사 구분</label>
+                <select
+                  value={form.hireType}
+                  onChange={(e) => setForm({ ...form, hireType: e.target.value })}
+                  className="stripe-input"
+                >
+                  <option value="">미지정</option>
+                  {HIRE_TYPES.map((type) => (
+                    <option key={type.key} value={type.key}>
+                      {type.key === 'new' ? `${type.label} (수습 3개월)` : type.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
+            {form.hireType && (
+              <p className="-mt-2 text-[12px] text-stripe-muted">
+                {HIRE_TYPES.find((t) => t.key === form.hireType)?.hint}. 평가 일정은 수습·정기 평가 화면에서 관리합니다.
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="stripe-label">사업장</label>

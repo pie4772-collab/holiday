@@ -4,6 +4,7 @@ import { Panel, PanelBody, PanelHeader } from '../ui/Panel';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { PROFILE_FIELDS, RECORD_CATEGORIES } from '../../constants/personnel';
+import { HIRE_TYPE_LABELS } from '../../constants/evaluation';
 import { formatDate } from '../../utils/leaveCalculations';
 
 const PROFILE_TABS = [
@@ -19,6 +20,17 @@ function fieldLabel(category, key) {
   return key === 'notes' ? '비고' : category.fields[key];
 }
 
+function hireTypeText(employee) {
+  const label = HIRE_TYPE_LABELS[employee.hireType];
+  if (!label) return '-';
+  if (employee.hireType !== 'new') return label;
+  if (employee.regularDate) {
+    const upcoming = employee.regularDate > new Date().toLocaleDateString('en-CA');
+    return `${label} · ${formatDate(employee.regularDate)} 정규직 전환${upcoming ? ' 예정' : ''}`;
+  }
+  return employee.probationEnd ? `${label} · 수습 ~${formatDate(employee.probationEnd)}` : label;
+}
+
 function EmployeeSummary({ employee, compact }) {
   const items = [
     ['사번', employee.empNo || '-'],
@@ -28,6 +40,7 @@ function EmployeeSummary({ employee, compact }) {
     ['겸직', [employee.concurrentDept, employee.concurrentPosition].filter(Boolean).join(' · ') || '-'],
     ['직종', employee.jobType || '-'],
     ['입사일', formatDate(employee.hireDate)],
+    ['입사 구분', hireTypeText(employee)],
     ['퇴사일', employee.terminatedDate ? formatDate(employee.terminatedDate) : '-'],
     ['회사 이메일', employee.email || '-'],
   ];

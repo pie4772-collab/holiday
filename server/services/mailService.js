@@ -3,6 +3,7 @@ import { getDb } from '../db.js';
 import { decryptField, encryptField, isEncrypted } from '../secrets.js';
 import * as approvalService from './approvalService.js';
 import { WORK_TYPE_LABELS } from '../../src/constants/attendance.js';
+import { REMINDER_DAYS } from '../../src/constants/evaluation.js';
 
 const DEFAULTS = {
   enabled: false,
@@ -422,6 +423,142 @@ export async function notifyRemoteSubmitted(employee, info, reviewers, { forAdmi
     );
   } catch (error) {
     console.error('[mail] notifyRemoteSubmitted failed:', error.message);
+  }
+}
+
+export async function isMailEnabled() {
+  return rowToPublic(await getRow()).enabled;
+}
+
+function pageUrl(settings, path) {
+  return `${settings.appUrl || DEFAULTS.appUrl}/login?next=${encodeURIComponent(path)}`;
+}
+
+function dueText(item) {
+  const days = item.daysLeft;
+  const left = days < 0 ? `${-days}일 지남` : days === 0 ? '오늘' : `${days}일 남음`;
+  return `${item.dueDate} (${left})`;
+}
+
+function evaluationRows(items, { withEvaluator = false } = {}) {
+  const rows = items
+    .map(
+      (item) => `<tr>
+        <td style="padding:6px 8px;border-bottom:1px solid #e3e8ee;">${escapeHtml(item.employee.name)}<br/><span style="color:#6b7c93;font-size:12px;">${escapeHtml(item.employee.department)} · ${escapeHtml(item.employee.position)}</span></td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e3e8ee;">${escapeHtml(item.label)}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #e3e8ee;">${escapeHtml(dueText(item))}</td>
+        ${withEvaluator ? `<td style="padding:6px 8px;border-bottom:1px solid #e3e8ee;">${escapeHtml(item.evaluatorName || '미지정')}</td>` : ''}
+      </tr>`
+    )
+    .join('');
+  return `<table style="border-collapse:collapse;font-size:14px;width:100%;">
+    <tr style="text-align:left;color:#6b7c93;font-size:12px;">
+      <th style="padding:6px 8px;">대상</th><th style="padding:6px 8px;">평가</th><th style="padding:6px 8px;">기한</th>
+      ${withEvaluator ? '<th style="padding:6px 8px;">평가자</th>' : ''}
+    </tr>${rows}</table>`;
+}
+
+/** 평가자 지정(또는 수습 연장으로 다음 차수 생성) 알림 */
+export async function notifyEvaluationAssigned(evaluator, items, actor = null) {
+  try {
+    const settings = rowToPublic(await getRow(), true);
+    if (!settings.enabled) return;
+    const to = uniqueEmails([evaluator]);
+    if (!to.length) return;
+    const first = items[0];
+    const body = `
+      <p>${escapeHtml(evaluator.name)}님이 아래 평가의 평가자로 지정되었습니다${actor?.name ? ` (지정: ${escapeHtml(actor.name)})` : ''}.</p>
+      ${evaluationRows(items)}
+      <p>기한 안에 평가표(항목별 점수·종합등급·의견)를 작성해 제출해주세요.</p>
+    `;
+    await sendMail(
+      to.map((r) => r.email),
+      `[Holiday] 평가 요청: ${first.employee.name} ${first.label} (기한 ${first.dueDate})`,
+      htmlLayout('평가 요청', body, '평가 작성하러 가기', pageUrl(settings, '/employee/evaluations'))
+    );
+  } catch (error) {
+    console.error('[mail] notifyEvaluationAssigned failed:', error.message);
+  }
+}
+
+/** 기한 임박·경과 알림. forManager 면 인사담당용 전체 목록 */
+export async function notifyEvaluationReminder(recipients, items, { forManager = false } = {}) {
+  try {
+    const settings = rowToPublic(await getRow(), true);
+    if (!settings.enabled) return;
+    const to = uniqueEmails(recipients);
+    if (!to.length || !items.length) return;
+    const overdue = items.filter((item) => item.daysLeft < 0).length;
+    const noEvaluator = items.filter((item) => !item.evaluatorId).length;
+    const body = forManager
+      ? `
+      <p>기한이 ${REMINDER_DAYS}일 안으로 다가왔거나 지난 평가가 ${items.length}건 있습니다${overdue ? ` (기한 지남 ${overdue}건)` : ''}.</p>
+      ${evaluationRows(items, { withEvaluator: true })}
+      ${noEvaluator ? `<p style="color:#df1b41;">평가자가 지정되지 않은 평가가 ${noEvaluator}건 있습니다. 평가자를 지정해주세요.</p>` : ''}
+    `
+      : `
+      <p>작성할 평가의 기한이 다가왔습니다.</p>
+      ${evaluationRows(items)}
+      <p>기한 안에 평가표를 작성해 제출해주세요.</p>
+    `;
+    const subject = forManager
+      ? `[Holiday] 평가 기한 안내 ${items.length}건${overdue ? ` (기한 지남 ${overdue}건)` : ''}`
+      : `[Holiday] 평가 기한 안내: ${items.map((item) => `${item.employee.name} ${item.label}`).join(', ')}`;
+    await sendMail(
+      to.map((r) => r.email),
+      subject,
+      htmlLayout(
+        '평가 기한 안내',
+        body,
+        forManager ? '평가 일정 보기' : '평가 작성하러 가기',
+        pageUrl(settings, forManager ? '/admin/evaluations' : '/employee/evaluations')
+      )
+    );
+  } catch (error) {
+    console.error('[mail] notifyEvaluationReminder failed:', error.message);
+  }
+}
+
+/** 평가자가 제출 → 인사담당에게 확정 요청 */
+export async function notifyEvaluationSubmitted(managers, item) {
+  try {
+    const settings = rowToPublic(await getRow(), true);
+    if (!settings.enabled) return;
+    const to = uniqueEmails(managers);
+    if (!to.length) return;
+    const body = `
+      <p>${escapeHtml(item.submittedByName || item.evaluatorName)}님이 평가표를 제출했습니다. 확인 후 확정해주세요.</p>
+      ${evaluationRows([item])}
+      <p>종합등급: <strong>${escapeHtml(item.grade || '-')}</strong>${item.totalScore != null ? ` · ${item.totalScore}/${item.maxScore}점` : ''}</p>
+    `;
+    await sendMail(
+      to.map((r) => r.email),
+      `[Holiday] 평가 제출: ${item.employee.name} ${item.label}`,
+      htmlLayout('평가 제출 · 확정 요청', body, '확정하러 가기', pageUrl(settings, '/admin/evaluations'))
+    );
+  } catch (error) {
+    console.error('[mail] notifyEvaluationSubmitted failed:', error.message);
+  }
+}
+
+export async function notifyEvaluationReturned(evaluator, item, note, actor = null) {
+  try {
+    const settings = rowToPublic(await getRow(), true);
+    if (!settings.enabled) return;
+    const to = uniqueEmails([evaluator]);
+    if (!to.length) return;
+    const body = `
+      <p>제출한 평가표가 반려되었습니다${actor?.name ? ` (처리: ${escapeHtml(actor.name)})` : ''}. 고쳐서 다시 제출해주세요.</p>
+      ${evaluationRows([item])}
+      <p>반려 사유: ${escapeHtml(note || '-')}</p>
+    `;
+    await sendMail(
+      to.map((r) => r.email),
+      `[Holiday] 평가 반려: ${item.employee.name} ${item.label}`,
+      htmlLayout('평가 반려', body, '평가 고치러 가기', pageUrl(settings, '/employee/evaluations'))
+    );
+  } catch (error) {
+    console.error('[mail] notifyEvaluationReturned failed:', error.message);
   }
 }
 

@@ -3,6 +3,7 @@ import { DEFAULT_POSITION, POSITIONS } from '../../src/constants/hr.js';
 import { getDb, parseEmployeeId } from '../db.js';
 import { ensureUserForEmployee } from './authService.js';
 import { getRolesByEmployee, isDeptHead } from './accessService.js';
+import { cleanHireType, syncPlan } from './evaluationService.js';
 
 function normalizePosition(value) {
   const position = String(value || '').trim();
@@ -29,6 +30,9 @@ function mapEmployeeRow(row, roles = []) {
     concurrentDept: row.concurrent_dept || '',
     concurrentPosition: row.concurrent_position || '',
     hireDate: row.hire_date,
+    hireType: row.hire_type || '',
+    probationEnd: row.probation_end || '',
+    regularDate: row.regular_date || '',
     email: row.email || '',
     notes: row.notes || '',
     isActive: Boolean(row.is_active),
@@ -58,6 +62,7 @@ export async function createEmployee(data) {
   const empNo = data.empNo?.trim() || null;
   const name = data.name?.trim();
   const hireDate = data.hireDate;
+  const hireType = cleanHireType(data.hireType);
 
   if (!name) throw new Error('이름은 필수입니다.');
   if (!hireDate) throw new Error('입사일은 필수입니다.');
@@ -71,14 +76,15 @@ export async function createEmployee(data) {
     const result = await db
       .prepare(
         `INSERT INTO employees (
-           emp_no, name, hire_date, workplace, department, job_type, position,
+           emp_no, name, hire_date, hire_type, workplace, department, job_type, position,
            concurrent_dept, concurrent_position, email, notes, is_active, is_admin
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
       )
       .run(
         empNo,
         name,
         hireDate,
+        hireType,
         data.workplace?.trim() || null,
         data.department?.trim() || null,
         data.jobType?.trim() || '사무직',
@@ -101,6 +107,8 @@ export async function createEmployee(data) {
       )
       .run(employeeId, AS_OF_DATE, DISPLAY_YEAR);
 
+    if (hireType) await syncPlan(employeeId);
+
     return mapEmployeeRow(await db.prepare('SELECT * FROM employees WHERE id = ?').get(employeeId));
   });
 }
@@ -115,11 +123,24 @@ export async function updateEmployee(id, data) {
     const dup = await db.prepare('SELECT id FROM employees WHERE emp_no = ? AND id != ?').get(empNo, row.id);
     if (dup) throw new Error('이미 사용 중인 사번입니다.');
   }
+  const hireDate = data.hireDate || row.hire_date;
+  const hireType = 'hireType' in data ? cleanHireType(data.hireType) : row.hire_type;
 
+  await db.transaction(async () => {
+    await writeEmployee(db, row, data, empNo, hireDate, hireType);
+    if (hireType !== row.hire_type || hireDate !== row.hire_date) await syncPlan(row.id);
+  });
+
+  if (empNo) await ensureUserForEmployee(row.id, empNo);
+
+  return mapEmployeeRow(await db.prepare('SELECT * FROM employees WHERE id = ?').get(row.id));
+}
+
+async function writeEmployee(db, row, data, empNo, hireDate, hireType) {
   await db
     .prepare(
       `UPDATE employees
-       SET emp_no = ?, name = ?, hire_date = ?, workplace = ?, department = ?, job_type = ?,
+       SET emp_no = ?, name = ?, hire_date = ?, hire_type = ?, workplace = ?, department = ?, job_type = ?,
            position = ?, concurrent_dept = ?, concurrent_position = ?,
            email = ?, notes = ?, updated_at = datetime('now', 'localtime')
        WHERE id = ?`
@@ -127,7 +148,8 @@ export async function updateEmployee(id, data) {
     .run(
       empNo,
       data.name?.trim() || row.name,
-      data.hireDate || row.hire_date,
+      hireDate,
+      hireType,
       data.workplace?.trim() ?? row.workplace,
       data.department?.trim() ?? row.department,
       data.jobType?.trim() ?? row.job_type ?? '사무직',
@@ -138,10 +160,6 @@ export async function updateEmployee(id, data) {
       data.notes?.trim() ?? row.notes,
       row.id
     );
-
-  if (empNo) await ensureUserForEmployee(row.id, empNo);
-
-  return mapEmployeeRow(await db.prepare('SELECT * FROM employees WHERE id = ?').get(row.id));
 }
 
 export async function terminateEmployee(id, terminatedDate) {

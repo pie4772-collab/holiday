@@ -22,6 +22,8 @@ import { EmployeeTeam } from './pages/employee/EmployeeTeam';
 import { EmployeeProfile } from './pages/employee/EmployeeProfile';
 import { AdminPersonnelList } from './pages/admin/AdminPersonnelList';
 import { AdminPersonnelCard } from './pages/admin/AdminPersonnelCard';
+import { AdminEvaluations } from './pages/admin/AdminEvaluations';
+import { EmployeeEvaluations } from './pages/employee/EmployeeEvaluations';
 import { EmployeeAttendance } from './pages/employee/EmployeeAttendance';
 import { AttendanceRemoteReviews } from './pages/employee/AttendanceRemoteReviews';
 import { EmployeeNotices } from './pages/employee/EmployeeNotices';
@@ -135,6 +137,7 @@ function AppRoutes() {
           <Route path="notices/:id" element={<EmployeeNoticeDetail />} />
           <Route path="attendance" element={<EmployeeAttendance />} />
           <Route path="attendance-reviews" element={<AttendanceRemoteReviews />} />
+          <Route path="evaluations" element={<EmployeeEvaluations />} />
           <Route
             path="team"
             element={
@@ -152,6 +155,7 @@ function AppRoutes() {
           <Route path="roster" element={guard('employees.view', <AdminEmployeeRoster />)} />
           <Route path="personnel" element={guard('records.view', <AdminPersonnelList />)} />
           <Route path="personnel/:id" element={guard('records.view', <AdminPersonnelCard />)} />
+          <Route path="evaluations" element={guard('evaluations.manage', <AdminEvaluations />)} />
           <Route path="attendance" element={guard('attendance.view', <AdminAttendance />)} />
           <Route path="attendance/:id" element={guard('attendance.view', <AdminAttendanceEmployee />)} />
           <Route path="attendance-reviews" element={<AttendanceRemoteReviews />} />

@@ -60,7 +60,7 @@ export const RECORD_CATEGORIES = [
     label: '발령',
     aliases: ['발령', '발령이력'],
     fields: { startDate: '발령일', title: '발령 구분', organization: '부서', result: '직급', detail: '내용' },
-    suggestions: { title: ['입사', '승진', '전보', '겸직', '직급 변경', '휴직', '복직', '퇴사', '기타'] },
+    suggestions: { title: ['입사', '정규직 전환', '수습 연장', '승진', '전보', '겸직', '직급 변경', '휴직', '복직', '퇴사', '기타'] },
   },
   {
     key: 'training',

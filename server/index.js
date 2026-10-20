@@ -9,6 +9,7 @@ import { getDb, getDbDriverName, getDbPath, DB_CLIENT_SETTING } from './db.js';
 import { optionalAuth } from './middleware/auth.js';
 import { syncUsersFromEmployees } from './services/authService.js';
 import { encryptStoredMailPassword } from './services/mailService.js';
+import { startReminderSchedule } from './services/evaluationService.js';
 import { getLocalIp, getShareUrl } from './utils/network.js';
 
 loadEnvFile();
@@ -93,6 +94,7 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`DB: ${getDbPath()} (${getDbDriverName()})`);
   console.log(`Users: ${userCount}`);
   console.log('종료: Ctrl+C');
+  startReminderSchedule();
 });
 
 server.on('error', (err) => {

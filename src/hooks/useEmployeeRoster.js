@@ -10,6 +10,7 @@ function invalidateRoster(queryClient) {
   queryClient.invalidateQueries({ queryKey: ['admin', 'roster'] });
   queryClient.invalidateQueries({ queryKey: leaveKeys.employees });
   queryClient.invalidateQueries({ queryKey: leaveKeys.adminStats });
+  queryClient.invalidateQueries({ queryKey: ['evaluations'] });
 }
 
 export function useEmployeeRoster(includeInactive = true) {

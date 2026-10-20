@@ -11,6 +11,7 @@ import * as personnelService from '../services/personnelService.js';
 import * as ocrService from '../services/ocrService.js';
 import * as attendanceService from '../services/attendanceService.js';
 import * as noticeService from '../services/noticeService.js';
+import * as evaluationService from '../services/evaluationService.js';
 import { sendFile } from '../utils/fileUpload.js';
 import { getClientIp, describeClientIp } from '../utils/clientIp.js';
 import { DOCUMENT_MAX_BYTES } from '../../src/constants/personnel.js';
@@ -144,7 +145,12 @@ router.get('/employees/me', requireAuth, async (req, res, next) => {
     const emp = await leaveService.getCurrentEmployee(req.user.employeeId);
     if (!emp) return res.status(404).json({ message: '직원을 찾을 수 없습니다.' });
     const access = accessService.describeAccess(await accessService.getAccess(req.user.employeeId));
-    res.json({ ...emp, ...access, canAccessAdmin: access.permissions.includes('admin') });
+    res.json({
+      ...emp,
+      ...access,
+      canAccessAdmin: access.permissions.includes('admin'),
+      evaluationTasks: await evaluationService.countTasks(req.user.employeeId),
+    });
   } catch (e) {
     next(e);
   }
@@ -732,6 +738,114 @@ router.post('/admin/personnel/import', requirePermission('records.edit'), async 
 });
 
 /* ───────────── 사내 공지 ───────────── */
+
+router.get('/admin/evaluations', requirePermission('evaluations.manage'), async (req, res, next) => {
+  try {
+    res.json(await evaluationService.listForManager(req.query.view === 'done' ? 'done' : 'active'));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/evaluation-candidates', requirePermission('evaluations.manage'), async (req, res, next) => {
+  try {
+    const rows = await getDb()
+      .prepare('SELECT id, emp_no, name, workplace, department, position FROM employees WHERE is_active = 1 ORDER BY name, id')
+      .all();
+    res.json(
+      rows.map((row) => ({
+        id: String(row.id),
+        empNo: row.emp_no || '',
+        name: row.name,
+        workplace: row.workplace || '',
+        department: row.department || '',
+        position: row.position || '',
+      }))
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/employees/:id/evaluations', requirePermission('evaluations.manage'), async (req, res, next) => {
+  try {
+    res.json(await evaluationService.listForEmployee(req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.put('/admin/employees/:id/hire-type', requirePermission('evaluations.manage'), async (req, res, next) => {
+  try {
+    res.json(await evaluationService.setHireType(req.params.id, req.body?.hireType));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.put('/admin/evaluations/:id/evaluator', requirePermission('evaluations.manage'), async (req, res, next) => {
+  try {
+    res.json(await evaluationService.assignEvaluator(req.params.id, req.body || {}, req.access.employee));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/evaluations/:id/confirm', requirePermission('evaluations.manage'), async (req, res, next) => {
+  try {
+    res.json(await evaluationService.confirmEvaluation(req.params.id, req.body || {}, req.access.employee));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/evaluations/:id/return', requirePermission('evaluations.manage'), async (req, res, next) => {
+  try {
+    res.json(await evaluationService.returnEvaluation(req.params.id, req.body || {}, req.access.employee));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/evaluations/:id/cancel', requirePermission('evaluations.manage'), async (req, res, next) => {
+  try {
+    res.json(await evaluationService.cancelEvaluation(req.params.id, req.body || {}));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/evaluations/:id/restore', requirePermission('evaluations.manage'), async (req, res, next) => {
+  try {
+    res.json(await evaluationService.restoreEvaluation(req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/evaluations/mine', loadAccess, async (req, res, next) => {
+  try {
+    res.json(await evaluationService.listMine(req.access.employee.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/evaluations/:id', loadAccess, async (req, res, next) => {
+  try {
+    res.json(await evaluationService.getEvaluation(req.params.id, req.access));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.put('/evaluations/:id', loadAccess, async (req, res, next) => {
+  try {
+    res.json(await evaluationService.saveEvaluation(req.params.id, req.body || {}, req.access));
+  } catch (e) {
+    next(e);
+  }
+});
 
 router.get('/notices', loadAccess, async (req, res, next) => {
   try {

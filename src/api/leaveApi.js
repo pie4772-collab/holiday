@@ -361,6 +361,42 @@ export const leaveApi = {
     return apiClient(`/admin/personnel/records/${recordId}`, { method: 'DELETE' });
   },
 
+  async getEvaluations(view) {
+    return apiClient(`/admin/evaluations?view=${view}`);
+  },
+
+  async getEvaluationCandidates() {
+    return apiClient('/admin/evaluation-candidates');
+  },
+
+  async getEmployeeEvaluations(employeeId) {
+    return apiClient(`/admin/employees/${employeeId}/evaluations`);
+  },
+
+  async setHireType(employeeId, hireType) {
+    return apiClient(`/admin/employees/${employeeId}/hire-type`, { method: 'PUT', body: { hireType } });
+  },
+
+  async assignEvaluator(id, data) {
+    return apiClient(`/admin/evaluations/${id}/evaluator`, { method: 'PUT', body: data });
+  },
+
+  async evaluationAction(id, action, data) {
+    return apiClient(`/admin/evaluations/${id}/${action}`, { method: 'POST', body: data || {} });
+  },
+
+  async getMyEvaluations() {
+    return apiClient('/evaluations/mine');
+  },
+
+  async getEvaluation(id) {
+    return apiClient(`/evaluations/${id}`);
+  },
+
+  async saveEvaluation(id, data) {
+    return apiClient(`/evaluations/${id}`, { method: 'PUT', body: data });
+  },
+
   async getNotices(limit) {
     return apiClient(`/notices${limit ? `?limit=${limit}` : ''}`);
   },

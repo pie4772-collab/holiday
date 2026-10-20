@@ -10,7 +10,7 @@ import { DueBadge, EvaluationStatusBadge, OutcomeBadge } from '../../components/
 import { EvaluationModal } from '../../components/evaluations/EvaluationModal';
 import { AssignEvaluatorModal } from '../../components/evaluations/AssignEvaluatorModal';
 import { useEvaluationAction, useEvaluations, useSetHireType } from '../../hooks/useEvaluations';
-import { EVALUATION_KINDS, HIRE_TYPES, REMINDER_DAYS } from '../../constants/evaluation';
+import { EVALUATION_KINDS, HIRE_TYPES, OPEN_STATUSES, REMINDER_DAYS } from '../../constants/evaluation';
 import { formatDate } from '../../utils/leaveCalculations';
 
 function Stat({ label, value, tone = '' }) {
@@ -145,7 +145,7 @@ export function AdminEvaluations() {
       (item) =>
         (!kind || item.kind === kind) &&
         (!q ||
-          [item.employee.name, item.employee.empNo, item.employee.department, item.evaluatorName].some((v) =>
+          [item.employee.name, item.employee.empNo, item.employee.department, item.evaluatorName, item.reviewerName].some((v) =>
             String(v || '').toLowerCase().includes(q)
           ))
     );
@@ -180,7 +180,7 @@ export function AdminEvaluations() {
     <div>
       <PageHeader
         title="수습·정기 평가"
-        description={`신입은 수습평가(입사 3개월)와 입사 1년 평가, 경력은 3개월 평가를 합니다. 기한 ${REMINDER_DAYS}일 전에 평가자와 인사담당에게 메일로 알립니다.`}
+        description={`신입은 수습평가(입사 3개월)와 입사 1년 평가, 경력은 3개월 평가를 합니다. 팀장 작성 → 임원 의견 → 인사담당 확정 순서이고, 기한 ${REMINDER_DAYS}일 전에 평가자와 인사담당에게 메일로 알립니다.`}
       />
 
       {message && (
@@ -195,10 +195,11 @@ export function AdminEvaluations() {
         </div>
       )}
 
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
         <Stat label="작성 대기" value={summary.pending} />
         <Stat label={`기한 ${REMINDER_DAYS}일 이내`} value={summary.dueSoon} tone={summary.dueSoon ? 'text-[#c2410c]' : ''} />
         <Stat label="기한 지남" value={summary.overdue} tone={summary.overdue ? 'text-[#df1b41]' : ''} />
+        <Stat label="임원 의견 대기" value={summary.reviewing} tone={summary.reviewing ? 'text-[#6d28d9]' : ''} />
         <Stat label="확정 대기" value={summary.submitted} tone={summary.submitted ? 'text-[#4338ca]' : ''} />
         <Stat label="평가자 미지정" value={summary.noEvaluator} tone={summary.noEvaluator ? 'text-[#b45309]' : ''} />
       </div>
@@ -228,7 +229,7 @@ export function AdminEvaluations() {
               className="stripe-input stripe-input-search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="이름, 사번, 부서, 평가자"
+              placeholder="이름, 사번, 부서, 평가자, 임원"
             />
           </div>
           <select className="stripe-input" value={kind} onChange={(e) => setKind(e.target.value)}>
@@ -257,7 +258,7 @@ export function AdminEvaluations() {
                   <th>대상</th>
                   <th>평가</th>
                   <th>기한</th>
-                  <th>평가자</th>
+                  <th>평가자 · 임원</th>
                   <th>상태</th>
                   <th />
                 </tr>
@@ -280,33 +281,36 @@ export function AdminEvaluations() {
                       <DueBadge item={item} />
                     </td>
                     <td className="whitespace-nowrap">
-                      {item.evaluatorName ? (
-                        <>
+                      <div>
+                        <span className="text-[12px] text-stripe-muted">팀장 </span>
+                        {item.evaluatorName ? (
                           <span>{item.evaluatorName}</span>
-                          <span className="ml-1 text-[12px] text-stripe-muted">{item.evaluatorPosition}</span>
-                        </>
-                      ) : (
-                        <span className="text-[13px] text-[#b45309]">미지정</span>
-                      )}
-                      {item.status === 'pending' && (
-                        <button
-                          type="button"
-                          onClick={() => setAssigning(item)}
-                          className="ml-2 text-[12px] text-primary-600 hover:text-primary-700"
-                        >
-                          {item.evaluatorId ? '변경' : '지정'}
-                        </button>
-                      )}
+                        ) : (
+                          <span className="text-[13px] text-[#b45309]">미지정</span>
+                        )}
+                        {['pending', 'reviewing'].includes(item.status) && (
+                          <button
+                            type="button"
+                            onClick={() => setAssigning(item)}
+                            className="ml-2 text-[12px] text-primary-600 hover:text-primary-700"
+                          >
+                            {item.evaluatorId || item.reviewerId ? '변경' : '지정'}
+                          </button>
+                        )}
+                      </div>
+                      <div className="text-[13px]">
+                        <span className="text-[12px] text-stripe-muted">임원 </span>
+                        {item.reviewerName || <span className="text-stripe-muted">-</span>}
+                      </div>
                     </td>
                     <td className="whitespace-nowrap">
                       <div className="flex flex-wrap items-center gap-1">
                         <EvaluationStatusBadge status={item.status} />
                         <OutcomeBadge outcome={item.outcome} />
                       </div>
-                      {item.grade && (
+                      {item.totalScore != null && item.status !== 'pending' && (
                         <div className="mt-0.5 text-[12px] text-stripe-muted">
-                          {item.grade}
-                          {item.totalScore != null && ` · ${item.totalScore}/${item.maxScore}점`}
+                          {item.totalScore}/{item.maxScore}점
                         </div>
                       )}
                       {item.status === 'pending' && item.hrNote && (
@@ -324,9 +328,9 @@ export function AdminEvaluations() {
                       ) : (
                         <div className="inline-flex gap-1.5">
                           <Button size="sm" variant={item.status === 'submitted' ? 'primary' : 'secondary'} onClick={() => setOpenId(item.id)}>
-                            {item.status === 'submitted' ? '확인·확정' : item.status === 'pending' ? '평가표' : '보기'}
+                            {item.status === 'submitted' ? '확인·확정' : OPEN_STATUSES.includes(item.status) ? '평가표' : '보기'}
                           </Button>
-                          {['pending', 'submitted'].includes(item.status) && (
+                          {OPEN_STATUSES.includes(item.status) && (
                             <Button size="sm" variant="ghost" onClick={() => setCancelling(item.id)}>
                               취소
                             </Button>

@@ -74,3 +74,7 @@ export function useEvaluationAction() {
 export function useSaveEvaluation() {
   return useEvaluationMutation(({ id, data }) => leaveApi.saveEvaluation(id, data));
 }
+
+export function useReviewEvaluation() {
+  return useEvaluationMutation(({ id, data }) => leaveApi.reviewEvaluation(id, data));
+}

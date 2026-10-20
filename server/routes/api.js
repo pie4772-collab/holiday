@@ -847,6 +847,14 @@ router.put('/evaluations/:id', loadAccess, async (req, res, next) => {
   }
 });
 
+router.put('/evaluations/:id/review', loadAccess, async (req, res, next) => {
+  try {
+    res.json(await evaluationService.reviewEvaluation(req.params.id, req.body || {}, req.access));
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get('/notices', loadAccess, async (req, res, next) => {
   try {
     res.json(await noticeService.listNotices(req.access, { limit: req.query.limit }));

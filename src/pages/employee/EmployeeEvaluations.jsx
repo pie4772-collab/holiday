@@ -9,7 +9,9 @@ import { EvaluationModal } from '../../components/evaluations/EvaluationModal';
 import { useMyEvaluations } from '../../hooks/useEvaluations';
 import { formatDate } from '../../utils/leaveCalculations';
 
-/** 인사담당이 나를 평가자로 지정한 평가 */
+const TASK_LABELS = { write: '평가표 작성', review: '임원 의견 작성' };
+
+/** 인사담당이 나를 평가자(팀장) 또는 임원으로 지정한 평가 */
 export function EmployeeEvaluations() {
   const { data = [], isLoading, isError, refetch } = useMyEvaluations();
   const [openId, setOpenId] = useState(null);
@@ -19,7 +21,7 @@ export function EmployeeEvaluations() {
     <div>
       <PageHeader
         title="평가 작성"
-        description="인사담당이 평가자로 지정한 평가입니다. 기한 안에 항목별 점수·종합등급·의견을 적어 제출하세요. 제출하면 인사담당이 확정합니다."
+        description="인사담당이 평가자(팀장) 또는 임원으로 지정한 근무평가입니다. 팀장은 20개 항목 점수와 평가의견을, 임원은 팀장 제출 뒤 평가의견을 적어 제출하세요. 제출하면 인사담당이 확정합니다."
       />
       {message && (
         <div className="mb-4 rounded-md border border-[#bbf7d0] bg-[#f0fdf4] px-4 py-3 text-sm text-[#09825d]">{message}</div>
@@ -42,6 +44,7 @@ export function EmployeeEvaluations() {
                 <tr>
                   <th>대상</th>
                   <th>평가</th>
+                  <th>내 역할</th>
                   <th>기한</th>
                   <th>상태</th>
                   <th />
@@ -58,6 +61,7 @@ export function EmployeeEvaluations() {
                       </div>
                     </td>
                     <td className="whitespace-nowrap">{item.label}</td>
+                    <td className="whitespace-nowrap text-[13px]">{item.myRole === 'reviewer' ? '임원' : '평가자(팀장)'}</td>
                     <td className="whitespace-nowrap">
                       <div className="font-mono text-[13px]">{item.dueDate}</div>
                       <DueBadge item={item} />
@@ -69,8 +73,8 @@ export function EmployeeEvaluations() {
                       )}
                     </td>
                     <td className="text-right">
-                      <Button size="sm" variant={item.status === 'pending' ? 'primary' : 'secondary'} onClick={() => setOpenId(item.id)}>
-                        {item.status === 'pending' ? '작성' : '보기'}
+                      <Button size="sm" variant={item.myTask ? 'primary' : 'secondary'} onClick={() => setOpenId(item.id)}>
+                        {TASK_LABELS[item.myTask] || '보기'}
                       </Button>
                     </td>
                   </tr>

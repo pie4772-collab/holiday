@@ -397,6 +397,10 @@ export const leaveApi = {
     return apiClient(`/evaluations/${id}`, { method: 'PUT', body: data });
   },
 
+  async reviewEvaluation(id, data) {
+    return apiClient(`/evaluations/${id}/review`, { method: 'PUT', body: data });
+  },
+
   async getNotices(limit) {
     return apiClient(`/notices${limit ? `?limit=${limit}` : ''}`);
   },

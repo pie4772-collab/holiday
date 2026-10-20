@@ -3,7 +3,7 @@ import { getDb } from '../db.js';
 import { decryptField, encryptField, isEncrypted } from '../secrets.js';
 import * as approvalService from './approvalService.js';
 import { WORK_TYPE_LABELS } from '../../src/constants/attendance.js';
-import { REMINDER_DAYS } from '../../src/constants/evaluation.js';
+import { OUTCOMES, REMINDER_DAYS } from '../../src/constants/evaluation.js';
 
 const DEFAULTS = {
   enabled: false,
@@ -469,7 +469,7 @@ export async function notifyEvaluationAssigned(evaluator, items, actor = null) {
     const body = `
       <p>${escapeHtml(evaluator.name)}님이 아래 평가의 평가자로 지정되었습니다${actor?.name ? ` (지정: ${escapeHtml(actor.name)})` : ''}.</p>
       ${evaluationRows(items)}
-      <p>기한 안에 평가표(항목별 점수·종합등급·의견)를 작성해 제출해주세요.</p>
+      <p>기한 안에 근무평가서(20개 항목 점수·평가의견)를 작성해 제출해주세요.</p>
     `;
     await sendMail(
       to.map((r) => r.email),
@@ -519,7 +519,37 @@ export async function notifyEvaluationReminder(recipients, items, { forManager =
   }
 }
 
-/** 평가자가 제출 → 인사담당에게 확정 요청 */
+function evaluationScoreText(item) {
+  if (item.totalScore == null) return '';
+  const outcome = OUTCOMES[item.recommendation];
+  return `<p>최종 평가 점수: <strong>${item.totalScore}/${item.maxScore}점</strong>${
+    outcome ? ` · 정규직 채용 여부(팀장): ${escapeHtml(outcome)}` : ''
+  }</p>`;
+}
+
+/** 팀장 제출 → 지정된 임원에게 평가의견(임원) 요청 */
+export async function notifyEvaluationReviewRequested(reviewer, item) {
+  try {
+    const settings = rowToPublic(await getRow(), true);
+    if (!settings.enabled) return;
+    const to = uniqueEmails([reviewer]);
+    if (!to.length) return;
+    const body = `
+      <p>${escapeHtml(item.submittedByName || item.evaluatorName)}님이 평가표를 제출했습니다. 평가 내용을 확인하고 평가의견(임원)을 작성해 제출해주세요.</p>
+      ${evaluationRows([item])}
+      ${evaluationScoreText(item)}
+    `;
+    await sendMail(
+      to.map((r) => r.email),
+      `[Holiday] 임원 의견 요청: ${item.employee.name} ${item.label}`,
+      htmlLayout('평가 임원 의견 요청', body, '의견 작성하러 가기', pageUrl(settings, '/employee/evaluations'))
+    );
+  } catch (error) {
+    console.error('[mail] notifyEvaluationReviewRequested failed:', error.message);
+  }
+}
+
+/** 평가자(또는 임원)가 제출 → 인사담당에게 확정 요청 */
 export async function notifyEvaluationSubmitted(managers, item) {
   try {
     const settings = rowToPublic(await getRow(), true);
@@ -527,9 +557,9 @@ export async function notifyEvaluationSubmitted(managers, item) {
     const to = uniqueEmails(managers);
     if (!to.length) return;
     const body = `
-      <p>${escapeHtml(item.submittedByName || item.evaluatorName)}님이 평가표를 제출했습니다. 확인 후 확정해주세요.</p>
+      <p>${escapeHtml(item.reviewedByName || item.submittedByName || item.evaluatorName)}님이 평가표를 제출했습니다. 확인 후 확정해주세요.</p>
       ${evaluationRows([item])}
-      <p>종합등급: <strong>${escapeHtml(item.grade || '-')}</strong>${item.totalScore != null ? ` · ${item.totalScore}/${item.maxScore}점` : ''}</p>
+      ${evaluationScoreText(item)}
     `;
     await sendMail(
       to.map((r) => r.email),

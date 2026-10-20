@@ -28,3 +28,25 @@ body {
   @apply bg-stripe-bg text-stripe-text antialiased;
   font-feature-settings: "cv11", "ss01";
 }
+
+.evaluation-print {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  body:has(> .evaluation-print) {
+    background: #fff;
+  }
+  body:has(> .evaluation-print) > :not(.evaluation-print) {
+    display: none !important;
+  }
+  .evaluation-print {
+    display: block;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

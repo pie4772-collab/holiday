@@ -1,7 +1,7 @@
 import { Badge } from '../ui/Badge';
 import { EVALUATION_STATUS_LABELS, OUTCOMES, REMINDER_DAYS } from '../../constants/evaluation';
 
-const STATUS_VARIANTS = { pending: 'warning', submitted: 'info', confirmed: 'success', cancelled: 'default' };
+const STATUS_VARIANTS = { pending: 'warning', reviewing: 'purple', submitted: 'info', confirmed: 'success', cancelled: 'default' };
 const OUTCOME_VARIANTS = { regular: 'success', extend: 'orange', reject: 'danger' };
 
 export function EvaluationStatusBadge({ status }) {

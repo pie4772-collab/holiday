@@ -4,16 +4,20 @@ import * as personnelService from './personnelService.js';
 import {
   EVALUATION_ITEMS,
   EVALUATION_KINDS,
-  GRADES,
   HIRE_TYPES,
   MAX_ITEM_SCORE,
+  MAX_TOTAL_SCORE,
+  OPEN_STATUSES,
   OUTCOMES,
+  PASS_SCORE,
   PLAN_KINDS,
   REMINDER_DAYS,
   STALE_DUE_DAYS,
   UNTYPED_WINDOW_DAYS,
   addDays,
+  allowedOutcomes,
   diffDays,
+  documentNumber,
   evaluationLabel,
   periodEnd,
 } from '../../src/constants/evaluation.js';
@@ -77,12 +81,26 @@ const SELECT_SQL = `
          e.emp_no, e.name, e.workplace, e.workplace_code, e.department, e.position, e.hire_date,
          e.hire_type, e.probation_end, e.regular_date, e.is_active,
          ev.name AS evaluator_name, ev.position AS evaluator_position, ev.department AS evaluator_department,
-         sb.name AS submitted_by_name, cb.name AS confirmed_by_name
+         rv.name AS reviewer_name, rv.position AS reviewer_position,
+         sb.name AS submitted_by_name, rb.name AS reviewed_by_name, cb.name AS confirmed_by_name,
+         (SELECT MAX(p.due_date) FROM employee_evaluations p
+          WHERE p.employee_id = v.employee_id AND p.kind = v.kind AND p.round < v.round) AS previous_due
   FROM employee_evaluations v
   JOIN employees e ON e.id = v.employee_id
   LEFT JOIN employees ev ON ev.id = v.evaluator_id
+  LEFT JOIN employees rv ON rv.id = v.reviewer_id
   LEFT JOIN employees sb ON sb.id = v.submitted_by
+  LEFT JOIN employees rb ON rb.id = v.reviewed_by
   LEFT JOIN employees cb ON cb.id = v.confirmed_by`;
+
+const OPEN_SQL = OPEN_STATUSES.map((s) => `'${s}'`).join(', ');
+
+function idOrNull(value) {
+  if (value == null || value === '') return null;
+  const id = Number(value);
+  if (!Number.isInteger(id) || id <= 0) throw httpError('직원을 다시 선택하세요.');
+  return id;
+}
 
 function mapEvaluation(row, today = kstToday()) {
   return {
@@ -97,17 +115,24 @@ function mapEvaluation(row, today = kstToday()) {
     evaluatorName: row.evaluator_name || '',
     evaluatorPosition: row.evaluator_position || '',
     evaluatorDepartment: row.evaluator_department || '',
+    reviewerId: row.reviewer_id == null ? '' : String(row.reviewer_id),
+    reviewerName: row.reviewer_name || '',
+    reviewerPosition: row.reviewer_position || '',
+    documentNo: documentNumber(row.id, row.created_at),
+    periodStart: row.previous_due ? addDays(row.previous_due, 1) : row.hire_date,
     scores: parseScores(row.scores),
     totalScore: row.total_score == null ? null : Number(row.total_score),
     maxScore: row.max_score == null ? null : Number(row.max_score),
-    grade: row.grade || '',
     comment: row.comment || '',
+    reviewerComment: row.reviewer_comment || '',
     recommendation: row.recommendation || '',
     outcome: row.outcome || '',
     outcomeDate: row.outcome_date || '',
     hrNote: row.hr_note || '',
     submittedAt: row.submitted_at || '',
     submittedByName: row.submitted_by_name || '',
+    reviewedAt: row.reviewed_at || '',
+    reviewedByName: row.reviewed_by_name || '',
     confirmedAt: row.confirmed_at || '',
     confirmedByName: row.confirmed_by_name || '',
     remindedAt: row.reminded_at || '',
@@ -155,7 +180,7 @@ export async function syncPlan(employeeId, today = kstToday()) {
     const wanted = PLAN_KINDS[emp.hire_type] || [];
     let rows = await db.prepare('SELECT * FROM employee_evaluations WHERE employee_id = ?').all(emp.id);
 
-    const written = rows.filter((r) => !wanted.includes(r.kind) && ['submitted', 'confirmed'].includes(r.status));
+    const written = rows.filter((r) => !wanted.includes(r.kind) && ['reviewing', 'submitted', 'confirmed'].includes(r.status));
     if (written.length) {
       throw httpError(
         `이미 작성된 ${evaluationLabel(written[0].kind, Number(written[0].round))}이(가) 있어 입사 구분을 바꿀 수 없습니다.`
@@ -250,7 +275,7 @@ export async function listForManager(view = 'active') {
           .all()
       : await db
           .prepare(
-            `${SELECT_SQL} WHERE v.status IN ('pending', 'submitted') AND e.is_active = 1
+            `${SELECT_SQL} WHERE v.status IN (${OPEN_SQL}) AND e.is_active = 1
              ORDER BY v.due_date, v.id`
           )
           .all();
@@ -266,7 +291,7 @@ export async function listForManager(view = 'active') {
 
   const active =
     view === 'done'
-      ? (await db.prepare(`${SELECT_SQL} WHERE v.status IN ('pending', 'submitted') AND e.is_active = 1`).all()).map(
+      ? (await db.prepare(`${SELECT_SQL} WHERE v.status IN (${OPEN_SQL}) AND e.is_active = 1`).all()).map(
           (row) => mapEvaluation(row, today)
         )
       : items;
@@ -285,6 +310,7 @@ export async function listForManager(view = 'active') {
     })),
     summary: {
       pending: active.filter((v) => v.status === 'pending').length,
+      reviewing: active.filter((v) => v.status === 'reviewing').length,
       submitted: active.filter((v) => v.status === 'submitted').length,
       overdue: active.filter((v) => v.status === 'pending' && v.daysLeft < 0).length,
       dueSoon: active.filter((v) => v.status === 'pending' && v.daysLeft >= 0 && v.daysLeft <= REMINDER_DAYS).length,
@@ -301,81 +327,114 @@ export async function listForEmployee(employeeId) {
   return rows.map((row) => mapEvaluation(row, today));
 }
 
-export async function listMine(evaluatorId) {
+/** 내가 평가자(팀장)이거나 임원으로 지정된 진행 중 평가. myTask: 'write'(평가표 작성) | 'review'(임원 의견) | '' */
+export async function listMine(employeeId) {
   const today = kstToday();
+  const me = Number(employeeId);
   const rows = await getDb()
     .prepare(
-      `${SELECT_SQL} WHERE v.evaluator_id = ? AND v.status IN ('pending', 'submitted') AND e.is_active = 1
-       ORDER BY v.status DESC, v.due_date, v.id`
+      `${SELECT_SQL} WHERE e.is_active = 1 AND (
+         (v.evaluator_id = ? AND v.status IN (${OPEN_SQL}))
+         OR (v.reviewer_id = ? AND v.status IN ('reviewing', 'submitted'))
+       )
+       ORDER BY v.due_date, v.id`
     )
-    .all(Number(evaluatorId));
-  return rows.map((row) => mapEvaluation(row, today));
+    .all(me, me);
+  return rows.map((row) => {
+    const item = mapEvaluation(row, today);
+    const myRole = Number(row.reviewer_id) === me ? 'reviewer' : 'evaluator';
+    const myTask =
+      myRole === 'evaluator' && row.status === 'pending' ? 'write' : myRole === 'reviewer' && row.status === 'reviewing' ? 'review' : '';
+    return { ...item, myRole, myTask };
+  });
 }
 
-export async function countTasks(evaluatorId) {
+export async function countTasks(employeeId) {
+  const me = Number(employeeId);
   const row = await getDb()
     .prepare(
       `SELECT COUNT(*) AS c FROM employee_evaluations v JOIN employees e ON e.id = v.employee_id
-       WHERE v.evaluator_id = ? AND v.status = 'pending' AND e.is_active = 1`
+       WHERE e.is_active = 1 AND ((v.evaluator_id = ? AND v.status = 'pending') OR (v.reviewer_id = ? AND v.status = 'reviewing'))`
     )
-    .get(Number(evaluatorId));
+    .get(me, me);
   return Number(row?.c || 0);
 }
 
-/** 평가 관리 권한자 또는 지정된 평가자만 볼 수 있습니다. 평가 대상 본인은 볼 수 없습니다. */
+/**
+ * 평가 관리 권한자, 지정된 평가자(팀장), 팀장 제출 뒤의 임원만 볼 수 있습니다. 평가 대상 본인은 볼 수 없습니다.
+ * canEdit: 점수·팀장 의견 작성, canReview: 임원 의견 작성
+ */
 export async function getEvaluation(id, access) {
   const row = await getRow(id);
+  const me = Number(access.employee.id);
   const manager = access.has('evaluations.manage');
-  const self = Number(row.employee_id) === Number(access.employee.id);
-  const evaluator = Number(row.evaluator_id) === Number(access.employee.id);
-  if (self || (!manager && !evaluator)) throw httpError('이 평가를 볼 권한이 없습니다.', 403);
+  const self = Number(row.employee_id) === me;
+  const evaluator = Number(row.evaluator_id) === me;
+  const reviewer = Number(row.reviewer_id) === me && row.status !== 'pending';
+  if (self || (!manager && !evaluator && !reviewer)) throw httpError('이 평가를 볼 권한이 없습니다.', 403);
+  const afterSubmit = ['reviewing', 'submitted'].includes(row.status);
   return {
     ...mapEvaluation(row),
-    canEdit: row.status === 'pending' || (manager && row.status === 'submitted'),
+    canEdit: (row.status === 'pending' && (evaluator || manager)) || (manager && afterSubmit),
+    canReview: (reviewer && row.status === 'reviewing') || (manager && afterSubmit),
     canManage: manager,
   };
 }
 
 /* ───────────── 평가자 지정·작성 ───────────── */
 
+async function checkAssignee(db, row, personId, label) {
+  if (!personId) return;
+  const person = await db.prepare('SELECT * FROM employees WHERE id = ? AND is_active = 1').get(personId);
+  if (!person) throw httpError(`${label}을(를) 찾을 수 없습니다. 재직 중인 직원을 선택하세요.`);
+  if (personId === Number(row.employee_id)) throw httpError(`평가 대상 본인은 ${label}이(가) 될 수 없습니다.`);
+}
+
+/** 평가자(팀장)·임원 지정과 기한 조정. 임원은 지정하지 않아도 됩니다(인사담당이 확정할 때 임원 의견을 대신 입력). */
 export async function assignEvaluator(id, data, actor) {
   const db = getDb();
-  let notify = null;
+  let notifyEvaluator = null;
+  let notifyReviewer = null;
   await db.transaction(async () => {
     const row = await getRow(id);
     await db.lock(LOCK_EVALUATION, row.employee_id);
-    if (!['pending', 'submitted'].includes(row.status)) throw httpError('확정·취소된 평가는 바꿀 수 없습니다.');
-    const evaluatorId = text(data?.evaluatorId) ? Number(data.evaluatorId) : null;
-    if (evaluatorId) {
-      const evaluator = await db.prepare('SELECT * FROM employees WHERE id = ? AND is_active = 1').get(evaluatorId);
-      if (!evaluator) throw httpError('평가자를 찾을 수 없습니다. 재직 중인 직원을 선택하세요.');
-      if (evaluatorId === Number(row.employee_id)) throw httpError('평가 대상 본인은 평가자가 될 수 없습니다.');
+    if (!OPEN_STATUSES.includes(row.status)) throw httpError('확정·취소된 평가는 바꿀 수 없습니다.');
+    const currentEvaluator = idOrNull(row.evaluator_id);
+    const currentReviewer = idOrNull(row.reviewer_id);
+    const evaluatorId = idOrNull(text(data?.evaluatorId));
+    const reviewerId = data && 'reviewerId' in data ? idOrNull(text(data.reviewerId)) : currentReviewer;
+    await checkAssignee(db, row, evaluatorId, '평가자');
+    await checkAssignee(db, row, reviewerId, '임원');
+    if (evaluatorId && evaluatorId === reviewerId) throw httpError('평가자(팀장)와 임원은 다른 사람으로 지정하세요.');
+    if (row.status !== 'pending' && evaluatorId !== currentEvaluator) {
+      throw httpError('팀장이 제출한 평가는 평가자를 바꿀 수 없습니다. 먼저 반려하세요.');
     }
-    if (row.status === 'submitted' && evaluatorId !== Number(row.evaluator_id)) {
-      throw httpError('작성이 끝난 평가는 평가자를 바꿀 수 없습니다. 먼저 반려하세요.');
+    if (row.status === 'submitted' && reviewerId !== currentReviewer) {
+      throw httpError('임원 의견까지 받은 평가는 임원을 바꿀 수 없습니다. 먼저 반려하세요.');
     }
     const dueDate = data?.dueDate ? cleanDate(data.dueDate, '평가 기한') : row.due_date;
-    const evaluatorChanged = evaluatorId !== (row.evaluator_id == null ? null : Number(row.evaluator_id));
+    const evaluatorChanged = evaluatorId !== currentEvaluator;
+    const reviewerChanged = reviewerId !== currentReviewer;
     const dueChanged = dueDate !== row.due_date;
+    const status = row.status === 'reviewing' && !reviewerId ? 'submitted' : row.status;
     const today = kstToday();
     const remindNow = Boolean(evaluatorId) && evaluatorChanged && row.status === 'pending' && diffDays(dueDate, today) <= REMINDER_DAYS;
     await db
       .prepare(
         `UPDATE employee_evaluations
-         SET evaluator_id = ?, due_date = ?,
+         SET evaluator_id = ?, reviewer_id = ?, due_date = ?, status = ?,
              reminded_at = CASE WHEN ? = 1 THEN datetime('now', 'localtime') WHEN ? = 1 THEN NULL ELSE reminded_at END,
              updated_at = datetime('now', 'localtime')
          WHERE id = ?`
       )
-      .run(evaluatorId, dueDate, remindNow ? 1 : 0, dueChanged ? 1 : 0, row.id);
+      .run(evaluatorId, reviewerId, dueDate, status, remindNow ? 1 : 0, dueChanged ? 1 : 0, row.id);
     if (row.kind === 'probation' && dueChanged) await refreshEmployeeStatus(await getEmployee(row.employee_id));
-    if (evaluatorId && evaluatorChanged && row.status === 'pending') notify = evaluatorId;
+    if (evaluatorId && evaluatorChanged && row.status === 'pending') notifyEvaluator = evaluatorId;
+    if (reviewerId && reviewerChanged && status === 'reviewing') notifyReviewer = reviewerId;
   });
   const updated = mapEvaluation(await getRow(id));
-  if (notify) {
-    const evaluator = await getEmployee(notify);
-    mailService.notifyEvaluationAssigned(evaluator, [updated], actor);
-  }
+  if (notifyEvaluator) mailService.notifyEvaluationAssigned(await getEmployee(notifyEvaluator), [updated], actor);
+  if (notifyReviewer) mailService.notifyEvaluationReviewRequested(await getEmployee(notifyReviewer), updated);
   return updated;
 }
 
@@ -390,54 +449,66 @@ function cleanSubmission(row, data, { submit }) {
     }
     return { key: item.key, label: item.label, score };
   });
-  const grade = text(data?.grade);
-  if (grade && !GRADES.includes(grade)) throw httpError(`종합등급은 ${GRADES.join('·')} 중 하나입니다.`);
   const comment = text(data?.comment);
-  if (comment.length > MAX_COMMENT) throw httpError(`평가 의견은 ${MAX_COMMENT}자 이하로 입력하세요.`);
+  if (comment.length > MAX_COMMENT) throw httpError(`평가의견(팀장)은 ${MAX_COMMENT}자 이하로 입력하세요.`);
   const isProbation = row.kind === 'probation';
   const recommendation = isProbation ? text(data?.recommendation) : '';
-  if (recommendation && !OUTCOMES[recommendation]) throw httpError('평가자 의견(전환·연장·거부)을 확인하세요.');
+  if (recommendation && !OUTCOMES[recommendation]) throw httpError('정규직 채용 여부를 다시 고르세요.');
+  const filled = scores.filter((s) => s.score != null);
+  const total = filled.length ? filled.reduce((sum, s) => sum + s.score, 0) : null;
 
   if (submit) {
     const missing = scores.find((s) => s.score == null);
     if (missing) throw httpError(`${missing.label} 점수를 고르세요.`);
-    if (!grade) throw httpError('종합등급을 고르세요.');
-    if (comment.length < 2) throw httpError('평가 의견을 입력하세요.');
-    if (isProbation && !recommendation) throw httpError('수습 결과에 대한 평가자 의견(정규직 전환·수습 연장·본채용 거부)을 고르세요.');
+    if (comment.length < 2) throw httpError('평가의견(팀장)을 입력하세요.');
+    if (isProbation) {
+      if (!recommendation) throw httpError('정규직 채용 여부를 고르세요.');
+      if (!allowedOutcomes(total).includes(recommendation)) {
+        throw httpError(
+          total >= PASS_SCORE
+            ? `최종 평가 점수가 ${PASS_SCORE}점 이상이면 정식 채용입니다.`
+            : `최종 평가 점수가 ${PASS_SCORE}점 미만이면 수습 연장 또는 계약 종료 중에서 고르세요.`
+        );
+      }
+    }
   }
-  const filled = scores.filter((s) => s.score != null);
   return {
     scores,
-    total: filled.length ? filled.reduce((sum, s) => sum + s.score, 0) : null,
-    max: EVALUATION_ITEMS.length * MAX_ITEM_SCORE,
-    grade: grade || null,
+    total,
+    max: MAX_TOTAL_SCORE,
     comment: comment || null,
     recommendation: recommendation || null,
   };
 }
 
-/** 평가표 임시 저장(submit=false) 또는 제출. 지정된 평가자, 또는 평가 관리 권한자가 대신 작성할 수 있습니다. */
+/**
+ * 평가표(점수·팀장 의견·정규직 채용 여부) 임시 저장(submit=false) 또는 제출.
+ * 지정된 평가자(팀장), 또는 평가 관리 권한자가 대신 작성할 수 있습니다.
+ * 제출하면 임원이 지정돼 있으면 임원 의견 대기, 아니면 확정 대기가 됩니다.
+ */
 export async function saveEvaluation(id, data, access) {
   const db = getDb();
   const submit = Boolean(data?.submit);
   const actorId = Number(access.employee.id);
   const manager = access.has('evaluations.manage');
-  let submitted = false;
+  let nextStatus = null;
   await db.transaction(async () => {
     const row = await getRow(id);
     await db.lock(LOCK_EVALUATION, row.employee_id);
     if (Number(row.employee_id) === actorId) throw httpError('본인 평가는 작성할 수 없습니다.', 403);
     const isEvaluator = Number(row.evaluator_id) === actorId;
     if (!isEvaluator && !manager) throw httpError('이 평가를 작성할 권한이 없습니다.', 403);
-    if (row.status !== 'pending' && !(manager && row.status === 'submitted')) {
-      throw httpError(row.status === 'submitted' ? '이미 제출한 평가입니다. 고치려면 인사담당에게 반려를 요청하세요.' : '확정·취소된 평가는 고칠 수 없습니다.');
+    const afterSubmit = ['reviewing', 'submitted'].includes(row.status);
+    if (row.status !== 'pending' && !(manager && afterSubmit)) {
+      throw httpError(afterSubmit ? '이미 제출한 평가입니다. 고치려면 인사담당에게 반려를 요청하세요.' : '확정·취소된 평가는 고칠 수 없습니다.');
     }
-    const clean = cleanSubmission(row, data, { submit: submit || row.status === 'submitted' });
+    const clean = cleanSubmission(row, data, { submit: submit || afterSubmit });
     const becomesSubmitted = submit && row.status === 'pending';
+    const status = becomesSubmitted ? (row.reviewer_id ? 'reviewing' : 'submitted') : row.status;
     await db
       .prepare(
         `UPDATE employee_evaluations
-         SET scores = ?, total_score = ?, max_score = ?, grade = ?, comment = ?, recommendation = ?,
+         SET scores = ?, total_score = ?, max_score = ?, comment = ?, recommendation = ?,
              status = ?,
              submitted_by = CASE WHEN ? = 1 THEN ? ELSE submitted_by END,
              submitted_at = CASE WHEN ? = 1 THEN datetime('now', 'localtime') ELSE submitted_at END,
@@ -448,21 +519,66 @@ export async function saveEvaluation(id, data, access) {
         JSON.stringify(clean.scores),
         clean.total,
         clean.max,
-        clean.grade,
         clean.comment,
         clean.recommendation,
-        becomesSubmitted ? 'submitted' : row.status,
+        status,
         becomesSubmitted ? 1 : 0,
         actorId,
         becomesSubmitted ? 1 : 0,
         row.id
       );
+    if (becomesSubmitted) nextStatus = status;
+  });
+  const updated = mapEvaluation(await getRow(id));
+  if (nextStatus === 'reviewing') {
+    mailService.notifyEvaluationReviewRequested(await getEmployee(updated.reviewerId), updated);
+  } else if (nextStatus === 'submitted' && !manager) {
+    mailService.notifyEvaluationSubmitted(await listEvaluationManagers(), updated);
+  }
+  return updated;
+}
+
+/**
+ * 평가의견(임원) 임시 저장 또는 제출. 지정된 임원은 임원 의견 대기일 때,
+ * 평가 관리 권한자는 확정 전까지 대신 입력·수정할 수 있습니다.
+ */
+export async function reviewEvaluation(id, data, access) {
+  const db = getDb();
+  const submit = Boolean(data?.submit);
+  const actorId = Number(access.employee.id);
+  const manager = access.has('evaluations.manage');
+  const comment = text(data?.comment);
+  if (comment.length > MAX_COMMENT) throw httpError(`평가의견(임원)은 ${MAX_COMMENT}자 이하로 입력하세요.`);
+  let submitted = false;
+  await db.transaction(async () => {
+    const row = await getRow(id);
+    await db.lock(LOCK_EVALUATION, row.employee_id);
+    if (Number(row.employee_id) === actorId) throw httpError('본인 평가는 작성할 수 없습니다.', 403);
+    const isReviewer = Number(row.reviewer_id) === actorId;
+    if (!isReviewer && !manager) throw httpError('이 평가에 임원 의견을 쓸 권한이 없습니다.', 403);
+    const allowed = (isReviewer && row.status === 'reviewing') || (manager && ['reviewing', 'submitted'].includes(row.status));
+    if (!allowed) {
+      if (row.status === 'pending') throw httpError('팀장이 아직 평가표를 제출하지 않았습니다.');
+      if (row.status === 'submitted') throw httpError('이미 의견을 제출했습니다. 고치려면 인사담당에게 요청하세요.');
+      throw httpError('확정·취소된 평가는 고칠 수 없습니다.');
+    }
+    if (submit && comment.length < 2) throw httpError('평가의견(임원)을 입력하세요.');
+    const becomesSubmitted = submit && row.status === 'reviewing';
+    const signed = Boolean(comment) && (submit || row.status === 'submitted');
+    await db
+      .prepare(
+        `UPDATE employee_evaluations
+         SET reviewer_comment = ?, status = ?,
+             reviewed_by = CASE WHEN ? = 1 THEN ? ELSE reviewed_by END,
+             reviewed_at = CASE WHEN ? = 1 THEN datetime('now', 'localtime') ELSE reviewed_at END,
+             updated_at = datetime('now', 'localtime')
+         WHERE id = ?`
+      )
+      .run(comment || null, becomesSubmitted ? 'submitted' : row.status, signed ? 1 : 0, actorId, signed ? 1 : 0, row.id);
     submitted = becomesSubmitted;
   });
   const updated = mapEvaluation(await getRow(id));
-  if (submitted && !manager) {
-    mailService.notifyEvaluationSubmitted(await listEvaluationManagers(), updated);
-  }
+  if (submitted && !manager) mailService.notifyEvaluationSubmitted(await listEvaluationManagers(), updated);
   return updated;
 }
 
@@ -470,13 +586,16 @@ export async function saveEvaluation(id, data, access) {
 
 function recordDetail(row, outcome, outcomeDate, note) {
   const lines = [];
-  if (row.comment) lines.push(row.comment);
+  const evaluatorName = row.evaluator_name || row.submitted_by_name;
+  const reviewerName = row.reviewer_name || row.reviewed_by_name;
+  if (row.comment) lines.push(`평가의견(팀장${evaluatorName ? ` ${evaluatorName}` : ''}): ${row.comment}`);
+  if (row.reviewer_comment) lines.push(`평가의견(임원${reviewerName ? ` ${reviewerName}` : ''}): ${row.reviewer_comment}`);
   if (outcome) lines.push(`결과: ${OUTCOMES[outcome]}${outcome === 'extend' && outcomeDate ? ` (~${outcomeDate})` : ''}`);
   if (note) lines.push(`인사 의견: ${note}`);
   return lines.join('\n').slice(0, 2000);
 }
 
-/** 평가를 확정하고 인사기록카드(평가·발령 이력)에 남깁니다. 수습평가는 결과(전환·연장·거부)를 정합니다. */
+/** 평가를 확정하고 인사기록카드(평가·발령 이력)에 남깁니다. 수습평가는 결과(정식 채용·수습 연장·계약 종료)를 정합니다. */
 export async function confirmEvaluation(id, data, actor) {
   const db = getDb();
   const actorId = Number(actor.id);
@@ -484,13 +603,14 @@ export async function confirmEvaluation(id, data, actor) {
   await db.transaction(async () => {
     const row = await getRow(id);
     await db.lock(LOCK_EVALUATION, row.employee_id);
+    if (row.status === 'reviewing') throw httpError('임원 의견 대기 중입니다. 임원 의견을 받은 뒤 확정하거나, 임원 의견을 대신 입력해 제출하세요.');
     if (row.status !== 'submitted') throw httpError('평가자가 제출한 평가만 확정할 수 있습니다.');
     const note = cleanNote(data?.note, '인사 의견');
     let outcome = null;
     let outcomeDate = null;
     if (row.kind === 'probation') {
       outcome = text(data?.outcome);
-      if (!OUTCOMES[outcome]) throw httpError('수습평가 결과(정규직 전환·수습 연장·본채용 거부)를 고르세요.');
+      if (!OUTCOMES[outcome]) throw httpError('수습평가 결과(정식 채용·수습 연장·계약 종료)를 고르세요.');
       if (outcome === 'regular') {
         outcomeDate = data?.outcomeDate ? cleanDate(data.outcomeDate, '정규직 전환일') : addDays(row.due_date, 1);
       } else if (outcome === 'extend') {
@@ -507,7 +627,7 @@ export async function confirmEvaluation(id, data, actor) {
         category: 'evaluation',
         title: label,
         startDate: (row.submitted_at || '').slice(0, 10) || kstToday(),
-        result: [row.grade, row.total_score != null ? `${row.total_score}/${row.max_score}점` : ''].filter(Boolean).join(' · '),
+        result: row.total_score != null ? `${row.total_score}/${row.max_score}점` : '',
         organization: evaluatorName,
         detail: recordDetail(row, outcome, outcomeDate, note),
         notes: '평가 일정에서 확정',
@@ -542,19 +662,19 @@ export async function confirmEvaluation(id, data, actor) {
     if (outcome === 'extend') {
       const result = await db
         .prepare(
-          `INSERT INTO employee_evaluations (employee_id, kind, round, due_date, evaluator_id)
-           VALUES (?, 'probation', ?, ?, ?)`
+          `INSERT INTO employee_evaluations (employee_id, kind, round, due_date, evaluator_id, reviewer_id)
+           VALUES (?, 'probation', ?, ?, ?, ?)`
         )
-        .run(row.employee_id, Number(row.round) + 1, outcomeDate, row.evaluator_id);
+        .run(row.employee_id, Number(row.round) + 1, outcomeDate, row.evaluator_id, row.reviewer_id);
       nextRound = result.lastInsertRowid;
     }
     if (outcome === 'reject') {
       await db
         .prepare(
           `UPDATE employee_evaluations SET status = 'cancelled', hr_note = ?, updated_at = datetime('now', 'localtime')
-           WHERE employee_id = ? AND kind = 'one_year' AND status IN ('pending', 'submitted')`
+           WHERE employee_id = ? AND kind = 'one_year' AND status IN (${OPEN_SQL})`
         )
-        .run('수습평가 결과 본채용 거부', row.employee_id);
+        .run('수습평가 결과 계약 종료', row.employee_id);
     }
     if (row.kind === 'probation') await refreshEmployeeStatus(await getEmployee(row.employee_id));
   });
@@ -572,7 +692,7 @@ export async function returnEvaluation(id, data, actor) {
   await db.transaction(async () => {
     const row = await getRow(id);
     await db.lock(LOCK_EVALUATION, row.employee_id);
-    if (row.status !== 'submitted') throw httpError('제출된 평가만 반려할 수 있습니다.');
+    if (!['reviewing', 'submitted'].includes(row.status)) throw httpError('제출된 평가만 반려할 수 있습니다.');
     await db
       .prepare(
         `UPDATE employee_evaluations SET status = 'pending', hr_note = ?, updated_at = datetime('now', 'localtime')
@@ -593,7 +713,7 @@ export async function cancelEvaluation(id, data) {
   await db.transaction(async () => {
     const row = await getRow(id);
     await db.lock(LOCK_EVALUATION, row.employee_id);
-    if (!['pending', 'submitted'].includes(row.status)) throw httpError('작성 대기·확정 대기인 평가만 취소할 수 있습니다.');
+    if (!OPEN_STATUSES.includes(row.status)) throw httpError('진행 중인 평가만 취소할 수 있습니다.');
     await db
       .prepare(
         `UPDATE employee_evaluations SET status = 'cancelled', hr_note = ?, updated_at = datetime('now', 'localtime')

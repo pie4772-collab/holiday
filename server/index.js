@@ -1,3 +1,4 @@
+import './timezone.js';
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
@@ -11,9 +12,14 @@ import { syncUsersFromEmployees } from './services/authService.js';
 import { encryptStoredMailPassword } from './services/mailService.js';
 import { startReminderSchedule } from './services/evaluationService.js';
 import { repairOrgCodes } from './services/employeeService.js';
+import { convertStoredTimestampsToKst } from './timestampFix.js';
 import { getLocalIp, getShareUrl } from './utils/network.js';
 
 loadEnvFile();
+const timestampFix = await convertStoredTimestampsToKst();
+if (timestampFix?.minutes) {
+  console.error(`[db] UTC로 저장된 시각을 한국 시간으로 옮겼습니다: ${JSON.stringify(timestampFix.changed)}`);
+}
 const userCount = await syncUsersFromEmployees();
 if (await encryptStoredMailPassword()) {
   console.error('[mail] 평문으로 저장돼 있던 SMTP 비밀번호를 암호화했습니다.');

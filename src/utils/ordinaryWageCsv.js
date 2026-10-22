@@ -4,6 +4,22 @@ function csvCell(value) {
   return text;
 }
 
+/**
+ * 엑셀에서 "CSV(쉼표로 분리)"로 저장하면 한글이 CP949(EUC-KR)로 저장됩니다.
+ * UTF-8로 읽히지 않으면 CP949로 다시 읽습니다.
+ */
+export async function readCsvFile(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
+    throw new Error('엑셀 파일(.xlsx)은 올릴 수 없습니다. 엑셀에서 "CSV UTF-8" 또는 "CSV(쉼표로 분리)"로 저장한 파일을 올리세요.');
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder('euc-kr').decode(bytes);
+  }
+}
+
 /** 단순 CSV 파서 (따옴표·BOM 지원) */
 export function parseCsv(text) {
   const source = String(text || '').replace(/^\uFEFF/, '');

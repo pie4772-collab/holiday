@@ -3,7 +3,7 @@ import { Download, Upload } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { leaveApi } from '../../api/leaveApi';
 import { useImportPersonnel } from '../../hooks/usePersonnel';
-import { parseCsv } from '../../utils/ordinaryWageCsv';
+import { parseCsv, readCsvFile } from '../../utils/ordinaryWageCsv';
 
 const TYPES = {
   profiles: { label: '기본정보·병역', filename: '인사기록_기본정보.csv' },
@@ -47,7 +47,7 @@ export function PersonnelCsvActions({ onMessage, onError }) {
     const label = TYPES[pendingType].label;
     try {
       setBusy(true);
-      const table = parseCsv(await file.text());
+      const table = parseCsv(await readCsvFile(file));
       const result = await importPersonnel.mutateAsync({ type: pendingType, table });
       const parts = [`${label} 반영 완료`];
       if (result.inserted) parts.push(`추가 ${result.inserted}건`);

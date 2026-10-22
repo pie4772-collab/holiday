@@ -3,7 +3,7 @@ import { Download, Upload } from 'lucide-react';
 import { Button } from './ui/Button';
 import { leaveApi } from '../api/leaveApi';
 import { useUploadOrdinaryWages } from '../hooks/useLeaveData';
-import { parseOrdinaryWageCsv } from '../utils/ordinaryWageCsv';
+import { parseOrdinaryWageCsv, readCsvFile } from '../utils/ordinaryWageCsv';
 
 export function OrdinaryWageCsvActions({ purpose = 'liability', onMessage, onError }) {
   const fileRef = useRef(null);
@@ -39,7 +39,7 @@ export function OrdinaryWageCsvActions({ purpose = 'liability', onMessage, onErr
 
     try {
       setBusy(true);
-      const text = await file.text();
+      const text = await readCsvFile(file);
       const rows = parseOrdinaryWageCsv(text);
       const result = await uploadWages.mutateAsync({ rows, purpose });
       const parts = [`${purposeLabel} 통상임금 ${result.updatedCount}명 반영`];

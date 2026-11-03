@@ -147,7 +147,7 @@ export function EmployeeDashboard() {
             }
           />
           <PanelBody noPadding>
-            <LeaveUsageList usages={pendingUsages} />
+            <LeaveUsageList usages={pendingUsages} cancelableFor={employee.id} />
           </PanelBody>
         </Panel>
       )}

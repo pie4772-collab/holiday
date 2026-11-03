@@ -60,7 +60,7 @@ export function EmployeeCalendar() {
       <Panel className="max-w-lg mb-6">
         <PanelHeader title="승인 대기" description={`${pendingUsages.length}건`} />
         <PanelBody noPadding>
-          <LeaveUsageList usages={pendingUsages} emptyText="승인 대기 중인 신청이 없습니다." />
+          <LeaveUsageList usages={pendingUsages} emptyText="승인 대기 중인 신청이 없습니다." cancelableFor={employee.id} />
         </PanelBody>
       </Panel>
 

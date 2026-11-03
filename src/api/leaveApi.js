@@ -205,6 +205,14 @@ export const leaveApi = {
     return apiClient(`/leave/usages/${id}/reject`, { method: 'POST', body: { reason } });
   },
 
+  async cancelLeaveRequest(id) {
+    if (USE_MOCK) {
+      await delay(300);
+      return { id };
+    }
+    return apiClient(`/leave/usages/${id}/cancel`, { method: 'POST' });
+  },
+
   async createAccrual(data) {
     if (USE_MOCK) {
       await delay(400);

@@ -37,7 +37,7 @@ function actionBadgeVariant(action) {
   if (action === 'approve' || action === 'auto_approve') return 'success';
   if (action === 'step_approve') return 'purple';
   if (action === 'admin_delete') return 'danger';
-  if (action.startsWith('admin_')) return 'default';
+  if (action === 'cancel' || action.startsWith('admin_')) return 'default';
   return 'info';
 }
 
@@ -126,6 +126,7 @@ export function AdminApprovalHistory() {
     approved: 0,
     stepApproved: 0,
     rejected: 0,
+    cancelled: 0,
     adminEdited: 0,
   };
   const years = data?.years?.length ? data.years : [currentYear];
@@ -149,7 +150,7 @@ export function AdminApprovalHistory() {
     <div>
       <PageHeader
         title="승인·반려 이력"
-        description="연차 신청·단계승인·최종승인·반려와 관리자의 직접 등록·수정·삭제 기록을 보관합니다. 근로감독 등 증빙용으로 CSV 내려받기가 가능합니다."
+        description="연차 신청·단계승인·최종승인·반려·본인취소와 관리자의 직접 등록·수정·삭제 기록을 보관합니다. 근로감독 등 증빙용으로 CSV 내려받기가 가능합니다."
         actions={
           <Button variant="secondary" onClick={() => downloadCsv(sorted, year)}>
             <Download className="h-4 w-4" />
@@ -199,7 +200,12 @@ export function AdminApprovalHistory() {
         <LeaveSummaryCard title="신청" value={summary.submitted} unit="건" />
         <LeaveSummaryCard title="단계승인" value={summary.stepApproved} unit="건" />
         <LeaveSummaryCard title="최종·본인승인" value={summary.approved} unit="건" highlight />
-        <LeaveSummaryCard title="반려" value={summary.rejected} unit="건" />
+        <LeaveSummaryCard
+          title="반려"
+          value={summary.rejected}
+          unit="건"
+          subtitle={summary.cancelled ? `승인 전 본인취소 ${summary.cancelled}건` : undefined}
+        />
         <LeaveSummaryCard
           title="관리자 처리"
           value={summary.adminEdited || 0}

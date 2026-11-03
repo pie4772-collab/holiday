@@ -218,6 +218,18 @@ export function useDecideLeaveRequest() {
   });
 }
 
+export function useCancelLeaveRequest(employeeId) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id) => leaveApi.cancelLeaveRequest(id),
+    onSuccess: () => {
+      invalidateEmployeeData(queryClient, employeeId);
+      queryClient.invalidateQueries({ queryKey: ['attendance'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'leave-approval-logs'] });
+    },
+  });
+}
+
 export function useLeaveApprovalHistory(filters = {}) {
   return useQuery({
     queryKey: leaveKeys.leaveApprovalHistory(filters),

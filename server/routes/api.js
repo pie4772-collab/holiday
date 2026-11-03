@@ -515,6 +515,14 @@ router.post('/leave/usages/:id/reject', requireAuth, async (req, res, next) => {
   }
 });
 
+router.post('/leave/usages/:id/cancel', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await leaveService.cancelLeaveRequest(req.params.id, req.user.employeeId));
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.post('/admin/accruals', requirePermission('leave.edit'), async (req, res, next) => {
   try {
     if (!(await requireCoveredEmployee(req, res, 'leave.edit', req.body?.employeeId))) return;

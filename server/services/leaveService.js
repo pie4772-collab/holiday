@@ -123,6 +123,7 @@ const APPROVAL_ACTION_LABELS = {
   step_approve: '단계승인',
   approve: '최종승인',
   reject: '반려',
+  cancel: '본인취소',
   admin_create: '관리자 등록',
   admin_update: '관리자 수정',
   admin_delete: '관리자 삭제',
@@ -273,10 +274,11 @@ export async function getLeaveApprovalHistory(filters = {}) {
       if (item.action === 'approve' || item.action === 'auto_approve') acc.approved += 1;
       if (item.action === 'step_approve') acc.stepApproved += 1;
       if (item.action === 'reject') acc.rejected += 1;
+      if (item.action === 'cancel') acc.cancelled += 1;
       if (ADMIN_ACTIONS.includes(item.action)) acc.adminEdited += 1;
       return acc;
     },
-    { total: 0, submitted: 0, approved: 0, stepApproved: 0, rejected: 0, adminEdited: 0 }
+    { total: 0, submitted: 0, approved: 0, stepApproved: 0, rejected: 0, cancelled: 0, adminEdited: 0 }
   );
 
   return {
@@ -1936,6 +1938,42 @@ export async function decideLeaveRequest(usageId, approverId, action, rejectReas
     ...mapped,
     approvalHint,
   };
+}
+
+export async function cancelLeaveRequest(usageId, employeeId) {
+  const db = getDb();
+  const employeeDbId = parseEmployeeId(employeeId);
+  const { row, employee } = await db.transaction(async () => {
+    await db.lock(LOCK_LEAVE_USAGE, usageId);
+    const row = await db.prepare('SELECT * FROM leave_usages WHERE id = ?').get(Number(usageId));
+    if (!row || Number(row.employee_id) !== employeeDbId) throw httpError('신청 내역을 찾을 수 없습니다.', 404);
+    if (row.status !== 'pending') {
+      throw httpError(
+        row.status === 'approved'
+          ? '이미 승인된 연차는 직접 취소할 수 없습니다. 인사담당에게 요청해주세요.'
+          : '이미 처리된 신청입니다.'
+      );
+    }
+    const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').get(row.employee_id);
+    // 이력이 사용 내역을 참조하므로 지우기 전에 남깁니다(삭제 후에는 참조만 비워집니다).
+    await recordApprovalLog({
+      usage: row,
+      employee,
+      actor: employee,
+      action: 'cancel',
+      step: row.approval_step || null,
+      note: '승인 전 본인 취소',
+    });
+    await db.prepare('DELETE FROM leave_usages WHERE id = ?').run(row.id);
+    return { row, employee };
+  });
+
+  mailService.notifyLeaveCancelled(employee, row).catch((error) => {
+    console.error('[mail] notifyLeaveCancelled:', error.message);
+  });
+
+  const typeLabel = row.usage_type === 'half' ? '반차' : '연차';
+  return { id: String(row.id), message: `${row.usage_date} ${typeLabel} 신청을 취소했습니다.` };
 }
 
 export async function createAccrual(data) {

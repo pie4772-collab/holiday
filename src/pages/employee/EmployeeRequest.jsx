@@ -85,6 +85,7 @@ export function EmployeeRequest() {
               <li>연속 연차는 시작일~종료일의 평일만 신청됩니다 (주말·공휴일 제외)</li>
               <li>반차는 평일 하루만 신청할 수 있습니다</li>
               <li>신청·승인 직후에는 잔여가 줄지 않고, 사용일이 지난 뒤에 차감됩니다</li>
+              <li>승인 전에는 아래 승인 대기 목록에서 날짜별로 직접 취소할 수 있습니다 (승인 후에는 인사담당에게 요청)</li>
               <li>팀원 신청은 팀장 승인, 공장장은 본인 신청으로 승인, 경영전략실은 지정 담당자 승인</li>
             </ul>
           </div>
@@ -94,7 +95,7 @@ export function EmployeeRequest() {
       <Panel className="max-w-md mb-6">
         <PanelHeader title="승인 대기" description={`${pending.length}건`} />
         <PanelBody noPadding>
-          <LeaveUsageList usages={pending} emptyText="승인 대기 중인 신청이 없습니다." />
+          <LeaveUsageList usages={pending} emptyText="승인 대기 중인 신청이 없습니다." cancelableFor={employee.id} />
         </PanelBody>
       </Panel>
 

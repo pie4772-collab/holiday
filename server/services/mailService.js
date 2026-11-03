@@ -331,6 +331,28 @@ export async function notifyLeaveSubmitted(employee, items, approvalHint) {
   }
 }
 
+export async function notifyLeaveCancelled(employee, usage) {
+  try {
+    const settings = rowToPublic(await getRow(), true);
+    if (!settings.enabled) return;
+    const approvers = uniqueEmails(await approvalService.listLineApprovers(employee, usage.approval_step));
+    if (!approvers.length) return;
+    const typeLabel = usage.usage_type === 'half' ? halfLabel(usage.half_period) : '연차';
+    const body = `
+      <p><strong>${escapeHtml(employee.name)}</strong>님이 승인 대기 중이던 ${escapeHtml(typeLabel)} 신청을 취소했습니다.</p>
+      <p>사용일: ${escapeHtml(usage.usage_date)}<br/>사유: ${escapeHtml(usage.reason || '-')}</p>
+      <p>이 신청은 더 이상 승인할 필요가 없습니다.</p>
+    `;
+    await sendMail(
+      approvers.map((a) => a.email),
+      `${employee.name} 연차 신청 취소 (${usage.usage_date})`,
+      htmlLayout('연차 신청 취소', body, '승인 대기 보기', approvalUrl(settings, false))
+    );
+  } catch (error) {
+    console.error('[mail] notifyLeaveCancelled failed:', error.message);
+  }
+}
+
 export async function notifyLeaveAdvanced(employee, usage, approvalHint) {
   return notifyLeaveSubmitted(employee, [usage], approvalHint);
 }

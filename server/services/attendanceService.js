@@ -557,7 +557,7 @@ function actionAvailability(ctx) {
     if (!ctx.employee.is_active) return '재직 중인 직원만 기록할 수 있습니다.';
     if (closedAt) return `${workDate.slice(0, 7)} 근태가 마감되어 기록할 수 없습니다.`;
     if (leave?.kind === 'full') {
-      return `${workDate}은(는) ${leaveLabel(leave)}일이라 출퇴근을 기록할 수 없습니다. 근무가 필요하면 연차 신청을 취소(반려)한 뒤 기록해주세요.`;
+      return `${workDate}은(는) ${leaveLabel(leave)}일이라 출퇴근을 기록할 수 없습니다. 근무가 필요하면 연차 신청을 취소한 뒤 기록해주세요. 승인 전에는 연차 신청 화면에서 직접 취소할 수 있습니다.`;
     }
     return null;
   })();

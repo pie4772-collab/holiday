@@ -321,6 +321,19 @@ export function AdminEmployeeRoster() {
 
         <div className="settlement-table stripe-table-fit-wrap">
           <table className="stripe-table stripe-table-fit w-full">
+            <colgroup>
+              <col style={{ width: '6.5%' }} />
+              <col style={{ width: '6.5%' }} />
+              <col style={{ width: '6.5%' }} />
+              <col style={{ width: '10.5%' }} />
+              <col style={{ width: '6%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '8.5%' }} />
+              <col style={{ width: '8.5%' }} />
+              <col style={{ width: '11%' }} />
+              <col style={{ width: '6%' }} />
+              <col style={{ width: '21%' }} />
+            </colgroup>
             <thead>
               <tr>
                 <th><SortButton label="이름" column="name" sort={sort} onSort={onSort} /></th>
@@ -360,10 +373,10 @@ export function AdminEmployeeRoster() {
                     <td className="font-mono text-[13px] muted whitespace-nowrap">
                       {emp.terminatedDate ? formatDate(emp.terminatedDate) : '-'}
                     </td>
-                    <td>
+                    <td className="whitespace-nowrap">
                       <RoleBadges roles={emp.roles} />
                     </td>
-                    <td>
+                    <td className="whitespace-nowrap">
                       {emp.isActive ? (
                         <Badge variant="success">재직</Badge>
                       ) : (
@@ -379,7 +392,7 @@ export function AdminEmployeeRoster() {
                           >
                             역할
                           </button>
-                          {canManage && <span className="text-[#e3e8ee] mx-2">|</span>}
+                          {canManage && <span className="text-[#e3e8ee] mx-1.5">|</span>}
                         </>
                       )}
                       {!canManage ? null : emp.isActive ? (
@@ -392,7 +405,7 @@ export function AdminEmployeeRoster() {
                           </button>
                           {emp.empNo && (
                             <>
-                              <span className="text-[#e3e8ee] mx-2">|</span>
+                              <span className="text-[#e3e8ee] mx-1.5">|</span>
                               <button
                                 onClick={() => handleResetPassword(emp)}
                                 className="text-[13px] text-stripe-muted hover:text-stripe-text"
@@ -402,7 +415,7 @@ export function AdminEmployeeRoster() {
                               </button>
                             </>
                           )}
-                          <span className="text-[#e3e8ee] mx-2">|</span>
+                          <span className="text-[#e3e8ee] mx-1.5">|</span>
                           <button
                             onClick={() => setModal({ mode: 'terminate', employee: emp })}
                             className="text-[13px] text-[#df1b41] hover:text-[#c91839]"

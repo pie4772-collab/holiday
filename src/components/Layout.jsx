@@ -23,6 +23,7 @@ import {
   Megaphone,
   UserCheck,
   PenLine,
+  GraduationCap,
 } from 'lucide-react';
 import { ASSIGNABLE_ROLES, ROLE_LABELS, canAccessAdmin, hasPermission } from '../utils/access';
 import { useAppStore } from '../store/useAppStore';
@@ -35,6 +36,7 @@ const employeeNav = [
   { to: '/employee', icon: LayoutDashboard, label: 'Home', end: true },
   { to: '/employee/notices', icon: Megaphone, label: '공지사항' },
   { to: '/employee/attendance', icon: Clock, label: '출퇴근' },
+  { to: '/employee/training', icon: GraduationCap, label: '법정의무교육' },
   { to: '/employee/history', icon: History, label: '연차 사용현황' },
   { to: '/employee/calendar', icon: Calendar, label: '캘린더' },
   { to: '/employee/request', icon: FilePlus, label: '연차 신청' },
@@ -49,6 +51,7 @@ const adminNav = [
   { to: '/admin/roster', icon: ClipboardList, label: '사원 명부', permission: 'employees.view' },
   { to: '/admin/personnel', icon: Contact, label: '인사기록카드', permission: 'records.view' },
   { to: '/admin/evaluations', icon: UserCheck, label: '수습·정기 평가', permission: 'evaluations.manage' },
+  { to: '/admin/training', icon: GraduationCap, label: '법정의무교육', permission: 'training.manage' },
   { to: '/admin/attendance', icon: Clock, label: '근태 현황', permission: 'attendance.view' },
   { to: '/admin/attendance-settings', icon: Settings2, label: '근태 설정', permission: 'attendance.manage' },
   { to: '/admin/approval-lines', icon: GitBranch, label: '결재 라인', permission: 'approvalLines.manage' },

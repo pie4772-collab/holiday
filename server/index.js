@@ -11,6 +11,7 @@ import { optionalAuth } from './middleware/auth.js';
 import { syncUsersFromEmployees } from './services/authService.js';
 import { encryptStoredMailPassword } from './services/mailService.js';
 import { startReminderSchedule } from './services/evaluationService.js';
+import { startReminderSchedule as startTrainingReminders } from './services/trainingService.js';
 import { repairOrgCodes } from './services/employeeService.js';
 import { convertStoredTimestampsToKst } from './timestampFix.js';
 import { getLocalIp, getShareUrl } from './utils/network.js';
@@ -108,6 +109,7 @@ const server = app.listen(PORT, HOST, () => {
   console.log(`Users: ${userCount}`);
   console.log('종료: Ctrl+C');
   startReminderSchedule();
+  startTrainingReminders();
 });
 
 server.on('error', (err) => {

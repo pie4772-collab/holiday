@@ -5,7 +5,7 @@ import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Panel, PanelHeader, PanelBody } from '../../components/ui/Panel';
 import { Badge } from '../../components/ui/Badge';
-import { CheckCircle, PenLine } from 'lucide-react';
+import { CheckCircle, GraduationCap, PenLine } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useCurrentEmployee, useLeaveUsages } from '../../hooks/useLeaveData';
 import { formatDate } from '../../utils/leaveCalculations';
@@ -66,6 +66,19 @@ export function EmployeeDashboard() {
             작성할 평가가 {employee.evaluationTasks}건 있습니다. 기한 안에 제출해 주세요.
           </span>
           <span className="shrink-0 font-medium">평가 작성</span>
+        </Link>
+      )}
+
+      {employee.trainingTasks > 0 && (
+        <Link
+          to="/employee/training"
+          className="mb-6 flex items-center justify-between gap-3 rounded-md border border-[#fde68a] bg-[#fffbeb] px-4 py-3 text-sm text-[#b45309] hover:bg-[#fef3c7]"
+        >
+          <span className="flex items-center gap-2">
+            <GraduationCap className="h-4 w-4 shrink-0" />
+            수료하지 않은 법정의무교육이 {employee.trainingTasks}건 있습니다. 기한 안에 수강해 주세요.
+          </span>
+          <span className="shrink-0 font-medium">교육 듣기</span>
         </Link>
       )}
 

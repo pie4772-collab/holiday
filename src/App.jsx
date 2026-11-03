@@ -24,6 +24,10 @@ import { AdminPersonnelList } from './pages/admin/AdminPersonnelList';
 import { AdminPersonnelCard } from './pages/admin/AdminPersonnelCard';
 import { AdminEvaluations } from './pages/admin/AdminEvaluations';
 import { EmployeeEvaluations } from './pages/employee/EmployeeEvaluations';
+import { EmployeeTraining } from './pages/employee/EmployeeTraining';
+import { EmployeeTrainingDetail } from './pages/employee/EmployeeTrainingDetail';
+import { AdminTraining } from './pages/admin/AdminTraining';
+import { AdminTrainingSession } from './pages/admin/AdminTrainingSession';
 import { EmployeeAttendance } from './pages/employee/EmployeeAttendance';
 import { AttendanceRemoteReviews } from './pages/employee/AttendanceRemoteReviews';
 import { EmployeeNotices } from './pages/employee/EmployeeNotices';
@@ -138,6 +142,8 @@ function AppRoutes() {
           <Route path="attendance" element={<EmployeeAttendance />} />
           <Route path="attendance-reviews" element={<AttendanceRemoteReviews />} />
           <Route path="evaluations" element={<EmployeeEvaluations />} />
+          <Route path="training" element={<EmployeeTraining />} />
+          <Route path="training/:id" element={<EmployeeTrainingDetail />} />
           <Route
             path="team"
             element={
@@ -156,6 +162,8 @@ function AppRoutes() {
           <Route path="personnel" element={guard('records.view', <AdminPersonnelList />)} />
           <Route path="personnel/:id" element={guard('records.view', <AdminPersonnelCard />)} />
           <Route path="evaluations" element={guard('evaluations.manage', <AdminEvaluations />)} />
+          <Route path="training" element={guard('training.manage', <AdminTraining />)} />
+          <Route path="training/:id" element={guard('training.manage', <AdminTrainingSession />)} />
           <Route path="attendance" element={guard('attendance.view', <AdminAttendance />)} />
           <Route path="attendance/:id" element={guard('attendance.view', <AdminAttendanceEmployee />)} />
           <Route path="attendance-reviews" element={<AttendanceRemoteReviews />} />

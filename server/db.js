@@ -272,6 +272,7 @@ const txContext = new AsyncLocalStorage();
 export const LOCK_EMPLOYEE_LEAVE = 1;
 export const LOCK_LEAVE_USAGE = 2;
 export const LOCK_EVALUATION = 3;
+export const LOCK_TRAINING = 4;
 
 function activeTx() {
   const store = txContext.getStore();

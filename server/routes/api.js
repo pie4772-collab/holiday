@@ -12,6 +12,7 @@ import * as ocrService from '../services/ocrService.js';
 import * as attendanceService from '../services/attendanceService.js';
 import * as noticeService from '../services/noticeService.js';
 import * as evaluationService from '../services/evaluationService.js';
+import * as trainingService from '../services/trainingService.js';
 import { sendFile } from '../utils/fileUpload.js';
 import { getClientIp, describeClientIp } from '../utils/clientIp.js';
 import { DOCUMENT_MAX_BYTES } from '../../src/constants/personnel.js';
@@ -150,6 +151,7 @@ router.get('/employees/me', requireAuth, async (req, res, next) => {
       ...access,
       canAccessAdmin: access.permissions.includes('admin'),
       evaluationTasks: await evaluationService.countTasks(req.user.employeeId),
+      trainingTasks: await trainingService.countTasks(req.user.employeeId),
     });
   } catch (e) {
     next(e);
@@ -858,6 +860,169 @@ router.put('/evaluations/:id', loadAccess, async (req, res, next) => {
 router.put('/evaluations/:id/review', loadAccess, async (req, res, next) => {
   try {
     res.json(await evaluationService.reviewEvaluation(req.params.id, req.body || {}, req.access));
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ───────────── 법정의무교육 ───────────── */
+
+router.get('/training/mine', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await trainingService.listMine(req.user.employeeId));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/training/assignments/:id', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await trainingService.getAssignment(req.user.employeeId, req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/training/assignments/:id/progress', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await trainingService.recordProgress(req.user.employeeId, req.params.id, req.body || {}));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/training/assignments/:id/videos/:videoId/open', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await trainingService.openLink(req.user.employeeId, req.params.id, req.params.videoId));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/training/assignments/:id/videos/:videoId/done', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await trainingService.completeLink(req.user.employeeId, req.params.id, req.params.videoId));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/training/assignments/:id/confirm-material', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await trainingService.confirmMaterial(req.user.employeeId, req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/training/courses', requirePermission('training.manage'), async (req, res, next) => {
+  try {
+    res.json(await trainingService.listCourses());
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/training/courses', requirePermission('training.manage'), async (req, res, next) => {
+  try {
+    res.status(201).json(await trainingService.saveCourse(null, req.body || {}));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.put('/admin/training/courses/:id', requirePermission('training.manage'), async (req, res, next) => {
+  try {
+    res.json(await trainingService.saveCourse(req.params.id, req.body || {}));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete('/admin/training/courses/:id', requirePermission('training.manage'), async (req, res, next) => {
+  try {
+    res.json(await trainingService.deleteCourse(req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/training/targets', requirePermission('training.manage'), async (req, res, next) => {
+  try {
+    res.json(await trainingService.listTargets());
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/training/sessions', requirePermission('training.manage'), async (req, res, next) => {
+  try {
+    res.json(await trainingService.listSessions(req.query.year));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/training/sessions', requirePermission('training.manage'), async (req, res, next) => {
+  try {
+    res.status(201).json(await trainingService.createSession(req.body || {}, req.access.employee));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/training/sessions/:id', requirePermission('training.manage'), async (req, res, next) => {
+  try {
+    res.json(await trainingService.getSession(req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.put('/admin/training/sessions/:id', requirePermission('training.manage'), async (req, res, next) => {
+  try {
+    res.json(await trainingService.updateSession(req.params.id, req.body || {}));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete('/admin/training/sessions/:id', requirePermission('training.manage'), async (req, res, next) => {
+  try {
+    res.json(await trainingService.deleteSession(req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/training/sessions/:id/assignees', requirePermission('training.manage'), async (req, res, next) => {
+  try {
+    res.json(await trainingService.addAssignees(req.params.id, req.body?.target));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete('/admin/training/sessions/:id/assignees/:assigneeId', requirePermission('training.manage'), async (req, res, next) => {
+  try {
+    res.json(await trainingService.removeAssignee(req.params.id, req.params.assigneeId));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/training/sessions/:id/export', requirePermission('training.manage'), async (req, res, next) => {
+  try {
+    const { filename, headers, rows } = await trainingService.exportSession(req.params.id);
+    csvResponse(res, filename, headers, rows);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/training/sessions/:id/remind', requirePermission('training.manage'), async (req, res, next) => {
+  try {
+    res.json(await trainingService.remindSession(req.params.id));
   } catch (e) {
     next(e);
   }

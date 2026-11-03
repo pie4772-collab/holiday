@@ -29,7 +29,8 @@ body {
   font-feature-settings: "cv11", "ss01";
 }
 
-.evaluation-print {
+.evaluation-print,
+.training-print {
   display: none;
 }
 
@@ -38,13 +39,16 @@ body {
     size: A4;
     margin: 12mm;
   }
-  body:has(> .evaluation-print) {
+  body:has(> .evaluation-print),
+  body:has(> .training-print) {
     background: #fff;
   }
-  body:has(> .evaluation-print) > :not(.evaluation-print) {
+  body:has(> .evaluation-print) > :not(.evaluation-print),
+  body:has(> .training-print) > :not(.training-print) {
     display: none !important;
   }
-  .evaluation-print {
+  .evaluation-print,
+  .training-print {
     display: block;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;

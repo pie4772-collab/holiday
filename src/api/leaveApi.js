@@ -401,6 +401,89 @@ export const leaveApi = {
     return apiClient(`/evaluations/${id}/review`, { method: 'PUT', body: data });
   },
 
+  async getMyTraining() {
+    return apiClient('/training/mine');
+  },
+
+  async getTrainingAssignment(id) {
+    return apiClient(`/training/assignments/${id}`);
+  },
+
+  async recordTrainingProgress(id, data) {
+    return apiClient(`/training/assignments/${id}/progress`, { method: 'POST', body: data });
+  },
+
+  async trainingLinkAction(id, videoId, action) {
+    return apiClient(`/training/assignments/${id}/videos/${videoId}/${action}`, { method: 'POST' });
+  },
+
+  async confirmTrainingMaterial(id) {
+    return apiClient(`/training/assignments/${id}/confirm-material`, { method: 'POST' });
+  },
+
+  async getTrainingCourses() {
+    return apiClient('/admin/training/courses');
+  },
+
+  async saveTrainingCourse(id, data) {
+    return id
+      ? apiClient(`/admin/training/courses/${id}`, { method: 'PUT', body: data })
+      : apiClient('/admin/training/courses', { method: 'POST', body: data });
+  },
+
+  async deleteTrainingCourse(id) {
+    return apiClient(`/admin/training/courses/${id}`, { method: 'DELETE' });
+  },
+
+  async getTrainingTargets() {
+    return apiClient('/admin/training/targets');
+  },
+
+  async getTrainingSessions(year) {
+    return apiClient(`/admin/training/sessions${year ? `?year=${year}` : ''}`);
+  },
+
+  async getTrainingSession(id) {
+    return apiClient(`/admin/training/sessions/${id}`);
+  },
+
+  async createTrainingSession(data) {
+    return apiClient('/admin/training/sessions', { method: 'POST', body: data });
+  },
+
+  async updateTrainingSession(id, data) {
+    return apiClient(`/admin/training/sessions/${id}`, { method: 'PUT', body: data });
+  },
+
+  async deleteTrainingSession(id) {
+    return apiClient(`/admin/training/sessions/${id}`, { method: 'DELETE' });
+  },
+
+  async addTrainingAssignees(id, target) {
+    return apiClient(`/admin/training/sessions/${id}/assignees`, { method: 'POST', body: { target } });
+  },
+
+  async removeTrainingAssignee(id, assigneeId) {
+    return apiClient(`/admin/training/sessions/${id}/assignees/${assigneeId}`, { method: 'DELETE' });
+  },
+
+  async remindTrainingSession(id) {
+    return apiClient(`/admin/training/sessions/${id}/remind`, { method: 'POST' });
+  },
+
+  async downloadTrainingCsv(id) {
+    const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+    const token = getAuthToken();
+    const response = await fetch(`${API_BASE}/admin/training/sessions/${id}/export`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: '내려받기 실패' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.blob();
+  },
+
   async getNotices(limit) {
     return apiClient(`/notices${limit ? `?limit=${limit}` : ''}`);
   },

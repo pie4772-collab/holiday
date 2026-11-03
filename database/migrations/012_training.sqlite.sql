@@ -1,0 +1,107 @@
+-- 법정의무교육 과정. code 는 기본 5개 과정의 고정 키이고, 관리자가 만든 과정은 NULL 입니다.
+CREATE TABLE IF NOT EXISTS training_courses (
+  id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+  code                      TEXT UNIQUE,
+  title                     TEXT NOT NULL,
+  provider                  TEXT NOT NULL DEFAULT '',
+  description               TEXT NOT NULL DEFAULT '',
+  guidance                  TEXT NOT NULL DEFAULT '',
+  company_material          TEXT NOT NULL DEFAULT '',
+  require_material_confirm  INTEGER NOT NULL DEFAULT 0,
+  sort_order                INTEGER NOT NULL DEFAULT 0,
+  is_active                 INTEGER NOT NULL DEFAULT 1,
+  created_at                TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+  updated_at                TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+-- 과정의 교육 영상. youtube 는 페이지 안에서 재생하며 시청 시간을 기록하고, link 는 공식 사이트로 이동합니다.
+CREATE TABLE IF NOT EXISTS training_videos (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  course_id         INTEGER NOT NULL REFERENCES training_courses(id) ON DELETE CASCADE,
+  title             TEXT NOT NULL,
+  kind              TEXT NOT NULL CHECK (kind IN ('youtube', 'link')),
+  video_ref         TEXT NOT NULL,
+  duration_seconds  INTEGER,
+  sort_order        INTEGER NOT NULL DEFAULT 0,
+  created_at        TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_training_videos_course ON training_videos(course_id, sort_order, id);
+
+-- 연도별 교육 배정 (예: 2026년 성희롱 예방교육, 기한 2026-12-31)
+CREATE TABLE IF NOT EXISTS training_sessions (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  course_id    INTEGER NOT NULL REFERENCES training_courses(id) ON DELETE CASCADE,
+  year         INTEGER NOT NULL,
+  title        TEXT NOT NULL,
+  start_date   TEXT NOT NULL,
+  due_date     TEXT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
+  reminded_at  TEXT,
+  created_by   INTEGER,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+  updated_at   TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_training_sessions_year ON training_sessions(year, due_date);
+
+-- 교육 대상자와 수료 기록
+CREATE TABLE IF NOT EXISTS training_assignees (
+  id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id             INTEGER NOT NULL REFERENCES training_sessions(id) ON DELETE CASCADE,
+  employee_id            INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  material_confirmed_at  TEXT,
+  completed_at           TEXT,
+  assigned_at            TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+  UNIQUE (session_id, employee_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_training_assignees_employee ON training_assignees(employee_id);
+
+-- 영상별 시청 기록
+CREATE TABLE IF NOT EXISTS training_progress (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  assignee_id       INTEGER NOT NULL REFERENCES training_assignees(id) ON DELETE CASCADE,
+  video_id          INTEGER NOT NULL REFERENCES training_videos(id) ON DELETE CASCADE,
+  watched_seconds   INTEGER NOT NULL DEFAULT 0,
+  duration_seconds  INTEGER,
+  opened_at         TEXT,
+  completed_at      TEXT,
+  updated_at        TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+  UNIQUE (assignee_id, video_id)
+);
+
+INSERT INTO training_courses (code, title, provider, description, guidance, require_material_confirm, sort_order) VALUES
+('sexual_harassment', '직장 내 성희롱 예방교육', '고용노동부',
+ '남녀고용평등법에 따라 사업주를 포함한 전 직원이 매년 1회 이상 받아야 하는 교육입니다.',
+ '영상과 함께 회사의 성희롱 발생 시 처리절차, 조치기준, 피해근로자 고충상담 및 구제절차를 교육해야 적정한 교육으로 인정됩니다. 아래 "회사 자료"에 회사 규정을 입력하세요.',
+ 1, 1),
+('disability', '직장 내 장애인 인식개선교육', '한국장애인고용공단',
+ '장애인고용촉진법에 따라 사업주와 근로자가 매년 1회 이상 받아야 하는 교육입니다.',
+ '원격교육은 진도·수료 관리가 되는 방식으로, 공식 콘텐츠를 포함해 60분 이상 교육해야 합니다. 공식 교육포털(edu.kead.or.kr)의 이러닝 콘텐츠를 함께 활용하세요.',
+ 0, 2),
+('safety', '산업안전보건교육', '한국산업안전보건공단',
+ '산업안전보건법에 따른 정기교육입니다. 업종·작업·유해위험요인에 맞는 자료를 골라야 합니다.',
+ '하나의 공통 영상으로 정기·채용 시·작업내용 변경 시·특별교육을 모두 대체하지 마세요. 근로자 구분(사무직·생산직)과 작업에 맞는 영상을 과정 설정에서 추가하고, 교육 시간 요건을 확인하세요.',
+ 0, 3),
+('privacy', '개인정보 보호교육', '개인정보보호위원회',
+ '개인정보 보호법에 따라 개인정보취급자에게 실시하는 교육입니다.',
+ '전 직원 일괄 교육보다 개인정보취급자 등 실제 업무 범위를 확인해 대상을 지정하세요. 개인정보배움터(edu.privacy.go.kr)에서 단체수강·콘텐츠 공동활용도 가능합니다.',
+ 0, 4),
+('pension', '퇴직연금 가입자교육', '근로복지공단',
+ '퇴직연금제도를 설정한 사업장이 가입자에게 매년 1회 이상 실시하는 교육입니다.',
+ '퇴직연금제도를 설정한 사업장에만 해당합니다. 온라인 동영상 또는 서면교육으로 실시할 수 있습니다.',
+ 0, 5);
+
+INSERT INTO training_videos (course_id, title, kind, video_ref, sort_order)
+SELECT id, '2026년 직장 내 성희롱 예방교육 (고용노동부 자체교육용)', 'youtube', 'E63ktj9KSqo', 1 FROM training_courses WHERE code = 'sexual_harassment';
+INSERT INTO training_videos (course_id, title, kind, video_ref, sort_order)
+SELECT id, '[법정교육] 직장 내 장애인 인식개선 교육', 'youtube', 'yarZ780ZeBI', 1 FROM training_courses WHERE code = 'disability';
+INSERT INTO training_videos (course_id, title, kind, video_ref, sort_order)
+SELECT id, '직장 내 장애인 인식개선 교육포털 (공식 이러닝·자료실)', 'link', 'https://edu.kead.or.kr', 2 FROM training_courses WHERE code = 'disability';
+INSERT INTO training_videos (course_id, title, kind, video_ref, sort_order)
+SELECT id, '안전보건공단 산업안전포털 동영상 자료실', 'link', 'https://portal.kosha.or.kr', 1 FROM training_courses WHERE code = 'safety';
+INSERT INTO training_videos (course_id, title, kind, video_ref, sort_order)
+SELECT id, '(교육1) 개인정보 보호법 주요 내용', 'youtube', 'mP2lj2vraUA', 1 FROM training_courses WHERE code = 'privacy';
+INSERT INTO training_videos (course_id, title, kind, video_ref, sort_order)
+SELECT id, '근로복지공단 퇴직연금 가입자 교육 영상', 'youtube', 'nstUIZmkKM0', 1 FROM training_courses WHERE code = 'pension';

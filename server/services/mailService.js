@@ -535,6 +535,68 @@ export async function notifyEvaluationReminder(recipients, items, { forManager =
   }
 }
 
+function trainingRows(items, { withCounts = false } = {}) {
+  const cell = 'padding:6px 8px;border-bottom:1px solid #e3e8ee;';
+  const rows = items
+    .map(
+      (item) => `<tr>
+        <td style="${cell}">${escapeHtml(item.title)}</td>
+        <td style="${cell}">${escapeHtml(dueText(item))}</td>
+        ${withCounts ? `<td style="${cell}">${item.completedCount}/${item.assigneeCount}명 수료</td>` : ''}
+      </tr>`
+    )
+    .join('');
+  return `<table style="border-collapse:collapse;font-size:14px;width:100%;">
+    <tr style="text-align:left;color:#6b7c93;font-size:12px;">
+      <th style="padding:6px 8px;">교육</th><th style="padding:6px 8px;">수료 기한</th>
+      ${withCounts ? '<th style="padding:6px 8px;">현황</th>' : ''}
+    </tr>${rows}</table>`;
+}
+
+/** 미수료 직원에게 법정의무교육 수료 기한 안내. 결과({ skipped } / { error } / 발송 결과)를 돌려줍니다. */
+export async function notifyTrainingReminder(employee, items) {
+  try {
+    const settings = rowToPublic(await getRow(), true);
+    if (!settings.enabled) return { skipped: true, reason: 'disabled' };
+    const to = uniqueEmails([employee]);
+    if (!to.length) return { skipped: true, reason: 'no-recipients' };
+    const body = `
+      <p>${escapeHtml(employee.name)}님, 아직 수료하지 않은 법정의무교육이 있습니다.</p>
+      ${trainingRows(items)}
+      <p>기한 안에 교육 영상을 시청하고 수료를 마쳐주세요.</p>
+    `;
+    return await sendMail(
+      to.map((r) => r.email),
+      `법정의무교육 수료 안내: ${items.map((item) => item.title).join(', ')}`,
+      htmlLayout('법정의무교육 수료 안내', body, '교육 들으러 가기', pageUrl(settings, '/employee/training'))
+    );
+  } catch (error) {
+    console.error('[mail] notifyTrainingReminder failed:', error.message);
+    return { error: error.message };
+  }
+}
+
+/** 인사담당에게 기한이 다가온 교육의 수료 현황 요약 */
+export async function notifyTrainingSummary(recipients, sessions) {
+  try {
+    const settings = rowToPublic(await getRow(), true);
+    if (!settings.enabled) return;
+    const to = uniqueEmails(recipients);
+    if (!to.length || !sessions.length) return;
+    const body = `
+      <p>수료 기한이 다가온 법정의무교육입니다. 미수료 직원에게 안내 메일을 보냈습니다.</p>
+      ${trainingRows(sessions, { withCounts: true })}
+    `;
+    await sendMail(
+      to.map((r) => r.email),
+      `법정의무교육 수료 현황 ${sessions.length}건`,
+      htmlLayout('법정의무교육 수료 현황', body, '교육 현황 보기', pageUrl(settings, '/admin/training'))
+    );
+  } catch (error) {
+    console.error('[mail] notifyTrainingSummary failed:', error.message);
+  }
+}
+
 function evaluationScoreText(item) {
   if (item.totalScore == null) return '';
   const outcome = OUTCOMES[item.recommendation];

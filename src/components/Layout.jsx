@@ -52,9 +52,19 @@ const employeeNav = [
 
 const adminNav = [
   { to: '/admin', icon: BarChart3, label: 'Home', end: true },
-  { to: '/admin/leave-manage', icon: CalendarDays, label: '연차 관리', permission: 'leave.view' },
-  { to: '/admin/approvals', icon: ClipboardCheck, label: '연차 승인' },
-  { to: '/admin/approval-history', icon: ScrollText, label: '승인·반려 이력', permission: 'approvalLogs.view' },
+  {
+    key: 'leave',
+    icon: CalendarDays,
+    label: '연차',
+    children: [
+      { to: '/admin/leave-manage', icon: CalendarDays, label: '연차 관리', permission: 'leave.view' },
+      { to: '/admin/approvals', icon: ClipboardCheck, label: '연차 승인' },
+      { to: '/admin/approval-history', icon: ScrollText, label: '승인·반려 이력', permission: 'approvalLogs.view' },
+      { to: '/admin/leave-reports', icon: FileSpreadsheet, label: '연차 보고서', permission: 'reports.view' },
+      { to: '/admin/leave-settlements', icon: Scale, label: 'IFRS 연차부채', permission: 'payroll' },
+      { to: '/admin/leave-event-settlements', icon: Wallet, label: '연차 정산', permission: 'payroll' },
+    ],
+  },
   { to: '/admin/roster', icon: ClipboardList, label: '사원 명부', permission: 'employees.view' },
   { to: '/admin/personnel', icon: Contact, label: '인사기록카드', permission: 'records.view' },
   { to: '/admin/evaluations', icon: UserCheck, label: '수습·정기 평가', permission: 'evaluations.manage' },
@@ -62,9 +72,6 @@ const adminNav = [
   { to: '/admin/documents', icon: Files, label: '전자결재 문서함', permission: 'documents.manage' },
   { to: '/admin/certificates', icon: FileBadge, label: '증명서 발급', permission: 'certificates.manage' },
   { to: '/admin/attendance', icon: Clock, label: '근태 현황', permission: 'attendance.view' },
-  { to: '/admin/leave-reports', icon: FileSpreadsheet, label: '연차 보고서', permission: 'reports.view' },
-  { to: '/admin/leave-settlements', icon: Scale, label: 'IFRS 연차부채', permission: 'payroll' },
-  { to: '/admin/leave-event-settlements', icon: Wallet, label: '연차 정산', permission: 'payroll' },
   {
     key: 'settings',
     icon: Settings,
@@ -99,6 +106,7 @@ function NavGroup({ item, onNavigate }) {
   const active = item.children.some((child) => location.pathname.startsWith(child.to));
   const [toggled, setToggled] = useState(null);
   const open = toggled ?? active;
+  const badge = item.children.reduce((sum, child) => sum + (child.badge || 0), 0);
   const Icon = item.icon;
   return (
     <div>
@@ -110,7 +118,14 @@ function NavGroup({ item, onNavigate }) {
       >
         <Icon className="h-4 w-4 opacity-80 shrink-0" />
         {item.label}
-        <ChevronDown className={`ml-auto h-3.5 w-3.5 opacity-70 transition-transform ${open ? 'rotate-180' : ''}`} />
+        {!open && badge > 0 && (
+          <span className="ml-auto rounded-full bg-[#df1b41] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+            {badge}
+          </span>
+        )}
+        <ChevronDown
+          className={`${!open && badge > 0 ? '' : 'ml-auto'} h-3.5 w-3.5 opacity-70 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
       </button>
       {open && (
         <div className="ml-[18px] mt-0.5 space-y-0.5 border-l border-white/10 pl-2">

@@ -343,14 +343,19 @@ function activeAdmins() {
   return getDb().prepare('SELECT * FROM employees WHERE is_active = 1 AND is_admin = 1 ORDER BY id').all();
 }
 
+/** 신청자 사업장의 인사담당 전원. 사업장에 인사담당이 없으면 전체 인사담당 */
+function workplaceAdmins(admins, request) {
+  const code = text(request?.workplace_code);
+  const local = code ? admins.filter((emp) => text(emp.workplace_code) === code) : [];
+  return local.length ? local : admins;
+}
+
 /**
  * 인사담당이 자기 증명서를 신청하면 같은 사업장의 다른 인사담당이 받고,
  * 그 사업장 인사담당이 본인 한 명뿐이면 본인이 받습니다.
  */
 function handlersFrom(admins, request) {
-  const code = text(request?.workplace_code);
-  const local = code ? admins.filter((emp) => text(emp.workplace_code) === code) : [];
-  const candidates = local.length ? local : admins;
+  const candidates = workplaceAdmins(admins, request);
   const others = candidates.filter((emp) => Number(emp.id) !== Number(request?.employee_id));
   return others.length ? others : candidates;
 }
@@ -408,7 +413,10 @@ export async function cancelRequest(employeeId, id) {
   return mapRequest(await requestRow(id));
 }
 
-/** 인사담당 접수함. status: open(접수 대기·결재 중, 기본)·all·상태 키, scope: mine 이면 내가 받는 사업장 신청만 */
+/**
+ * 인사담당 접수함. status: open(접수 대기·결재 중, 기본)·all·상태 키,
+ * scope: mine 이면 내 사업장(인사담당 없는 사업장 포함) 신청만. 본인 신청도 보입니다.
+ */
 export async function listRequests(access, filters = {}) {
   const where = [];
   const params = [];
@@ -424,7 +432,7 @@ export async function listRequests(access, filters = {}) {
   if (filters.scope === 'mine') {
     const admins = await activeAdmins();
     const me = Number(access.employee.id);
-    rows = rows.filter((row) => handlersFrom(admins, row).some((emp) => Number(emp.id) === me));
+    rows = rows.filter((row) => workplaceAdmins(admins, row).some((emp) => Number(emp.id) === me));
   }
   return rows.map(mapRequest);
 }

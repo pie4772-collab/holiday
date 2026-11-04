@@ -5,13 +5,12 @@ import { isTeamLeaderFor } from './approvalService.js';
 export const ROLE_LABELS = {
   system_admin: '시스템관리자',
   hr: '인사담당',
-  payroll: '급여담당',
   site_admin: '사업장관리자',
   dept_head: '부서장',
 };
 
 /** 관리자가 부여하는 역할. 부서장은 직급으로 자동 판정합니다. */
-export const ASSIGNABLE_ROLES = ['system_admin', 'hr', 'payroll', 'site_admin'];
+export const ASSIGNABLE_ROLES = ['system_admin', 'hr', 'site_admin'];
 
 /** 연차 결재에서 기존 '관리자'(모든 단계 승인, 사업장 관리자 메일)를 이어받는 역할 */
 const APPROVAL_ADMIN_ROLES = ['system_admin', 'hr'];
@@ -26,11 +25,10 @@ const ROLE_PERMISSIONS = {
   ],
   hr: [
     'admin', 'employees.view', 'employees.manage', 'leave.view', 'leave.edit',
-    'reports.view', 'reports.save', 'approvalLogs.view', 'approvalLines.manage',
+    'reports.view', 'reports.save', 'approvalLogs.view', 'approvalLines.manage', 'payroll',
     'records.view', 'records.edit', 'attendance.view', 'attendance.edit', 'attendance.manage', 'notices.manage',
     'evaluations.manage', 'training.manage', 'documents.manage', 'certificates.manage',
   ],
-  payroll: ['admin', 'employees.view', 'reports.view', 'payroll', 'attendance.view'],
   site_admin: [
     'admin', 'employees.view', 'leave.view', 'leave.edit', 'reports.view', 'approvalLogs.view', 'records.view',
     'attendance.view', 'attendance.edit', 'notices.manage',

@@ -524,6 +524,22 @@ await check('인사담당 본인 신청: 사업장 인사담당이 본인 한 �
   await certificates.cancelRequest(adminA.id, own.id);
 });
 
+await check('인사담당 본인 신청: 같은 사업장 다른 인사담당이 받고, 내 사업장 신청에는 둘 다 보임', async () => {
+  await db.prepare('UPDATE employees SET workplace_code = ? WHERE id = ?').run('VERIFY-A', adminB.id);
+  try {
+    const own = await certificates.createRequest(adminA.id, { certType: 'employment', items: [], purpose: '본인 제출용' });
+    const row = await db.prepare('SELECT * FROM certificate_requests WHERE id = ?').get(own.id);
+    const handlers = (await certificates.listRequestHandlers(row)).map((e) => Number(e.id));
+    assert(handlers.join() === String(adminB.id), `메일 대상 ${handlers.join()}`);
+    assert((await certificates.listRequests(adminAAcc, { scope: 'mine' })).some((r) => r.id === own.id), '본인도 내 사업장 신청에서 보임');
+    assert((await certificates.listRequests(adminBAcc, { scope: 'mine' })).some((r) => r.id === own.id), '같은 사업장 인사담당 접수함');
+    assert((await certificates.countOpenRequests(adminA.id)) === 1 && (await certificates.countOpenRequests(adminB.id)) === 2, '메뉴 숫자');
+    await certificates.cancelRequest(adminA.id, own.id);
+  } finally {
+    await db.prepare('UPDATE employees SET workplace_code = ? WHERE id = ?').run('VERIFY-B', adminB.id);
+  }
+});
+
 let issueDocId = 0;
 await check('발급 품의: 인사담당만 기안, 신청 대상·종류 고정, 결재선 지정 → 내부 결재 중', async () => {
   const body = {

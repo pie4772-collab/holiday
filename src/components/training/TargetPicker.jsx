@@ -76,9 +76,9 @@ export function TargetPicker({ targets, value, onChange, excludeIds = [] }) {
         <div className="rounded-md border border-stripe-border">
           <div className="flex flex-wrap items-center gap-2 border-b border-stripe-border p-2">
             <div className="relative min-w-[12rem] flex-1">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-stripe-muted" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stripe-muted" />
               <input
-                className="stripe-input pl-8"
+                className="stripe-input stripe-input-search"
                 placeholder="이름·사번·부서·직위·사업장 검색"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}

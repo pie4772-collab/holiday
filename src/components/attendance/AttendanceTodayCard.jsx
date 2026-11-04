@@ -145,7 +145,7 @@ export function AttendanceTodayCard({ showLink = false }) {
                   onChange={(e) => setPlace(e.target.value)}
                   maxLength={PLACE_MAX_LENGTH}
                   placeholder={type === 'overseas' ? '출장 국가·도시 (예: 베트남 하노이)' : '방문지·출장지 (예: ○○건설 현장)'}
-                  className="stripe-input pl-9"
+                  className="stripe-input stripe-input-search"
                 />
               </div>
             )}

@@ -393,6 +393,7 @@ export async function createRequest(employeeId, data = {}) {
     );
   const row = await requestRow(result.lastInsertRowid);
   listRequestHandlers(row)
+    .then((handlers) => mailService.withoutSystemAdmins(handlers))
     .then((handlers) => mailService.notifyCertificateRequested(handlers, mapRequest(row)))
     .catch((error) => console.error('[certificates] notify failed:', error.message));
   return mapRequest(row);

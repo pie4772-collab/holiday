@@ -795,16 +795,14 @@ export async function restoreEvaluation(id) {
 
 /* ───────────── 기한 알림 ───────────── */
 
-/** 인사담당 역할자. 없으면 시스템관리자 */
+/** 평가·교육 메일을 받는 인사담당 역할자. 시스템관리자에게는 보내지 않습니다. */
 export async function listEvaluationManagers() {
-  const rows = await getDb()
+  return getDb()
     .prepare(
       `SELECT e.*, r.role FROM employee_roles r JOIN employees e ON e.id = r.employee_id
-       WHERE e.is_active = 1 AND r.role IN ('hr', 'system_admin') ORDER BY e.id`
+       WHERE e.is_active = 1 AND r.role = 'hr' ORDER BY e.id`
     )
     .all();
-  const hr = rows.filter((row) => row.role === 'hr');
-  return hr.length ? hr : rows.filter((row) => row.role === 'system_admin');
 }
 
 /**

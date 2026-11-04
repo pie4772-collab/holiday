@@ -14,6 +14,8 @@ const { getApprovalChain, listDocumentStepApprovers } = await import('../server/
 const documents = await import('../server/services/documentService.js');
 const certificates = await import('../server/services/certificateService.js');
 const leave = await import('../server/services/leaveService.js');
+const mail = await import('../server/services/mailService.js');
+const { listEvaluationManagers } = await import('../server/services/evaluationService.js');
 
 const db = getDb();
 const results = [];
@@ -522,6 +524,26 @@ await check('인사담당 본인 신청: 사업장 인사담당이 본인 한 �
   assert((await certificates.getRequest(own.id)).status === 'processing', '본인 신청 품의');
   await documents.withdrawDocument(adminAAcc, draft.id);
   await certificates.cancelRequest(adminA.id, own.id);
+});
+
+await check('메일: 역할로 받는 메일에서 시스템관리자 제외, 인사담당 겸임은 받음', async () => {
+  const ids = [adminA.id, adminB.id];
+  const saved = await db.prepare('SELECT employee_id, role FROM employee_roles WHERE employee_id IN (?, ?)').all(...ids);
+  try {
+    await db.prepare('DELETE FROM employee_roles WHERE employee_id IN (?, ?)').run(...ids);
+    await db.prepare(`INSERT INTO employee_roles (employee_id, role) VALUES (?, 'system_admin')`).run(adminA.id);
+    await db.prepare(`INSERT INTO employee_roles (employee_id, role) VALUES (?, 'system_admin')`).run(adminB.id);
+    await db.prepare(`INSERT INTO employee_roles (employee_id, role) VALUES (?, 'hr')`).run(adminB.id);
+    const kept = (await mail.withoutSystemAdmins([adminA, adminB, member])).map((e) => Number(e.id));
+    assert(kept.join() === [adminB.id, member.id].map(Number).join(), `받는 사람 ${kept.join()}`);
+    const managers = (await listEvaluationManagers()).map((e) => Number(e.id));
+    assert(managers.includes(Number(adminB.id)) && !managers.includes(Number(adminA.id)), '평가·교육 메일은 인사담당만');
+  } finally {
+    await db.prepare('DELETE FROM employee_roles WHERE employee_id IN (?, ?)').run(...ids);
+    for (const row of saved) {
+      await db.prepare('INSERT INTO employee_roles (employee_id, role) VALUES (?, ?)').run(row.employee_id, row.role);
+    }
+  }
 });
 
 await check('인사담당 본인 신청: 같은 사업장 다른 인사담당이 받고, 내 사업장 신청에는 둘 다 보임', async () => {

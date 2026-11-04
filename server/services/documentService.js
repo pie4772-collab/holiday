@@ -731,8 +731,10 @@ async function notifyAfterChange(id, { rejectNote = '' } = {}) {
   if (doc.status === 'pending') {
     const steps = await documentSteps(doc.id);
     const { kind, recipients } = await getPendingRecipients(doc.id);
+    const step = currentStep(doc, steps);
+    const roleStep = step && !step.assignee_id && ['인사', '관리자'].includes(step.role);
     const done = steps.filter((s) => s.status === 'approved').at(-1);
-    await mailService.notifyDocumentPending(recipients, item, {
+    await mailService.notifyDocumentPending(roleStep ? await mailService.withoutSystemAdmins(recipients) : recipients, item, {
       kind,
       previous: done ? { name: done.actor_name, kind: done.kind } : null,
     });

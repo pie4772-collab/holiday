@@ -118,6 +118,28 @@ function uniqueEmails(employees) {
   return result;
 }
 
+/**
+ * 역할(관리자 단계·사업장 관리자·인사담당 등)로 정해진 받는 사람에서 시스템관리자를 뺍니다.
+ * 인사담당·사업장관리자를 겸하면 남깁니다. 본인 신청·지정 결재자처럼 사람으로 정해진 메일에는 쓰지 않습니다.
+ */
+export async function withoutSystemAdmins(employees) {
+  const rows = await getDb()
+    .prepare(
+      `SELECT employee_id FROM employee_roles WHERE role = 'system_admin'
+       AND employee_id NOT IN (SELECT employee_id FROM employee_roles WHERE role IN ('hr', 'site_admin'))`
+    )
+    .all();
+  const excluded = new Set(rows.map((row) => Number(row.employee_id)));
+  return (employees || []).filter((emp) => emp && !excluded.has(Number(emp.id)));
+}
+
+/** 연차 결재 메일 받는 사람. "관리자" 단계면 시스템관리자를 뺍니다. */
+async function leaveApprovers(employee, usageStep) {
+  const approvers = await approvalService.listLineApprovers(employee, usageStep);
+  const step = await approvalService.currentApprovalStep(employee, usageStep);
+  return step === '관리자' ? withoutSystemAdmins(approvers) : approvers;
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -307,7 +329,7 @@ export async function notifyLeaveSubmitted(employee, items, approvalHint) {
     const settings = rowToPublic(await getRow(), true);
     if (!settings.enabled) return;
     const step = items?.[0]?.approvalStep || items?.[0]?.approval_step;
-    const approvers = uniqueEmails(await approvalService.listLineApprovers(employee, step));
+    const approvers = uniqueEmails(await leaveApprovers(employee, step));
     if (!approvers.length) {
       console.warn('[mail] no line approver email for', employee.name, approvalHint);
       return;
@@ -335,7 +357,7 @@ export async function notifyLeaveCancelled(employee, usage) {
   try {
     const settings = rowToPublic(await getRow(), true);
     if (!settings.enabled) return;
-    const approvers = uniqueEmails(await approvalService.listLineApprovers(employee, usage.approval_step));
+    const approvers = uniqueEmails(await leaveApprovers(employee, usage.approval_step));
     if (!approvers.length) return;
     const typeLabel = usage.usage_type === 'half' ? halfLabel(usage.half_period) : '연차';
     const body = `
@@ -397,11 +419,11 @@ export async function notifyLeaveFinal(employee, usage, decision, rejectReason, 
       return;
     }
 
-    // 승인 시: 신청자 · 승인자 · 해당 사업장 관리자
+    // 승인 시: 신청자 · 승인자 · 해당 사업장 관리자(시스템관리자 제외)
     const recipients = uniqueEmails([
       employee,
       approver,
-      ...(await approvalService.listWorkplaceAdminEmployees(employee)),
+      ...(await withoutSystemAdmins(await approvalService.listWorkplaceAdminEmployees(employee))),
     ]);
     if (!recipients.length) {
       console.warn('[mail] no approval recipients for', employee.name);
@@ -433,7 +455,9 @@ export async function notifyRemoteSubmitted(employee, info, reviewers, { forAdmi
   try {
     const settings = rowToPublic(await getRow(), true);
     if (!settings.enabled) return;
-    const to = uniqueEmails(reviewers).filter((r) => Number(r.id) !== Number(employee.id));
+    const to = uniqueEmails(forAdmin ? await withoutSystemAdmins(reviewers) : reviewers).filter(
+      (r) => Number(r.id) !== Number(employee.id)
+    );
     if (!to.length) {
       console.warn('[mail] no remote reviewer email for', employee.name);
       return;

@@ -1113,7 +1113,7 @@ router.post('/documents', loadAccess, async (req, res, next) => {
 
 router.post('/documents/:id/approve', loadAccess, async (req, res, next) => {
   try {
-    res.json(await documentService.approveDocument(req.access, req.params.id, req.body?.comment));
+    res.json(await documentService.approveDocument(req.access, req.params.id, req.body?.comment, req.body?.line));
   } catch (e) {
     next(e);
   }

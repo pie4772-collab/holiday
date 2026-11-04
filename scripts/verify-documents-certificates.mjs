@@ -281,45 +281,40 @@ await check('결재선 검사: 없음·본인·중복·합의로 끝남·인원 
 });
 
 let tripId = 0;
-await check('출장 신청: 결재선 없이 인사 수신 대기, 수신 담당이 반려(사유 필수) → 다시 기안(원문 연결) → 회수', async () => {
-  await sameWorkplace([member, adminA, adminB], async () => {
-    ({ id: tripId } = await documents.createDocument(member.id, {
-      formKey: 'business_trip',
-      title: '부산공장 출장',
-      body: { destination: '부산공장', startDate: '2026-11-10', endDate: '2026-11-11', purpose: '설비 점검', expense: '150,000' },
-      line: line(leader),
-    }));
-    const created = await documents.getDocument(memberAcc, tripId);
-    assert(created.body.expense === 150000, `경비 ${created.body.expense}`);
-    assert(created.summary.includes('150,000원'), created.summary);
-    assert(
-      created.steps.length === 1 && created.steps[0].role === '인사 수신' && created.steps[0].kind === 'agreement',
-      `기안자가 넣은 결재선은 무시하고 인사 수신 하나: ${JSON.stringify(created.steps)}`
-    );
-    assert(created.steps[0].statusLabel === '수신 대기', created.steps[0].statusLabel);
-    assert(created.permissions.withdraw && !created.permissions.receive, '기안자 권한');
-    assert(sameIds(await recipientIds(tripId), [adminA, adminB]), '수신 메일은 같은 사업장 인사담당');
-    assert((await documents.listBox(adminB.id, 'todo')).items.some((item) => item.id === tripId && item.currentRole === '인사 수신'), '인사담당 결재함');
-    const forHr = await documents.getDocument(adminAAcc, tripId);
-    assert(forHr.permissions.receive && !forHr.permissions.approve, '인사담당은 승인 대신 수신');
-    await expectError(() => documents.approveDocument(adminAAcc, tripId), /결재선을 지정해 수신/, 409);
-    await expectError(() => documents.rejectDocument(adminAAcc, tripId, ''), /반려 사유/);
-    await expectError(() => documents.rejectDocument(leaderAcc, tripId, 'x'), /차례가 아닙니다/, 403);
-    const rejected = await documents.rejectDocument(adminAAcc, tripId, '일정 조정 필요');
-    assert(rejected.status === 'rejected' && !rejected.documentNo, '반려 문서는 번호 없음');
-    assert(rejected.steps[0].statusLabel === '반려', rejected.steps[0].statusLabel);
-    assert(rejected.permissions.resubmit === false, '수신 담당 화면에는 다시 기안 없음');
-  });
+await check('출장 신청: 작성자가 지정한 결재 먼저 → 합의, 인사담당 자동 추가 없음, 팀장 반려 → 다시 기안 → 회수', async () => {
+  const body = { destination: '부산공장', startDate: '2026-11-10', endDate: '2026-11-11', purpose: '설비 점검', expense: '150,000' };
+  await expectError(() => documents.createDocument(member.id, { formKey: 'business_trip', title: '출장', body }), /1명 이상/);
+  ({ id: tripId } = await documents.createDocument(member.id, {
+    formKey: 'business_trip',
+    title: '부산공장 출장',
+    body,
+    line: line([adminA, 'agreement'], leader),
+  }));
+  const created = await documents.getDocument(memberAcc, tripId);
+  assert(created.body.expense === 150000, `경비 ${created.body.expense}`);
+  assert(created.summary.includes('150,000원'), created.summary);
+  assert(
+    created.steps.map((s) => `${s.kind}:${s.assigneeId}`).join() === `approval:${leader.id},agreement:${adminA.id}`,
+    `결재 먼저, 합의는 뒤: ${JSON.stringify(created.steps)}`
+  );
+  assert((await recipientIds(tripId)).join() === String(leader.id), '첫 메일은 결재자');
+  await expectError(() => documents.approveDocument(officerAcc, tripId), /차례가 아닙니다/, 403);
+  await expectError(() => documents.rejectDocument(leaderAcc, tripId, ''), /반려 사유/);
+  const rejected = await documents.rejectDocument(leaderAcc, tripId, '일정 조정 필요');
+  assert(rejected.status === 'rejected' && !rejected.documentNo, '반려 문서는 번호 없음');
+  assert(rejected.permissions.resubmit === false, '결재자 화면에는 다시 기안 없음');
   const mine = await documents.getDocument(memberAcc, tripId);
   assert(mine.permissions.resubmit, '기안자는 다시 기안 가능');
   const { id: againId } = await documents.createDocument(member.id, {
     formKey: 'business_trip',
     title: '부산공장 출장 (일정 변경)',
     body: { destination: '부산공장', startDate: '2026-11-17', endDate: '2026-11-18', purpose: '설비 점검' },
+    line: line([adminA, 'agreement']),
     sourceId: tripId,
   });
   const again = await documents.getDocument(memberAcc, againId);
   assert(again.sourceId === tripId && again.status === 'pending', '원문 연결');
+  assert(again.steps.length === 1 && again.steps[0].kind === 'agreement', '합의자만 지정해도 기안 가능');
   await expectError(
     () =>
       documents.createDocument(outsider.id, {
@@ -336,59 +331,58 @@ await check('출장 신청: 결재선 없이 인사 수신 대기, 수신 담당
   assert(withdrawn.status === 'withdrawn' && withdrawn.steps.every((s) => s.status === 'skipped'), '회수');
 });
 
-await check('경조금: 인사담당이 수신하며 팀장 결재선 지정 → 팀장 단계는 다른 인사담당이 대리 승인(대리 표시)', async () => {
-  await sameWorkplace([member, adminA], async () => {
-    const { id } = await documents.createDocument(member.id, {
-      formKey: 'condolence',
-      title: '부친 회갑 경조금',
-      body: { eventType: '부모 회갑·칠순', relation: '부', targetName: '홍길동', eventDate: '2026-11-20' },
-    });
-    assert((await recipientIds(id)).join() === String(adminA.id), '수신 메일은 기안자 사업장 인사담당');
-    await expectError(() => documents.receiveDocument(memberAcc, id, { line: line(leader) }), /수신할 담당이 아닙니다/, 403);
-    await expectError(() => documents.receiveDocument(adminAAcc, id, { line: [] }), /1명 이상/);
-    await expectError(() => documents.receiveDocument(adminAAcc, id, { line: line(member) }), /기안자는/);
-    await expectError(() => documents.receiveDocument(adminAAcc, id, { line: line([outsider, 'agreement']) }), /마지막은 결재자/);
-    let doc = await documents.receiveDocument(adminAAcc, id, { line: line(leader), comment: '확인했습니다' });
-    assert(doc.steps.map((s) => s.role).join() === '인사 수신,결재', doc.steps.map((s) => s.role).join());
-    assert(
-      doc.steps[0].statusLabel === '수신' && doc.steps[0].actorName === adminA.name && !doc.steps[0].proxy && doc.steps[0].comment === '확인했습니다',
-      '수신 기록'
-    );
-    assert(doc.status === 'pending' && doc.steps[1].status === 'pending' && doc.steps[1].assigneeId === String(leader.id), '팀장 결재 대기');
-    assert((await recipientIds(id)).join() === String(leader.id), '수신 후 메일은 지정한 팀장');
-    assert((await documents.listBox(leader.id, 'todo')).items.some((item) => item.id === id), '팀장 결재함');
-    assert((await documents.listBox(adminA.id, 'processed')).items.some((item) => item.id === id), '수신한 인사담당 처리함');
-    await expectError(() => documents.receiveDocument(adminAAcc, id, { line: line(leader) }), /인사 수신을 기다리는/, 409);
-    await expectError(() => documents.withdrawDocument(memberAcc, id), /이미 승인한 결재자/, 409);
-    doc = await documents.getDocument(adminBAcc, id);
-    assert(doc.permissions.approve && doc.permissions.proxy, '다른 인사담당 대리 가능');
-    doc = await documents.approveDocument(adminBAcc, id);
-    assert(doc.status === 'approved' && /^경조-\d{4}-0001$/.test(doc.documentNo), doc.documentNo);
-    assert(doc.steps[1].proxy && doc.steps[1].actorName === adminB.name, '대리 표시');
+await check('경조금: 팀장 결재 → 합의자(인사담당)가 합의하며 다음 결재선 지정 → 지정한 순서로 완료', async () => {
+  const { id } = await documents.createDocument(member.id, {
+    formKey: 'condolence',
+    title: '부친 회갑 경조금',
+    body: { eventType: '부모 회갑·칠순', relation: '부', targetName: '홍길동', eventDate: '2026-11-20' },
+    line: line([adminA, 'agreement'], leader, [outsider, 'agreement']),
   });
+  let doc = await documents.getDocument(leaderAcc, id);
+  assert(doc.permissions.approve && !doc.permissions.addLine, '결재자는 다음 결재선 지정 불가');
+  await expectError(() => documents.approveDocument(leaderAcc, id, '', line(officer)), /합의자만/, 409);
+  await documents.approveDocument(leaderAcc, id);
+  assert((await recipientIds(id)).join() === String(adminA.id), '결재가 끝나면 합의자에게');
+  assert((await documents.listBox(adminA.id, 'todo')).items.some((item) => item.id === id), '합의자 결재함');
+  doc = await documents.getDocument(adminAAcc, id);
+  assert(doc.permissions.approve && doc.permissions.addLine && !doc.permissions.proxy, '합의자는 다음 결재선 지정 가능');
+  await expectError(() => documents.approveDocument(adminAAcc, id, '', line(member)), /기안자는/);
+  await expectError(() => documents.approveDocument(adminAAcc, id, '', line(adminA)), /본인은 다음 결재선/);
+  await expectError(() => documents.approveDocument(adminAAcc, id, '', line(outsider)), /이미 결재선에/);
+  doc = await documents.approveDocument(adminAAcc, id, '확인했습니다', line(officer));
+  assert(
+    doc.steps.map((s) => `${s.kind}:${s.assigneeId}`).join() ===
+      `approval:${leader.id},agreement:${adminA.id},approval:${officer.id},agreement:${outsider.id}`,
+    `다음 결재선은 합의자 바로 뒤, 결재 먼저: ${doc.steps.map((s) => `${s.kind}:${s.assignee}`).join()}`
+  );
+  assert(doc.steps[1].statusLabel === '합의' && doc.steps[1].comment === '확인했습니다', '합의 기록');
+  assert(doc.status === 'pending' && doc.steps[2].status === 'pending', '임원 결재 대기');
+  assert((await recipientIds(id)).join() === String(officer.id), '다음 결재선 첫 사람에게 메일');
+  await expectError(() => documents.withdrawDocument(memberAcc, id), /이미 승인한 결재자/, 409);
+  await documents.approveDocument(officerAcc, id);
+  doc = await documents.approveDocument(outsiderAcc, id, '', line(leader));
+  assert(doc.status === 'pending' && doc.steps.length === 5 && doc.steps[4].assigneeId === String(leader.id), '추가된 합의자도 다음 결재선 지정');
+  doc = await documents.approveDocument(leaderAcc, id);
+  assert(doc.status === 'approved' && /^경조-\d{4}-0001$/.test(doc.documentNo), doc.documentNo);
 });
 
-await check('교육 신청: 다른 사업장 인사담당이 대리 수신하며 합의·임원 결재선 지정', async () => {
+await check('교육 신청: 임원 결재 → 합의로 끝나면 완료, 인사담당 대리 합의(대리 표시)', async () => {
   const suggested = await documents.suggestLine(seoulLead.id);
   assert(suggested[0]?.employeeId === String(officer.id), `추천 ${JSON.stringify(suggested)}`);
-  await sameWorkplace([seoulLead, adminA], async () => {
-    const { id } = await documents.createDocument(seoulLead.id, {
-      formKey: 'training_request',
-      title: '외부 교육',
-      body: { courseName: '노무관리 실무', institution: '노사발전재단', startDate: '2026-12-01', endDate: '2026-12-01', cost: 0, purpose: '역량 강화' },
-    });
-    let doc = await documents.getDocument(adminBAcc, id);
-    assert(doc.permissions.receive && doc.permissions.proxy, '수신 담당이 아닌 인사담당은 대리 수신');
-    doc = await documents.receiveDocument(adminBAcc, id, { line: line([outsider, 'agreement'], officer) });
-    assert(doc.steps.map((s) => s.kind).join() === 'agreement,agreement,approval', doc.steps.map((s) => s.kind).join());
-    assert(doc.steps[0].proxy && doc.steps[0].actorName === adminB.name, '대리 수신 표시');
-    assert((await recipientIds(id)).join() === String(outsider.id), '첫 메일은 합의자');
-    await expectError(() => documents.approveDocument(officerAcc, id), /차례가 아닙니다/, 403);
-    await documents.approveDocument(outsiderAcc, id, '이견 없음');
-    doc = await documents.approveDocument(officerAcc, id);
-    assert(doc.steps[2].actorName === officer.name && !doc.steps[2].proxy, '임원 처리');
-    assert(doc.status === 'approved' && /^교육-/.test(doc.documentNo), doc.documentNo);
+  const { id } = await documents.createDocument(seoulLead.id, {
+    formKey: 'training_request',
+    title: '외부 교육',
+    body: { courseName: '노무관리 실무', institution: '노사발전재단', startDate: '2026-12-01', endDate: '2026-12-01', cost: 0, purpose: '역량 강화' },
+    line: line([outsider, 'agreement'], officer),
   });
+  await expectError(() => documents.approveDocument(leaderAcc, id), /차례가 아닙니다/, 403);
+  let doc = await documents.approveDocument(officerAcc, id);
+  assert(doc.steps[0].actorName === officer.name && !doc.steps[0].proxy, '임원 처리');
+  doc = await documents.getDocument(adminBAcc, id);
+  assert(doc.permissions.approve && doc.permissions.proxy && doc.permissions.addLine, '인사담당 대리 합의');
+  doc = await documents.approveDocument(adminBAcc, id);
+  assert(doc.status === 'approved' && /^교육-/.test(doc.documentNo), doc.documentNo);
+  assert(doc.steps[1].proxy && doc.steps[1].actorName === adminB.name, '대리 표시');
 });
 
 await check('합의: 합의자 → 결재자 순서, 합의하면 다음 결재자에게 메일·결재함', async () => {
@@ -464,11 +458,25 @@ await check('이전 문서(직위별 단계)도 그대로 처리', async () => {
   assert(doc.status === 'approved', doc.status);
 });
 
-await check('인사담당 본인 문서: 같은 사업장 다른 인사담당이 수신, 사업장에 본인뿐이면 본인이 수신', async () => {
+await check('이전 방식 인사 수신 문서: 인사담당 본인 문서는 같은 사업장 다른 인사담당이 수신, 본인뿐이면 본인이 수신', async () => {
   const body = { eventType: '본인 결혼', relation: '본인', targetName: adminA.name, eventDate: '2026-12-05' };
+  /** 배포 전 방식처럼 담당자 없는 "인사 수신" 단계 하나로 바꿉니다. */
+  const legacyDraft = async (title) => {
+    const { id } = await documents.createDocument(adminA.id, { formKey: 'condolence', title, body, line: line([outsider, 'agreement']) });
+    await db
+      .prepare(
+        `UPDATE approval_document_steps SET role = '인사 수신', assignee_id = NULL, assignee_name = NULL,
+           assignee_department = NULL, assignee_position = NULL WHERE document_id = ?`
+      )
+      .run(id);
+    return id;
+  };
   await sameWorkplace([adminA, adminB], async () => {
-    const { id } = await documents.createDocument(adminA.id, { formKey: 'condolence', title: '본인 결혼', body });
+    const id = await legacyDraft('본인 결혼');
     assert((await recipientIds(id)).join() === String(adminB.id), '수신 메일은 다른 인사담당');
+    const forHr = await documents.getDocument(adminBAcc, id);
+    assert(forHr.permissions.receive && !forHr.permissions.approve && forHr.steps[0].statusLabel === '수신 대기', '수신 대기');
+    await expectError(() => documents.approveDocument(adminBAcc, id), /결재선을 지정해 수신/, 409);
     const own = await documents.getDocument(adminAAcc, id);
     assert(!own.permissions.receive && !own.permissions.proxy, '본인 문서는 대리 수신도 불가');
     await expectError(() => documents.receiveDocument(adminAAcc, id, { line: line(adminB) }), /수신할 담당이 아닙니다/, 403);
@@ -477,7 +485,7 @@ await check('인사담당 본인 문서: 같은 사업장 다른 인사담당이
     assert(done.status === 'approved', done.status);
   });
   await sameWorkplace([adminA], async () => {
-    const { id } = await documents.createDocument(adminA.id, { formKey: 'condolence', title: '본인 결혼 (혼자)', body });
+    const id = await legacyDraft('본인 결혼 (혼자)');
     const own = await documents.getDocument(adminAAcc, id);
     assert(own.permissions.receive && !own.permissions.proxy, '사업장 인사담당이 본인뿐이면 본인이 수신');
     await documents.withdrawDocument(adminAAcc, id);

@@ -19,6 +19,7 @@ import {
   RECEIVE_STEP,
   STEP_KINDS,
   TITLE_MAX,
+  approvalsFirst,
   formatAmount,
   stepStatusLabel,
 } from '../../src/constants/approvalDocs.js';
@@ -129,7 +130,7 @@ function cleanBody(form, data = {}) {
  * 지정한 결재자·합의자를 단계로 바꿉니다. line: [{ employeeId, kind: 'approval' | 'agreement' }]
  * selfLabel: 기안자를 넣었을 때 안내에 쓸 말 (기안자 본인이 지정하면 "본인", 인사담당이 지정하면 "기안자")
  */
-async function cleanLine(drafter, line, { selfLabel = '본인은' } = {}) {
+async function cleanLine(drafter, line, { selfLabel = '본인은', lastApproval = true } = {}) {
   const entries = Array.isArray(line) ? line : [];
   if (!entries.length) throw httpError('결재자를 1명 이상 지정하세요.');
   if (entries.length > MAX_LINE) throw httpError(`결재선은 ${MAX_LINE}명까지 지정할 수 있습니다.`);
@@ -146,16 +147,18 @@ async function cleanLine(drafter, line, { selfLabel = '본인은' } = {}) {
     if (!person?.is_active) throw httpError('결재선에 재직 중이 아닌 직원이 있습니다.');
     steps.push({ role: STEP_KINDS[kind], kind, assignee: person });
   }
-  if (steps.at(-1).kind !== 'approval') throw httpError('결재선의 마지막은 결재자여야 합니다. 합의자 뒤에 결재자를 지정하세요.');
+  if (lastApproval && steps.at(-1).kind !== 'approval') {
+    throw httpError('결재선의 마지막은 결재자여야 합니다. 합의자 뒤에 결재자를 지정하세요.');
+  }
   return steps;
 }
 
 /**
  * 결재선: 기안자가 지정한 결재자·합의자를 순서대로 놓고, 인사 확인 양식이면 끝에 인사 단계를 붙입니다.
- * 인사 수신 양식은 인사 수신 단계 하나로 시작하고, 인사담당이 수신하면서 결재선을 붙입니다.
+ * staged 양식은 결재자를 먼저, 합의자를 그 뒤에 둡니다.
  */
 async function buildSteps(drafter, form, line) {
-  if (form.line === 'receive') return [{ role: RECEIVE_STEP, kind: 'agreement', assignee: null }];
+  if (form.line === 'staged') return approvalsFirst(await cleanLine(drafter, line, { lastApproval: false }));
   const steps = form.line === 'select' ? await cleanLine(drafter, line) : [];
   if (form.hr) steps.push({ role: HR_STEP, kind: 'approval', assignee: null });
   return steps;
@@ -349,6 +352,7 @@ export async function getDocument(access, id) {
     .get(doc.id);
   const mine = Number(doc.employee_id) === me;
   const receiving = step?.role === RECEIVE_STEP;
+  const approve = (lineMatch || canProxy) && !receiving;
   const stepItems = [];
   for (const item of steps) stepItems.push(await mapStep(item, drafter, { current: item === step }));
 
@@ -376,7 +380,8 @@ export async function getDocument(access, id) {
       ? { id: Number(certificate.id), certNo: certificate.cert_no, status: certificate.status }
       : null,
     permissions: {
-      approve: (lineMatch || canProxy) && !receiving,
+      approve,
+      addLine: approve && canAddLine(doc, step),
       receive: (lineMatch || canProxy) && receiving,
       proxy: canProxy,
       withdraw: mine && doc.status === 'pending' && !steps.some((s) => s.status === 'approved'),
@@ -650,7 +655,53 @@ export async function createDocument(employeeId, data = {}, { access = null } = 
 
 /* ───────────── 결재 ───────────── */
 
-async function decide(access, id, decision, note) {
+/** staged 양식의 합의자는 합의하면서 다음 결재선을 붙일 수 있습니다. */
+function canAddLine(doc, step) {
+  return DOC_FORM_MAP[doc.form_key]?.line === 'staged' && step?.kind === 'agreement' && step.role !== RECEIVE_STEP;
+}
+
+/** 처리한 사람이 붙이는 다음 결재선: 처리자 본인·이미 남은 결재선에 있는 사람은 넣을 수 없습니다. */
+async function cleanAddedLine(drafter, actor, steps, line, { lastApproval }) {
+  const added = await cleanLine(drafter, line, { selfLabel: '기안자는', lastApproval });
+  const remaining = new Set(
+    steps.filter((s) => s.status === 'waiting' && s.assignee_id).map((s) => Number(s.assignee_id))
+  );
+  for (const item of added) {
+    if (Number(item.assignee.id) === Number(actor.id)) throw httpError('본인은 다음 결재선에 넣을 수 없습니다.');
+    if (remaining.has(Number(item.assignee.id))) throw httpError(`${item.assignee.name}님은 이미 결재선에 있습니다.`);
+  }
+  return added;
+}
+
+/** after 단계 바로 뒤에 단계를 끼워 넣습니다. 뒤 단계들의 순서를 밀어 냅니다. */
+async function insertSteps(db, docId, after, added) {
+  const count = added.length;
+  if (!count) return;
+  await db
+    .prepare('UPDATE approval_document_steps SET step_order = -(step_order + ?) WHERE document_id = ? AND step_order > ?')
+    .run(count, docId, after);
+  await db.prepare('UPDATE approval_document_steps SET step_order = -step_order WHERE document_id = ? AND step_order < 0').run(docId);
+  for (const [index, item] of added.entries()) {
+    await db
+      .prepare(
+        `INSERT INTO approval_document_steps (
+           document_id, step_order, role, kind, status, assignee_id, assignee_name, assignee_department, assignee_position
+         ) VALUES (?, ?, ?, ?, 'waiting', ?, ?, ?, ?)`
+      )
+      .run(
+        docId,
+        after + index + 1,
+        item.role,
+        item.kind,
+        item.assignee.id,
+        item.assignee.name,
+        item.assignee.department || null,
+        item.assignee.position || null
+      );
+  }
+}
+
+async function decide(access, id, decision, note, addLine = null) {
   const db = getDb();
   const actor = access.employee;
   let comment = '';
@@ -671,6 +722,11 @@ async function decide(access, id, decision, note) {
     const lineMatch = await stepMatches(actor, drafter, step);
     const proxy = !lineMatch && access.has('documents.manage') && Number(actor.id) !== Number(doc.employee_id);
     if (!lineMatch && !proxy) throw httpError('이 문서를 결재할 차례가 아닙니다.', 403);
+    let added = [];
+    if (decision === 'approve' && Array.isArray(addLine) && addLine.length) {
+      if (!canAddLine(doc, step)) throw httpError('다음 결재선은 합의자만 지정할 수 있습니다.', 409);
+      added = approvalsFirst(await cleanAddedLine(drafter, actor, steps, addLine, { lastApproval: false }));
+    }
 
     const now = kstStamp();
     await db
@@ -695,7 +751,10 @@ async function decide(access, id, decision, note) {
       if (doc.form_key === 'certificate_issue') await certificateService.releaseRequest(db, doc.id, now);
       return;
     }
-    const next = steps.find((item) => Number(item.step_order) > Number(step.step_order));
+    await insertSteps(db, doc.id, Number(step.step_order), added);
+    const next = (added.length ? await documentSteps(doc.id) : steps).find(
+      (item) => Number(item.step_order) > Number(step.step_order)
+    );
     if (next) {
       await db.prepare(`UPDATE approval_document_steps SET status = 'pending' WHERE id = ?`).run(next.id);
       await db
@@ -711,15 +770,16 @@ async function decide(access, id, decision, note) {
   return getDocument(access, id);
 }
 
-export function approveDocument(access, id, comment) {
-  return decide(access, toId(id), 'approve', comment);
+/** line: staged 양식의 합의자가 합의하며 붙이는 다음 결재선 (선택) */
+export function approveDocument(access, id, comment, line = null) {
+  return decide(access, toId(id), 'approve', comment, line);
 }
 
 export function rejectDocument(access, id, reason) {
   return decide(access, toId(id), 'reject', reason);
 }
 
-/** 인사 수신: 인사담당이 문서를 받고 결재선(결재·합의)을 지정하면 첫 지정자에게 넘어갑니다. */
+/** 이전 방식 인사 수신: 인사담당이 문서를 받고 결재선(결재·합의)을 지정하면 첫 지정자에게 넘어갑니다. */
 export async function receiveDocument(access, id, data = {}) {
   const db = getDb();
   const actor = access.employee;
@@ -746,29 +806,12 @@ export async function receiveDocument(access, id, data = {}) {
          WHERE id = ?`
       )
       .run(actor.id, actor.name, actor.position || null, proxy ? 1 : 0, comment || null, now, step.id);
-    const base = Math.max(...steps.map((item) => Number(item.step_order)));
-    for (const [index, item] of added.entries()) {
-      await db
-        .prepare(
-          `INSERT INTO approval_document_steps (
-             document_id, step_order, role, kind, status, assignee_id, assignee_name, assignee_department, assignee_position
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run(
-          doc.id,
-          base + index + 1,
-          item.role,
-          item.kind,
-          index === 0 ? 'pending' : 'waiting',
-          item.assignee.id,
-          item.assignee.name,
-          item.assignee.department || null,
-          item.assignee.position || null
-        );
-    }
+    const after = Number(step.step_order);
+    await insertSteps(db, doc.id, after, added);
+    await db.prepare(`UPDATE approval_document_steps SET status = 'pending' WHERE document_id = ? AND step_order = ?`).run(doc.id, after + 1);
     await db
       .prepare('UPDATE approval_documents SET current_step = ?, updated_at = ? WHERE id = ?')
-      .run(base + 1, now, doc.id);
+      .run(after + 1, now, doc.id);
   });
   notifyAfterChange(docId).catch((error) => console.error('[documents] notify failed:', error.message));
   return getDocument(access, docId);

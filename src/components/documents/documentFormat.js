@@ -120,8 +120,8 @@ export function signersFromDoc(doc) {
   };
 }
 
-/** 기안 중인 결재란: 지정한 결재선 그대로 미리 보여 줍니다. receive 면 합의란에 인사 수신만 둡니다. */
-export function signersFromDraft({ me, line, peopleById, hr = false, receive = false }) {
+/** 기안 중인 결재란: 지정한 결재선 그대로 미리 보여 줍니다. */
+export function signersFromDraft({ me, line, peopleById, hr = false }) {
   const toSigner = (item, index) => {
     const person = peopleById.get(String(item.employeeId));
     return {
@@ -138,9 +138,6 @@ export function signersFromDraft({ me, line, peopleById, hr = false, receive = f
       ...indexed.filter(({ item }) => item.kind !== 'agreement').map(({ item, index }) => toSigner(item, index)),
       ...(hr ? [{ key: 'hr', position: '인사 확인', name: '인사담당', sub: '' }] : []),
     ],
-    agreement: [
-      ...(receive ? [{ key: 'receive', position: RECEIVE_STEP, name: '인사담당', sub: '' }] : []),
-      ...indexed.filter(({ item }) => item.kind === 'agreement').map(({ item, index }) => toSigner(item, index)),
-    ],
+    agreement: indexed.filter(({ item }) => item.kind === 'agreement').map(({ item, index }) => toSigner(item, index)),
   };
 }

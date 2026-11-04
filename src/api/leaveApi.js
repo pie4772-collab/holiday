@@ -520,8 +520,8 @@ export const leaveApi = {
     return apiClient('/documents', { method: 'POST', body: data });
   },
 
-  async approveDocument(id, comment) {
-    return apiClient(`/documents/${id}/approve`, { method: 'POST', body: { comment } });
+  async approveDocument(id, comment, line) {
+    return apiClient(`/documents/${id}/approve`, { method: 'POST', body: { comment, line } });
   },
 
   async rejectDocument(id, reason) {

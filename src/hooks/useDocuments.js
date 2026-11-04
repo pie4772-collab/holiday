@@ -60,7 +60,7 @@ export function useCreateDocument() {
 }
 
 export function useApproveDocument() {
-  return useDocumentMutation(({ id, comment }) => leaveApi.approveDocument(id, comment));
+  return useDocumentMutation(({ id, comment, line }) => leaveApi.approveDocument(id, comment, line));
 }
 
 export function useRejectDocument() {

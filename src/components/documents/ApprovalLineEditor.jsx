@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, X } from 'lucide-react';
-import { STEP_KINDS } from '../../constants/approvalDocs';
+import { STEP_KINDS, approvalsFirst } from '../../constants/approvalDocs';
 
 const KIND_STYLES = {
   approval: 'bg-primary-50 text-primary-700',
@@ -9,37 +9,49 @@ const KIND_STYLES = {
 
 /**
  * 결재선 지정. value: [{ employeeId, kind: 'approval' | 'agreement' }] — 위에서부터 차례로 처리합니다.
- * hrStep 이면 끝에 고정된 인사 확인 단계를 보여 줍니다. drafterLabel: 맨 위 기안 줄에 적을 이름
+ * hrStep 이면 끝에 고정된 인사 확인 단계를 보여 줍니다. head: 맨 위 고정 줄 { badge, label }
+ * excludeId: 고를 수 없는 사람 (한 명 또는 배열). approvalFirst: 결재자를 늘 합의자보다 앞에 둡니다.
  */
-export function ApprovalLineEditor({ people = [], value = [], onChange, max = 10, excludeId, hrStep = false, drafterLabel = '본인' }) {
+export function ApprovalLineEditor({
+  people = [],
+  value = [],
+  onChange,
+  max = 10,
+  excludeId,
+  hrStep = false,
+  head = { badge: '기안', label: '본인' },
+  approvalFirst = false,
+}) {
   const [query, setQuery] = useState('');
   const [addKind, setAddKind] = useState('approval');
   const byId = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
-    const chosen = new Set(value.map((item) => String(item.employeeId)));
+    const blocked = new Set([...value.map((item) => item.employeeId), ...[excludeId ?? []].flat()].map(String));
     return people
-      .filter((p) => p.id !== String(excludeId) && !chosen.has(p.id))
+      .filter((p) => !blocked.has(p.id))
       .filter((p) => [p.name, p.department, p.position, p.empNo].some((v) => String(v).toLowerCase().includes(q)))
       .slice(0, 8);
   }, [people, value, query, excludeId]);
 
+  const emit = (next) => onChange(approvalFirst ? approvalsFirst(next) : next);
+
   function add(person) {
     if (value.length >= max) return;
-    onChange([...value, { employeeId: person.id, kind: addKind }]);
+    emit([...value, { employeeId: person.id, kind: addKind }]);
     setQuery('');
   }
 
   function update(index, patch) {
-    onChange(value.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+    emit(value.map((item, i) => (i === index ? { ...item, ...patch } : item)));
   }
 
   function move(index, delta) {
     const next = [...value];
     const [item] = next.splice(index, 1);
     next.splice(index + delta, 0, item);
-    onChange(next);
+    emit(next);
   }
 
   return (
@@ -47,8 +59,8 @@ export function ApprovalLineEditor({ people = [], value = [], onChange, max = 10
       <ol className="divide-y divide-stripe-border rounded-md border border-stripe-border">
         <li className="flex items-center gap-3 bg-[#f6f9fc] px-3 py-2 text-sm text-stripe-muted">
           <span className="w-5 text-center text-xs">-</span>
-          <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold bg-white">기안</span>
-          <span>{drafterLabel}</span>
+          <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold bg-white">{head.badge}</span>
+          <span>{head.label}</span>
         </li>
         {value.map((item, index) => {
           const person = byId.get(String(item.employeeId));
@@ -97,7 +109,7 @@ export function ApprovalLineEditor({ people = [], value = [], onChange, max = 10
                 <button
                   type="button"
                   className="rounded p-1 text-stripe-muted hover:bg-[#fee2e2] hover:text-[#df1b41]"
-                  onClick={() => onChange(value.filter((_, i) => i !== index))}
+                  onClick={() => emit(value.filter((_, i) => i !== index))}
                   aria-label={`${person?.name || ''} 빼기`}
                 >
                   <X className="h-3.5 w-3.5" />

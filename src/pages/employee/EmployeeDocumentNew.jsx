@@ -20,6 +20,7 @@ import {
   MAX_LINE,
   MAX_REFS,
   TITLE_MAX,
+  approvalsFirst,
   formLineText,
   sheetTitle,
 } from '../../constants/approvalDocs';
@@ -77,7 +78,9 @@ export function EmployeeDocumentNew() {
   const requestId = issueForm ? params.get('request') || source.data?.body?.requestId || null : null;
   const { data: me } = useCurrentEmployee();
   const people = useDocumentPeople(Boolean(form));
-  const suggestion = useDocumentLineSuggestion(form?.line === 'select' && !sourceId);
+  const staged = form?.line === 'staged';
+  const picksLine = form?.line === 'select' || staged;
+  const suggestion = useDocumentLineSuggestion(picksLine && !sourceId);
   const certRequest = useCertificateRequest(requestId);
   const certTargets = useCertificateTargets(issueForm && !requestId);
   const create = useCreateDocument();
@@ -120,7 +123,8 @@ export function EmployeeDocumentNew() {
     if (rich && doc.body.format !== 'html') nextBody = { ...doc.body, [rich.key]: plainToHtml(doc.body[rich.key]) };
     setBody(nextBody);
     setRefIds(doc.refs.map((ref) => ref.id));
-    setLine(doc.steps.filter((step) => step.assigneeId).map((step) => ({ employeeId: step.assigneeId, kind: step.kind })));
+    const previous = doc.steps.filter((step) => step.assigneeId).map((step) => ({ employeeId: step.assigneeId, kind: step.kind }));
+    setLine(DOC_FORM_MAP[doc.formKey]?.line === 'staged' ? approvalsFirst(previous) : previous);
     setLinePrefilled(true);
   }, [source.data, loadedSource]);
 
@@ -138,7 +142,7 @@ export function EmployeeDocumentNew() {
         formKey,
         title,
         body,
-        line: form.line === 'select' ? line : [],
+        line: picksLine ? line : [],
         refIds,
         sourceId: sourceId || undefined,
       });
@@ -210,13 +214,7 @@ export function EmployeeDocumentNew() {
   const request = certRequest.data || null;
   const requestClosed = Boolean(request && request.status !== 'requested');
   const issueTargetName = request?.employeeName || certTargets.data?.find((t) => t.id === String(body.employeeId || ''))?.name;
-  const signers = signersFromDraft({
-    me,
-    line: form.line === 'select' ? line : [],
-    peopleById,
-    hr: form.hr,
-    receive: form.line === 'receive',
-  });
+  const signers = signersFromDraft({ me, line: picksLine ? line : [], peopleById, hr: form.hr });
   const writer = me ? [me.name, [me.department, me.position].filter(Boolean).join(' ')].filter(Boolean).join(' · ') : '';
 
   return (
@@ -288,11 +286,15 @@ export function EmployeeDocumentNew() {
           </div>
 
           <div className="space-y-6">
-            {form.line === 'select' && (
+            {picksLine && (
               <Panel overflowVisible>
                 <PanelHeader
                   title="결재선"
-                  description="위에서부터 차례로 처리합니다. 앞 사람이 결재·합의하면 다음 사람에게 메일이 갑니다. 합의자가 반대하면 반려되고, 마지막은 결재자여야 합니다."
+                  description={
+                    staged
+                      ? '지정한 결재자가 차례로 결재를 마치면 합의자에게 넘어갑니다. 합의자(예: 인사담당)는 합의하면서 다음 결재선을 지정할 수 있고, 반대하면 반려됩니다.'
+                      : '위에서부터 차례로 처리합니다. 앞 사람이 결재·합의하면 다음 사람에게 메일이 갑니다. 합의자가 반대하면 반려되고, 마지막은 결재자여야 합니다.'
+                  }
                 />
                 <PanelBody>
                   {issueForm && (
@@ -307,18 +309,8 @@ export function EmployeeDocumentNew() {
                     max={MAX_LINE}
                     excludeId={me?.id}
                     hrStep={form.hr}
+                    approvalFirst={staged}
                   />
-                </PanelBody>
-              </Panel>
-            )}
-            {form.line === 'receive' && (
-              <Panel>
-                <PanelHeader title="결재선" />
-                <PanelBody>
-                  <p className="text-sm text-stripe-muted">
-                    기안하면 인사담당이 문서를 <strong className="text-stripe-text">수신</strong>하고, 내용을 확인한 뒤 결재·합의할
-                    사람을 직접 지정합니다. 지정된 결재선이 끝나면 결과를 메일로 알려 드립니다.
-                  </p>
                 </PanelBody>
               </Panel>
             )}

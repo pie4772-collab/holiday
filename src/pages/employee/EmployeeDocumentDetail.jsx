@@ -20,6 +20,7 @@ import {
   useRejectDocument,
   useWithdrawDocument,
 } from '../../hooks/useDocuments';
+import { useCurrentEmployee } from '../../hooks/useLeaveData';
 import { MAX_LINE, RECEIVE_STEP, STEP_KINDS } from '../../constants/approvalDocs';
 
 /** 인사 수신: 내용을 확인하고 결재선을 지정해 넘기거나, 반려합니다. */
@@ -64,7 +65,7 @@ function ReceivePanel({ doc }) {
             onChange={setLine}
             max={MAX_LINE}
             excludeId={doc.drafter.id}
-            drafterLabel={`${doc.drafter.name} (기안자)`}
+            head={{ badge: '기안', label: doc.drafter.name }}
           />
         )}
         <div>
@@ -101,11 +102,13 @@ function ReceivePanel({ doc }) {
   );
 }
 
-function DecisionPanel({ doc }) {
+function DecisionPanel({ doc, me }) {
   const approve = useApproveDocument();
   const reject = useRejectDocument();
+  const people = useDocumentPeople(doc.permissions.addLine);
   const [mode, setMode] = useState(null);
   const [note, setNote] = useState('');
+  const [nextLine, setNextLine] = useState([]);
   const [error, setError] = useState('');
   const busy = approve.isPending || reject.isPending;
 
@@ -113,9 +116,10 @@ function DecisionPanel({ doc }) {
     setError('');
     try {
       if (mode === 'reject') await reject.mutateAsync({ id: doc.id, reason: note });
-      else await approve.mutateAsync({ id: doc.id, comment: note });
+      else await approve.mutateAsync({ id: doc.id, comment: note, line: nextLine.length ? nextLine : undefined });
       setMode(null);
       setNote('');
+      setNextLine([]);
     } catch (err) {
       setError(err.message || '처리하지 못했습니다.');
     }
@@ -127,18 +131,38 @@ function DecisionPanel({ doc }) {
     ? { action: '합의', approve: '합의', reject: '반대', rejectReason: '반대 사유' }
     : { action: '결재', approve: '승인', reject: '반려', rejectReason: '반려 사유' };
   return (
-    <Panel className="mb-6 border-primary-200">
+    <Panel className="mb-6 border-primary-200" overflowVisible>
       <PanelHeader
         title={`${words.action}할 차례입니다 · ${current ? stepBoxLabel(current) : ''}${current?.assignee ? ` ${current.assignee}` : ''}`}
         description={
           doc.permissions.proxy
             ? '결재선에 지정된 사람이 아니므로 인사담당 대리 처리로 기록됩니다.'
-            : agreement
+            : doc.permissions.addLine
+              ? '합의하면서 다음 결재선을 지정할 수 있습니다. 반대하면 문서가 반려됩니다.'
+              : agreement
               ? '합의하면 다음 결재자에게 넘어가고 메일이 갑니다. 반대하면 문서가 반려됩니다.'
               : '승인하면 다음 결재자에게 넘어가고 메일이 갑니다. 마지막 단계면 문서번호가 매겨집니다.'
         }
       />
       <PanelBody className="space-y-3">
+        {mode === 'approve' && doc.permissions.addLine && (
+          <div>
+            <p className="stripe-label">다음 결재선 (선택)</p>
+            <p className="mb-2 text-[12px] text-stripe-muted">
+              지정하면 내 합의 바로 다음에 차례로 처리됩니다. 결재자가 먼저, 합의자는 그 뒤입니다. 지정하지 않으면 남은 결재선대로
+              진행하고, 남은 사람이 없으면 문서가 완료됩니다.
+            </p>
+            <ApprovalLineEditor
+              people={people.data || []}
+              value={nextLine}
+              onChange={setNextLine}
+              max={MAX_LINE}
+              excludeId={[doc.drafter.id, me?.id].filter(Boolean)}
+              head={{ badge: '합의', label: me?.name || '본인' }}
+              approvalFirst
+            />
+          </div>
+        )}
         {mode && (
           <div>
             <label className="stripe-label">
@@ -188,6 +212,7 @@ export function EmployeeDocumentDetail() {
   const location = useLocation();
   const fromAdmin = location.pathname.startsWith('/admin');
   const { data: doc, isLoading, isError, error, refetch } = useDocument(id);
+  const { data: me } = useCurrentEmployee();
   const withdraw = useWithdrawDocument();
   const [actionError, setActionError] = useState('');
 
@@ -242,7 +267,7 @@ export function EmployeeDocumentDetail() {
       </PageHeader>
 
       {actionError && <p className="mb-4 rounded-md bg-[#fee2e2] px-3 py-2 text-sm text-[#df1b41]">{actionError}</p>}
-      {doc.permissions.approve && <DecisionPanel doc={doc} />}
+      {doc.permissions.approve && <DecisionPanel doc={doc} me={me} />}
       {doc.permissions.receive && <ReceivePanel doc={doc} />}
 
       {doc.certificate && (

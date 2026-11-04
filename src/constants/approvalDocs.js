@@ -13,10 +13,15 @@ export const STEP_KINDS = { approval: '결재', agreement: '합의' };
 export const HR_STEP = '인사';
 
 /**
- * 인사담당이 먼저 받아 결재선을 지정하는 양식의 첫 단계. 합의란에 "인사 수신"으로 표시합니다.
- * 기안자 사업장의 인사담당이 처리하고, 수신하면서 지정한 결재·합의 단계가 뒤에 붙습니다.
+ * 이전 방식(인사담당 고정 수신) 문서의 첫 단계. 합의란에 "인사 수신"으로 표시합니다.
+ * 기안자 사업장의 인사담당이 처리하고, 수신하면서 지정한 결재·합의 단계가 뒤에 붙습니다. 새 문서에는 만들지 않습니다.
  */
 export const RECEIVE_STEP = '인사 수신';
+
+/** staged 양식의 결재선: 결재자를 지정한 순서대로 먼저, 합의자는 그 뒤에 지정한 순서대로 */
+export function approvalsFirst(line) {
+  return [...line.filter((item) => item.kind !== 'agreement'), ...line.filter((item) => item.kind === 'agreement')];
+}
 
 export function stepStatusLabel(kind, status, role) {
   if (role === RECEIVE_STEP) return RECEIVE_STATUS_LABELS[status] || status;
@@ -27,7 +32,9 @@ export const MAX_LINE = 10;
 export const TITLE_MAX = 200;
 
 /**
- * line: select 기안자가 결재자·합의자를 지정, receive 인사담당이 받아(인사 수신) 결재선을 지정, none 결재선 없음
+ * line: select 기안자가 결재자·합의자를 지정(지정한 순서대로),
+ *       staged 기안자가 결재자·합의자를 지정하고 결재가 모두 끝난 뒤 합의 — 합의자는 합의하며 다음 결재선을 붙일 수 있음,
+ *       none 결재선 없음
  * hr: 지정한 결재선 뒤에 인사 확인 단계를 붙입니다.
  * permission: 이 권한이 있는 사람만 기안 (내부 결재 양식)
  * retired: 새로 기안할 수 없고 이전 문서 보기에만 씁니다.
@@ -49,9 +56,9 @@ export const DOC_FORMS = [
     key: 'business_trip',
     label: '출장 신청',
     prefix: '출장',
-    line: 'receive',
+    line: 'staged',
     hr: false,
-    description: '국내·해외 출장 계획과 예상 경비 (인사 수신 후 결재)',
+    description: '국내·해외 출장 계획과 예상 경비',
     fields: [
       { key: 'destination', label: '출장지', type: 'text', required: true, max: 100 },
       { key: 'startDate', label: '시작일', type: 'date', required: true },
@@ -65,9 +72,9 @@ export const DOC_FORMS = [
     key: 'condolence',
     label: '경조금 신청',
     prefix: '경조',
-    line: 'receive',
+    line: 'staged',
     hr: false,
-    description: '경조사 발생 시 경조금 지급 신청 (인사 수신 후 결재)',
+    description: '경조사 발생 시 경조금 지급 신청',
     fields: [
       {
         key: 'eventType',
@@ -98,9 +105,9 @@ export const DOC_FORMS = [
     key: 'training_request',
     label: '교육 신청',
     prefix: '교육',
-    line: 'receive',
+    line: 'staged',
     hr: false,
-    description: '외부 교육·세미나 참가 신청 (인사 수신 후 결재)',
+    description: '외부 교육·세미나 참가 신청',
     fields: [
       { key: 'courseName', label: '교육명', type: 'text', required: true, max: 200 },
       { key: 'institution', label: '교육기관', type: 'text', required: true, max: 100 },
@@ -149,7 +156,7 @@ export function sheetTitle(form) {
 
 /** 결재선 규칙 설명 (양식 선택 화면) */
 export function formLineText(form) {
-  if (form.line === 'receive') return '인사 수신 → 인사담당이 지정한 결재·합의';
+  if (form.line === 'staged') return '지정한 결재 → 합의 (합의자가 다음 결재선 지정 가능)';
   const line = form.line === 'select' ? '지정한 결재·합의' : '';
   return [line, form.hr ? '인사 확인' : ''].filter(Boolean).join(' → ');
 }

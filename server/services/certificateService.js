@@ -343,13 +343,19 @@ function activeAdmins() {
   return getDb().prepare('SELECT * FROM employees WHERE is_active = 1 AND is_admin = 1 ORDER BY id').all();
 }
 
+/**
+ * 인사담당이 자기 증명서를 신청하면 같은 사업장의 다른 인사담당이 받고,
+ * 그 사업장 인사담당이 본인 한 명뿐이면 본인이 받습니다.
+ */
 function handlersFrom(admins, request) {
   const code = text(request?.workplace_code);
   const local = code ? admins.filter((emp) => text(emp.workplace_code) === code) : [];
-  return (local.length ? local : admins).filter((emp) => Number(emp.id) !== Number(request?.employee_id));
+  const candidates = local.length ? local : admins;
+  const others = candidates.filter((emp) => Number(emp.id) !== Number(request?.employee_id));
+  return others.length ? others : candidates;
 }
 
-/** 신청을 받을 사업장 인사담당: 신청자 사업장의 인사담당(시스템관리자·인사담당), 없으면 전체 인사담당 */
+/** 신청을 받을 사업장 인사담당: 신청자 사업장의 인사담당(시스템관리자·인사담당), 사업장에 인사담당이 없으면 전체 인사담당 */
 export async function listRequestHandlers(request) {
   return handlersFrom(await activeAdmins(), request);
 }

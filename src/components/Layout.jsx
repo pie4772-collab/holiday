@@ -27,6 +27,8 @@ import {
   FileCheck,
   FileBadge,
   Files,
+  Settings,
+  ChevronDown,
 } from 'lucide-react';
 import { ASSIGNABLE_ROLES, ROLE_LABELS, canAccessAdmin, hasPermission } from '../utils/access';
 import { useAppStore } from '../store/useAppStore';
@@ -60,39 +62,89 @@ const adminNav = [
   { to: '/admin/documents', icon: Files, label: '전자결재 문서함', permission: 'documents.manage' },
   { to: '/admin/certificates', icon: FileBadge, label: '증명서 발급', permission: 'certificates.manage' },
   { to: '/admin/attendance', icon: Clock, label: '근태 현황', permission: 'attendance.view' },
-  { to: '/admin/attendance-settings', icon: Settings2, label: '근태 설정', permission: 'attendance.manage' },
-  { to: '/admin/approval-lines', icon: GitBranch, label: '결재 라인', permission: 'approvalLines.manage' },
   { to: '/admin/leave-reports', icon: FileSpreadsheet, label: '연차 보고서', permission: 'reports.view' },
   { to: '/admin/leave-settlements', icon: Scale, label: 'IFRS 연차부채', permission: 'payroll' },
   { to: '/admin/leave-event-settlements', icon: Wallet, label: '연차 정산', permission: 'payroll' },
-  { to: '/admin/mail-settings', icon: Mail, label: '메일 서버', permission: 'mail.manage' },
+  {
+    key: 'settings',
+    icon: Settings,
+    label: '환경설정',
+    children: [
+      { to: '/admin/attendance-settings', icon: Settings2, label: '근태 설정', permission: 'attendance.manage' },
+      { to: '/admin/approval-lines', icon: GitBranch, label: '결재 라인', permission: 'approvalLines.manage' },
+      { to: '/admin/mail-settings', icon: Mail, label: '메일 서버', permission: 'mail.manage' },
+    ],
+  },
 ];
+
+/** 권한 있는 메뉴만 남깁니다. 하위 메뉴가 하나도 남지 않은 묶음은 뺍니다. */
+function allowedNav(items, employee) {
+  return items.flatMap((item) => {
+    if (item.children) {
+      const children = allowedNav(item.children, employee);
+      return children.length ? [{ ...item, children }] : [];
+    }
+    return !item.permission || hasPermission(employee, item.permission) ? [item] : [];
+  });
+}
 
 function primaryRoleLabel(employee) {
   const role = ASSIGNABLE_ROLES.find((r) => employee?.roles?.includes(r));
   return role ? ROLE_LABELS[role] : '관리자';
 }
 
+/** 접었다 펼치는 메뉴 묶음. 하위 화면에 있으면 펼친 채로 시작합니다. */
+function NavGroup({ item, onNavigate }) {
+  const location = useLocation();
+  const active = item.children.some((child) => location.pathname.startsWith(child.to));
+  const [toggled, setToggled] = useState(null);
+  const open = toggled ?? active;
+  const Icon = item.icon;
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setToggled(!open)}
+        aria-expanded={open}
+        className={`stripe-nav-item w-full ${active && !open ? 'active' : ''}`}
+      >
+        <Icon className="h-4 w-4 opacity-80 shrink-0" />
+        {item.label}
+        <ChevronDown className={`ml-auto h-3.5 w-3.5 opacity-70 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="ml-[18px] mt-0.5 space-y-0.5 border-l border-white/10 pl-2">
+          <NavItems items={item.children} onNavigate={onNavigate} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NavItems({ items, onNavigate, className = '' }) {
   return (
     <>
-      {items.map(({ to, icon: Icon, label, end, badge }) => (
-        <NavLink
-          key={to}
-          to={to}
-          end={end}
-          onClick={onNavigate}
-          className={({ isActive }) => `stripe-nav-item ${isActive ? 'active' : ''} ${className}`}
-        >
-          <Icon className="h-4 w-4 opacity-80 shrink-0" />
-          {label}
-          {badge > 0 && (
-            <span className="ml-auto rounded-full bg-[#df1b41] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
-              {badge}
-            </span>
-          )}
-        </NavLink>
-      ))}
+      {items.map((item) => {
+        if (item.children) return <NavGroup key={item.key} item={item} onNavigate={onNavigate} />;
+        const { to, icon: Icon, label, end, badge } = item;
+        return (
+          <NavLink
+            key={to}
+            to={to}
+            end={end}
+            onClick={onNavigate}
+            className={({ isActive }) => `stripe-nav-item ${isActive ? 'active' : ''} ${className}`}
+          >
+            <Icon className="h-4 w-4 opacity-80 shrink-0" />
+            {label}
+            {badge > 0 && (
+              <span className="ml-auto rounded-full bg-[#df1b41] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                {badge}
+              </span>
+            )}
+          </NavLink>
+        );
+      })}
     </>
   );
 }
@@ -145,8 +197,7 @@ export function Layout() {
       ? [{ to: '/employee/evaluations', icon: PenLine, label: '평가 작성' }]
       : []),
   ];
-  const adminItems = adminNav
-    .filter((item) => !item.permission || hasPermission(currentEmployee, item.permission))
+  const adminItems = allowedNav(adminNav, currentEmployee)
     .map((item) =>
       item.to === '/admin/certificates' ? { ...item, badge: currentEmployee?.certificateRequestTasks || 0 } : item
     );
@@ -280,7 +331,7 @@ export function Layout() {
       {/* Mobile bottom nav */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-stripe-sidebar border-t border-white/10 safe-bottom">
         <div className="flex items-stretch justify-around px-1 pt-1 pb-0.5">
-          {navItems.map(({ to, icon: Icon, label, end }) => (
+          {navItems.flatMap((item) => item.children || [item]).map(({ to, icon: Icon, label, end }) => (
             <NavLink
               key={to}
               to={to}

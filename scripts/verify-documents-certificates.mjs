@@ -506,6 +506,24 @@ await check('신청 접수: 같은 사업장 인사담당에게 수신(메일 �
   assert((await certificates.countOpenRequests(member.id)) === 0, '일반 직원 0');
 });
 
+await check('인사담당 본인 신청: 사업장 인사담당이 본인 한 명뿐이면 본인이 받아 품의', async () => {
+  const own = await certificates.createRequest(adminA.id, { certType: 'employment', items: [], purpose: '본인 제출용' });
+  const row = await db.prepare('SELECT * FROM certificate_requests WHERE id = ?').get(own.id);
+  const handlers = (await certificates.listRequestHandlers(row)).map((e) => Number(e.id));
+  assert(handlers.join() === String(adminA.id), `메일 대상 ${handlers.join()}`);
+  assert((await certificates.listRequests(adminAAcc, { scope: 'mine' })).some((r) => r.id === own.id), '본인 접수함');
+  assert(!(await certificates.listRequests(adminBAcc, { scope: 'mine' })).some((r) => r.id === own.id), '다른 사업장은 받지 않음');
+  assert((await certificates.countOpenRequests(adminA.id)) === 2 && (await certificates.countOpenRequests(adminB.id)) === 0, '메뉴 숫자');
+  const draft = await documents.createDocument(
+    adminA.id,
+    { formKey: 'certificate_issue', body: { requestId: own.id, items: [], purpose: '본인 제출용' }, line: line(officer) },
+    { access: adminAAcc }
+  );
+  assert((await certificates.getRequest(own.id)).status === 'processing', '본인 신청 품의');
+  await documents.withdrawDocument(adminAAcc, draft.id);
+  await certificates.cancelRequest(adminA.id, own.id);
+});
+
 let issueDocId = 0;
 await check('발급 품의: 인사담당만 기안, 신청 대상·종류 고정, 결재선 지정 → 내부 결재 중', async () => {
   const body = {

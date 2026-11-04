@@ -8,6 +8,7 @@ import { CERT_ITEMS, CERT_PURPOSE_PRESETS, CERT_TYPES } from '../../constants/ce
 export function CertificateRequestFields({ value, onChange, types, profile = {}, showSealOption = false }) {
   const isActive = profile.isActive !== false;
   const items = CERT_ITEMS.filter((item) => !item.terminatedOnly || !isActive);
+  const selected = value.items || [];
   const missing = {
     birthDate: profile.hasBirthDate === false,
     address: profile.hasAddress === false,
@@ -18,7 +19,7 @@ export function CertificateRequestFields({ value, onChange, types, profile = {},
   }
 
   function toggle(key) {
-    const next = value.items.includes(key) ? value.items.filter((k) => k !== key) : [...value.items, key];
+    const next = selected.includes(key) ? selected.filter((k) => k !== key) : [...selected, key];
     set({ items: next });
   }
 
@@ -60,18 +61,18 @@ export function CertificateRequestFields({ value, onChange, types, profile = {},
                 <input
                   type="checkbox"
                   className="h-4 w-4 accent-primary-500"
-                  checked={value.items.includes(item.key)}
+                  checked={selected.includes(item.key)}
                   onChange={() => toggle(item.key)}
                 />
                 {item.label}
               </label>
-              {missing[item.key] && value.items.includes(item.key) && (
+              {missing[item.key] && selected.includes(item.key) && (
                 <p className="mt-1 flex items-start gap-1 text-[12px] text-[#b45309]">
                   <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
                   인사기록카드에 {item.label}이(가) 없어 발급되지 않습니다. 항목을 빼거나 먼저 등록하세요.
                 </p>
               )}
-              {item.input && value.items.includes(item.key) && (
+              {item.input && selected.includes(item.key) && (
                 <input
                   className="stripe-input mt-1.5"
                   maxLength={item.max}

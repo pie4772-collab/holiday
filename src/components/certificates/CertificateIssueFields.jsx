@@ -85,7 +85,7 @@ export function CertificateIssueFields({ value, onChange, request = null }) {
             onChange={() => onChange({ ...value, employeeId: '' })}
           />
         ) : (
-          <div className="relative">
+          <div>
             <input
               className="stripe-input"
               placeholder={targets.isLoading ? '직원 목록을 불러오는 중…' : '이름·사번·부서로 찾기'}
@@ -93,7 +93,7 @@ export function CertificateIssueFields({ value, onChange, request = null }) {
               onChange={(e) => setQuery(e.target.value)}
             />
             {matches.length > 0 && (
-              <ul className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-stripe-border bg-white py-1 shadow-lg">
+              <ul className="mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-stripe-border bg-white py-1 shadow-sm">
                 {matches.map((t) => (
                   <li key={t.id}>
                     <button

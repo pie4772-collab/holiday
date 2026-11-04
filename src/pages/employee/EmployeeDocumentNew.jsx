@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ChevronRight, Send } from 'lucide-react';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
+import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Panel, PanelBody, PanelHeader } from '../../components/ui/Panel';
 import { Button } from '../../components/ui/Button';
@@ -188,10 +189,20 @@ export function EmployeeDocumentNew() {
     );
   }
 
-  if (requestId && certRequest.isLoading) {
+  const requestBodyPending = Boolean(certRequest.data) && !sourceId && loadedRequest !== certRequest.data.id;
+  if (requestId && (certRequest.isLoading || requestBodyPending)) {
     return (
       <div className="flex justify-center py-16">
         <LoadingSpinner />
+      </div>
+    );
+  }
+
+  if (requestId && certRequest.isError) {
+    return (
+      <div>
+        <PageHeader title={form.label} backTo="/admin/certificates" backLabel="증명서 발급" />
+        <ErrorMessage message={certRequest.error?.message || '증명서 신청을 불러오지 못했습니다.'} onRetry={() => certRequest.refetch()} />
       </div>
     );
   }
@@ -272,7 +283,7 @@ export function EmployeeDocumentNew() {
 
           <div className="space-y-6">
             {form.line === 'select' && (
-              <Panel>
+              <Panel overflowVisible>
                 <PanelHeader
                   title="결재선"
                   description="위에서부터 차례로 처리합니다. 앞 사람이 결재·합의하면 다음 사람에게 메일이 갑니다. 합의자가 반대하면 반려되고, 마지막은 결재자여야 합니다."
@@ -295,7 +306,7 @@ export function EmployeeDocumentNew() {
               </Panel>
             )}
 
-            <Panel>
+            <Panel overflowVisible>
               <PanelHeader title="참조" description={`문서를 함께 볼 사람을 ${MAX_REFS}명까지 지정합니다. 결재가 끝나면 메일로 알립니다.`} />
               <PanelBody>
                 <PeoplePicker people={people.data || []} value={refIds} onChange={setRefIds} max={MAX_REFS} excludeId={me?.id} />

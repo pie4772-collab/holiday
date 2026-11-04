@@ -1,5 +1,8 @@
-export function Panel({ children, className = '' }) {
-  return <div className={`stripe-panel overflow-hidden ${className}`}>{children}</div>;
+/** overflowVisible: 안쪽 검색 목록 같은 띄운 요소가 패널 밖으로 나와도 잘리지 않게 합니다. */
+export function Panel({ children, className = '', overflowVisible = false }) {
+  return (
+    <div className={`stripe-panel ${overflowVisible ? 'overflow-visible' : 'overflow-hidden'} ${className}`}>{children}</div>
+  );
 }
 
 export function PanelHeader({ title, description, actions }) {

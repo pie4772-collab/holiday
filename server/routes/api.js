@@ -13,6 +13,8 @@ import * as attendanceService from '../services/attendanceService.js';
 import * as noticeService from '../services/noticeService.js';
 import * as evaluationService from '../services/evaluationService.js';
 import * as trainingService from '../services/trainingService.js';
+import * as documentService from '../services/documentService.js';
+import * as certificateService from '../services/certificateService.js';
 import { sendFile } from '../utils/fileUpload.js';
 import { getClientIp, describeClientIp } from '../utils/clientIp.js';
 import { DOCUMENT_MAX_BYTES } from '../../src/constants/personnel.js';
@@ -152,6 +154,10 @@ router.get('/employees/me', requireAuth, async (req, res, next) => {
       canAccessAdmin: access.permissions.includes('admin'),
       evaluationTasks: await evaluationService.countTasks(req.user.employeeId),
       trainingTasks: await trainingService.countTasks(req.user.employeeId),
+      documentTasks: await documentService.countTodo(req.user.employeeId),
+      certificateRequestTasks: access.permissions.includes('certificates.manage')
+        ? await certificateService.countOpenRequests(req.user.employeeId)
+        : 0,
     });
   } catch (e) {
     next(e);
@@ -161,6 +167,16 @@ router.get('/employees/me', requireAuth, async (req, res, next) => {
 router.get('/employees', requirePermission('leave.view'), async (req, res, next) => {
   try {
     res.json(await leaveService.getAllEmployees(await accessService.scopedEmployeeIds(req.access, 'leave.view')));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/terminated-employees/leave', requirePermission('leave.view'), async (req, res, next) => {
+  try {
+    res.json(
+      await leaveService.getTerminatedEmployees(await accessService.scopedEmployeeIds(req.access, 'leave.view'))
+    );
   } catch (e) {
     next(e);
   }
@@ -338,7 +354,7 @@ router.post('/admin/ordinary-wages/load-previous-month', requirePermission('payr
 router.get('/employees/:id', loadAccess, async (req, res, next) => {
   try {
     if (!(await canViewEmployee(req.access, req.params.id))) return forbidden(res);
-    const emp = await leaveService.getEmployeeById(req.params.id);
+    const emp = await leaveService.getEmployeeById(req.params.id, { includeTerminated: true });
     if (!emp) return res.status(404).json({ message: '직원을 찾을 수 없습니다.' });
     res.json(emp);
   } catch (e) {
@@ -1031,6 +1047,243 @@ router.get('/admin/training/sessions/:id/export', requirePermission('training.ma
 router.post('/admin/training/sessions/:id/remind', requirePermission('training.manage'), async (req, res, next) => {
   try {
     res.json(await trainingService.remindSession(req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ───────────── 전자결재 ───────────── */
+
+router.get('/documents', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await documentService.listBox(req.user.employeeId, req.query.box));
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** 참조자 선택용 재직자 목록 */
+router.get('/documents/people', requireAuth, async (req, res, next) => {
+  try {
+    const rows = await getDb()
+      .prepare(
+        `SELECT id, name, emp_no, workplace, department, position FROM employees
+         WHERE is_active = 1 ORDER BY name, id`
+      )
+      .all();
+    res.json(
+      rows.map((row) => ({
+        id: String(row.id),
+        name: row.name,
+        empNo: row.emp_no || '',
+        workplace: row.workplace || '',
+        department: row.department || '',
+        position: row.position || '',
+      }))
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** 새 기안 화면에서 미리 채울 결재자 (직위별 결재선 기준) */
+router.get('/documents/line-suggestion', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await documentService.suggestLine(req.user.employeeId));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/documents/:id', loadAccess, async (req, res, next) => {
+  try {
+    res.json(await documentService.getDocument(req.access, req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/documents', loadAccess, async (req, res, next) => {
+  try {
+    res.status(201).json(await documentService.createDocument(req.user.employeeId, req.body || {}, { access: req.access }));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/documents/:id/approve', loadAccess, async (req, res, next) => {
+  try {
+    res.json(await documentService.approveDocument(req.access, req.params.id, req.body?.comment));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/documents/:id/reject', loadAccess, async (req, res, next) => {
+  try {
+    res.json(await documentService.rejectDocument(req.access, req.params.id, req.body?.reason));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/documents/:id/withdraw', loadAccess, async (req, res, next) => {
+  try {
+    res.json(await documentService.withdrawDocument(req.access, req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/documents', requirePermission('documents.manage'), async (req, res, next) => {
+  try {
+    res.json(await documentService.listAll(req.query));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/documents/export', requirePermission('documents.manage'), async (req, res, next) => {
+  try {
+    const { filename, headers, rows } = await documentService.exportAll(req.query);
+    csvResponse(res, filename, headers, rows);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ───────────── 증명서 ───────────── */
+
+router.get('/certificates/mine', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await certificateService.listMine(req.user.employeeId));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/certificates/requests', requireAuth, async (req, res, next) => {
+  try {
+    res.status(201).json(await certificateService.createRequest(req.user.employeeId, req.body || {}));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/certificates/requests/:id/cancel', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await certificateService.cancelRequest(req.user.employeeId, req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/certificates/:id', loadAccess, async (req, res, next) => {
+  try {
+    res.json(await certificateService.getCertificate(req.access, req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/certificates', requirePermission('certificates.manage'), async (req, res, next) => {
+  try {
+    res.json(await certificateService.listRegister(req.query));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/certificates/export', requirePermission('certificates.manage'), async (req, res, next) => {
+  try {
+    const { filename, headers, rows } = await certificateService.exportRegister(req.query);
+    csvResponse(res, filename, headers, rows);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/certificates/targets', requirePermission('certificates.manage'), async (req, res, next) => {
+  try {
+    res.json(await certificateService.listIssueTargets());
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/certificates/requests', requirePermission('certificates.manage'), async (req, res, next) => {
+  try {
+    res.json(await certificateService.listRequests(req.access, req.query));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/certificates/requests/:id', requirePermission('certificates.manage'), async (req, res, next) => {
+  try {
+    res.json(await certificateService.getRequest(req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/certificates/requests/:id/reject', requirePermission('certificates.manage'), async (req, res, next) => {
+  try {
+    res.json(await certificateService.rejectRequest(req.access.employee, req.params.id, req.body?.reason));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/certificates/:id/revoke', requirePermission('certificates.manage'), async (req, res, next) => {
+  try {
+    res.json(await certificateService.revokeCertificate(req.access.employee, req.params.id, req.body?.reason));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/certificate-settings', requirePermission('certificates.manage'), async (req, res, next) => {
+  try {
+    res.json(await certificateService.getSettings());
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.put('/admin/certificate-settings', requirePermission('certificates.manage'), async (req, res, next) => {
+  try {
+    res.json(await certificateService.saveSettings(req.body || {}));
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** 로그인 없이 쓰는 진위 확인. IP마다 10분에 30번까지 받습니다. */
+const VERIFY_WINDOW_MS = 10 * 60 * 1000;
+const VERIFY_LIMIT = 30;
+const verifyHits = new Map();
+
+function verifyRateLimited(ip) {
+  const now = Date.now();
+  if (verifyHits.size > 5000) {
+    for (const [key, hit] of verifyHits) if (hit.resetAt <= now) verifyHits.delete(key);
+  }
+  const hit = verifyHits.get(ip);
+  if (!hit || hit.resetAt <= now) {
+    verifyHits.set(ip, { count: 1, resetAt: now + VERIFY_WINDOW_MS });
+    return false;
+  }
+  hit.count += 1;
+  return hit.count > VERIFY_LIMIT;
+}
+
+router.get('/public/certificates/verify', async (req, res, next) => {
+  try {
+    if (verifyRateLimited(await requestIp(req))) {
+      return res.status(429).json({ message: '조회가 너무 많습니다. 10분 뒤에 다시 시도하세요.' });
+    }
+    res.json(await certificateService.verifyCertificate(req.query.no, req.query.code));
   } catch (e) {
     next(e);
   }

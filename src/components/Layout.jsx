@@ -24,6 +24,9 @@ import {
   UserCheck,
   PenLine,
   GraduationCap,
+  FileCheck,
+  FileBadge,
+  Files,
 } from 'lucide-react';
 import { ASSIGNABLE_ROLES, ROLE_LABELS, canAccessAdmin, hasPermission } from '../utils/access';
 import { useAppStore } from '../store/useAppStore';
@@ -36,6 +39,8 @@ const employeeNav = [
   { to: '/employee', icon: LayoutDashboard, label: 'Home', end: true },
   { to: '/employee/notices', icon: Megaphone, label: '공지사항' },
   { to: '/employee/attendance', icon: Clock, label: '출퇴근' },
+  { to: '/employee/documents', icon: FileCheck, label: '전자결재' },
+  { to: '/employee/certificates', icon: FileBadge, label: '증명서' },
   { to: '/employee/training', icon: GraduationCap, label: '법정의무교육' },
   { to: '/employee/history', icon: History, label: '연차 사용현황' },
   { to: '/employee/calendar', icon: Calendar, label: '캘린더' },
@@ -52,6 +57,8 @@ const adminNav = [
   { to: '/admin/personnel', icon: Contact, label: '인사기록카드', permission: 'records.view' },
   { to: '/admin/evaluations', icon: UserCheck, label: '수습·정기 평가', permission: 'evaluations.manage' },
   { to: '/admin/training', icon: GraduationCap, label: '법정의무교육', permission: 'training.manage' },
+  { to: '/admin/documents', icon: Files, label: '전자결재 문서함', permission: 'documents.manage' },
+  { to: '/admin/certificates', icon: FileBadge, label: '증명서 발급', permission: 'certificates.manage' },
   { to: '/admin/attendance', icon: Clock, label: '근태 현황', permission: 'attendance.view' },
   { to: '/admin/attendance-settings', icon: Settings2, label: '근태 설정', permission: 'attendance.manage' },
   { to: '/admin/approval-lines', icon: GitBranch, label: '결재 라인', permission: 'approvalLines.manage' },
@@ -69,7 +76,7 @@ function primaryRoleLabel(employee) {
 function NavItems({ items, onNavigate, className = '' }) {
   return (
     <>
-      {items.map(({ to, icon: Icon, label, end }) => (
+      {items.map(({ to, icon: Icon, label, end, badge }) => (
         <NavLink
           key={to}
           to={to}
@@ -79,6 +86,11 @@ function NavItems({ items, onNavigate, className = '' }) {
         >
           <Icon className="h-4 w-4 opacity-80 shrink-0" />
           {label}
+          {badge > 0 && (
+            <span className="ml-auto rounded-full bg-[#df1b41] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+              {badge}
+            </span>
+          )}
         </NavLink>
       ))}
     </>
@@ -119,7 +131,9 @@ export function Layout() {
   const canReviewRemote =
     (canApprove && currentEmployee?.position !== '대표이사') || hasPermission(currentEmployee, 'attendance.edit');
   const employeeItems = [
-    ...employeeNav,
+    ...employeeNav.map((item) =>
+      item.to === '/employee/documents' ? { ...item, badge: currentEmployee?.documentTasks || 0 } : item
+    ),
     ...(canApprove ? [{ to: '/employee/approvals', icon: ClipboardCheck, label: '연차 승인' }] : []),
     ...(canReviewRemote
       ? [{ to: '/employee/attendance-reviews', icon: MapPinCheck, label: '외근·출장 확인' }]
@@ -131,7 +145,11 @@ export function Layout() {
       ? [{ to: '/employee/evaluations', icon: PenLine, label: '평가 작성' }]
       : []),
   ];
-  const adminItems = adminNav.filter((item) => !item.permission || hasPermission(currentEmployee, item.permission));
+  const adminItems = adminNav
+    .filter((item) => !item.permission || hasPermission(currentEmployee, item.permission))
+    .map((item) =>
+      item.to === '/admin/certificates' ? { ...item, badge: currentEmployee?.certificateRequestTasks || 0 } : item
+    );
   if (canReviewRemote) {
     const index = adminItems.findIndex((item) => item.to === '/admin/attendance');
     adminItems.splice(index >= 0 ? index + 1 : adminItems.length, 0, {

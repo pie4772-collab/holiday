@@ -198,6 +198,41 @@ export async function listLineApprovers(requester, usageStep) {
   });
 }
 
+function isAdminStep(step) {
+  return step === '관리자' || step === '인사';
+}
+
+/** 전자결재 문서의 한 단계(step)를 이 사람이 결재선 규칙으로 처리할 수 있는지. 인사·관리자 단계는 is_admin 입니다. */
+export async function matchesDocumentStep(approver, requester, step) {
+  if (!approver?.is_active || !requester) return false;
+  if (Number(approver.id) === Number(requester.id)) return false;
+  if (isAdminStep(step)) return Boolean(approver.is_admin);
+  return approverMatchesStep(approver, requester, step, await loadStepSeat(step, requester));
+}
+
+export async function listDocumentStepApprovers(requester, step) {
+  const seat = isAdminStep(step) ? null : await loadStepSeat(step, requester);
+  const rows = await getDb().prepare('SELECT * FROM employees WHERE is_active = 1').all();
+  return rows.filter((approver) => {
+    if (Number(approver.id) === Number(requester.id)) return false;
+    if (isAdminStep(step)) return Boolean(approver.is_admin);
+    return approverMatchesStep(approver, requester, step, seat);
+  });
+}
+
+/** 결재란·진행 표시에 쓸 단계 이름. 좌석이면 좌석 이름과 담당자를 붙입니다. */
+export async function describeDocumentStep(requester, step) {
+  if (step === '담당' || step === '임원') {
+    const seat = await findSeatForDepartment(step, requester);
+    if (!seat) return { label: step === '임원' ? '소관 임원' : '담당자', assignee: null };
+    return { label: seat.title, assignee: (await seatAssigneeName(seat)) || null };
+  }
+  if (step === '대표이사') return { label: '대표이사', assignee: await seatAssigneeName(await getSeatByKey('ceo')) };
+  if (step === '공장장') return { label: '공장장·임원', assignee: null };
+  if (step === '관리자') return { label: '관리자', assignee: null };
+  return { label: step, assignee: null };
+}
+
 export function listAdminEmployees() {
   return getDb()
     .prepare('SELECT * FROM employees WHERE is_active = 1 AND is_admin = 1 ORDER BY name, id')

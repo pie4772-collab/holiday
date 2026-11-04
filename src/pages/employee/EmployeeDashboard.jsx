@@ -5,7 +5,7 @@ import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Panel, PanelHeader, PanelBody } from '../../components/ui/Panel';
 import { Badge } from '../../components/ui/Badge';
-import { CheckCircle, GraduationCap, PenLine } from 'lucide-react';
+import { CheckCircle, FileCheck, GraduationCap, PenLine } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useCurrentEmployee, useLeaveUsages } from '../../hooks/useLeaveData';
 import { formatDate } from '../../utils/leaveCalculations';
@@ -66,6 +66,19 @@ export function EmployeeDashboard() {
             작성할 평가가 {employee.evaluationTasks}건 있습니다. 기한 안에 제출해 주세요.
           </span>
           <span className="shrink-0 font-medium">평가 작성</span>
+        </Link>
+      )}
+
+      {employee.documentTasks > 0 && (
+        <Link
+          to="/employee/documents?box=todo"
+          className="mb-6 flex items-center justify-between gap-3 rounded-md border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-700 hover:bg-primary-100"
+        >
+          <span className="flex items-center gap-2">
+            <FileCheck className="h-4 w-4 shrink-0" />
+            결재할 문서가 {employee.documentTasks}건 있습니다.
+          </span>
+          <span className="shrink-0 font-medium">결재하기</span>
         </Link>
       )}
 

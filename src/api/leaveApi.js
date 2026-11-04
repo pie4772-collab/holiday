@@ -50,6 +50,14 @@ export const leaveApi = {
     return apiClient('/employees');
   },
 
+  async getTerminatedLeaveEmployees() {
+    if (USE_MOCK) {
+      await delay();
+      return [];
+    }
+    return apiClient('/admin/terminated-employees/leave');
+  },
+
   async getAdminStats() {
     if (USE_MOCK) {
       await delay();
@@ -483,6 +491,113 @@ export const leaveApi = {
     const API_BASE = import.meta.env.VITE_API_BASE || '/api';
     const token = getAuthToken();
     const response = await fetch(`${API_BASE}/admin/training/sessions/${id}/export`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: '내려받기 실패' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.blob();
+  },
+
+  async getDocumentBox(box) {
+    return apiClient(`/documents?box=${encodeURIComponent(box || 'todo')}`);
+  },
+
+  async getDocument(id) {
+    return apiClient(`/documents/${id}`);
+  },
+
+  async getDocumentPeople() {
+    return apiClient('/documents/people');
+  },
+
+  async getDocumentLineSuggestion() {
+    return apiClient('/documents/line-suggestion');
+  },
+
+  async createDocument(data) {
+    return apiClient('/documents', { method: 'POST', body: data });
+  },
+
+  async approveDocument(id, comment) {
+    return apiClient(`/documents/${id}/approve`, { method: 'POST', body: { comment } });
+  },
+
+  async rejectDocument(id, reason) {
+    return apiClient(`/documents/${id}/reject`, { method: 'POST', body: { reason } });
+  },
+
+  async withdrawDocument(id) {
+    return apiClient(`/documents/${id}/withdraw`, { method: 'POST' });
+  },
+
+  async getAdminDocuments(filters = {}) {
+    return apiClient(`/admin/documents?${new URLSearchParams(filters)}`);
+  },
+
+  async getMyCertificates() {
+    return apiClient('/certificates/mine');
+  },
+
+  async getCertificate(id) {
+    return apiClient(`/certificates/${id}`);
+  },
+
+  async requestCertificate(data) {
+    return apiClient('/certificates/requests', { method: 'POST', body: data });
+  },
+
+  async cancelCertificateRequest(id) {
+    return apiClient(`/certificates/requests/${id}/cancel`, { method: 'POST' });
+  },
+
+  async getCertificateRequests(filters = {}) {
+    return apiClient(`/admin/certificates/requests?${new URLSearchParams(filters)}`);
+  },
+
+  async getCertificateRequest(id) {
+    return apiClient(`/admin/certificates/requests/${id}`);
+  },
+
+  async rejectCertificateRequest(id, reason) {
+    return apiClient(`/admin/certificates/requests/${id}/reject`, { method: 'POST', body: { reason } });
+  },
+
+  async getCertificateRegister(filters = {}) {
+    return apiClient(`/admin/certificates?${new URLSearchParams(filters)}`);
+  },
+
+  async getCertificateTargets() {
+    return apiClient('/admin/certificates/targets');
+  },
+
+  async revokeCertificate(id, reason) {
+    return apiClient(`/admin/certificates/${id}/revoke`, { method: 'POST', body: { reason } });
+  },
+
+  async getCertificateSettings() {
+    return apiClient('/admin/certificate-settings');
+  },
+
+  async saveCertificateSettings(data) {
+    return apiClient('/admin/certificate-settings', { method: 'PUT', body: data });
+  },
+
+  /** 로그인 없이 쓰는 화면이라 토큰을 보내지 않습니다. */
+  async verifyCertificate(no, code) {
+    const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+    const response = await fetch(`${API_BASE}/public/certificates/verify?${new URLSearchParams({ no, code })}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || `HTTP ${response.status}`);
+    return data;
+  },
+
+  /** path 예: /admin/documents/export?year=2026 */
+  async downloadCsv(path) {
+    const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+    const token = getAuthToken();
+    const response = await fetch(`${API_BASE}${path}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!response.ok) {

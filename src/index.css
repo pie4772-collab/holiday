@@ -30,8 +30,72 @@ body {
 }
 
 .evaluation-print,
-.training-print {
+.training-print,
+.document-print,
+.certificate-print {
   display: none;
+}
+
+/* 전자결재 서식 본문 (편집기·문서 보기·인쇄 공용). Tailwind 기본값이 지운 목록·제목 모양을 되살립니다. */
+.rich-content {
+  font-family: "Batang", "바탕", serif;
+  font-size: 12pt;
+  line-height: 1.5;
+  color: #111;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.rich-content p,
+.rich-content div {
+  margin: 0;
+}
+.rich-content h1 {
+  font-size: 1.6em;
+  font-weight: 700;
+  margin: 0.4em 0;
+}
+.rich-content h2 {
+  font-size: 1.35em;
+  font-weight: 700;
+  margin: 0.35em 0;
+}
+.rich-content h3 {
+  font-size: 1.15em;
+  font-weight: 700;
+  margin: 0.3em 0;
+}
+.rich-content ul {
+  list-style: disc;
+  padding-left: 1.6em;
+}
+.rich-content ol {
+  list-style: decimal;
+  padding-left: 1.6em;
+}
+.rich-content hr {
+  border: 0;
+  border-top: 1px solid #999;
+  margin: 0.6em 0;
+}
+.rich-content blockquote {
+  border-left: 3px solid #ccc;
+  padding-left: 0.8em;
+  color: #444;
+}
+.rich-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.4em 0;
+}
+.rich-content td,
+.rich-content th {
+  border: 1px solid #555;
+  padding: 2px 6px;
+  min-width: 2em;
+  vertical-align: top;
+}
+.rich-content th {
+  background: #f2f2f2;
 }
 
 @media print {
@@ -40,15 +104,21 @@ body {
     margin: 12mm;
   }
   body:has(> .evaluation-print),
-  body:has(> .training-print) {
+  body:has(> .training-print),
+  body:has(> .document-print),
+  body:has(> .certificate-print) {
     background: #fff;
   }
   body:has(> .evaluation-print) > :not(.evaluation-print),
-  body:has(> .training-print) > :not(.training-print) {
+  body:has(> .training-print) > :not(.training-print),
+  body:has(> .document-print) > :not(.document-print),
+  body:has(> .certificate-print) > :not(.certificate-print) {
     display: none !important;
   }
   .evaluation-print,
-  .training-print {
+  .training-print,
+  .document-print,
+  .certificate-print {
     display: block;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;

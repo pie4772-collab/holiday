@@ -61,6 +61,7 @@ export function AdminLeaveManage() {
   const [accrualModal, setAccrualModal] = useState({ open: false, item: null });
   const [usageModal, setUsageModal] = useState({ open: false, item: null });
   const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
   const accrualSort = useTableSort(accruals, accrualSortValue);
   const usageSort = useTableSort(usages, usageSortValue);
 
@@ -77,60 +78,111 @@ export function AdminLeaveManage() {
   }
 
   const year = employee.leaveSummary.displayYear;
+  const terminatedDate = employee.terminatedDate || null;
+  const locked = Boolean(employee.resignation?.settled);
+  const dateLimits = terminatedDate ? { minDate: `${year}-01-01`, maxDate: terminatedDate } : {};
 
   function showMsg(text) {
+    setError('');
     setMessage(text);
     setTimeout(() => setMessage(''), 3000);
   }
 
-  async function handleAccrualSubmit(data) {
-    if (accrualModal.item) {
-      await updateAccrual.mutateAsync({ id: accrualModal.item.id, employeeId: id, ...data });
-      showMsg('연차 발생 내역이 수정되었습니다.');
-    } else {
-      await createAccrual.mutateAsync({ employeeId: id, ...data });
-      showMsg('연차 발생 내역이 추가되었습니다.');
-    }
-    setAccrualModal({ open: false, item: null });
+  function openAccrual(item = null) {
+    setError('');
+    setAccrualModal({ open: true, item });
   }
 
-  async function handleUsageSubmit(data) {
-    if (usageModal.item) {
-      await updateUsage.mutateAsync({ id: usageModal.item.id, employeeId: id, ...data });
-      showMsg('연차 사용 내역이 수정되었습니다.');
-    } else {
-      await createUsage.mutateAsync({ employeeId: id, ...data });
-      showMsg('연차 사용 내역이 추가되었습니다.');
-    }
-    setUsageModal({ open: false, item: null });
-    await refetch();
+  function openUsage(item = null) {
+    setError('');
+    setUsageModal({ open: true, item });
   }
 
-  async function handleDeleteAccrual(item) {
+  async function run(action) {
+    try {
+      await action();
+    } catch (e) {
+      setError(e.message || '저장하지 못했습니다.');
+    }
+  }
+
+  function handleAccrualSubmit(data) {
+    return run(async () => {
+      if (accrualModal.item) {
+        await updateAccrual.mutateAsync({ id: accrualModal.item.id, employeeId: id, ...data });
+        showMsg('연차 발생 내역이 수정되었습니다.');
+      } else {
+        await createAccrual.mutateAsync({ employeeId: id, ...data });
+        showMsg('연차 발생 내역이 추가되었습니다.');
+      }
+      setAccrualModal({ open: false, item: null });
+    });
+  }
+
+  function handleUsageSubmit(data) {
+    return run(async () => {
+      if (usageModal.item) {
+        await updateUsage.mutateAsync({ id: usageModal.item.id, employeeId: id, ...data });
+        showMsg('연차 사용 내역이 수정되었습니다.');
+      } else {
+        await createUsage.mutateAsync({ employeeId: id, ...data });
+        showMsg('연차 사용 내역이 추가되었습니다.');
+      }
+      setUsageModal({ open: false, item: null });
+      await refetch();
+    });
+  }
+
+  function handleDeleteAccrual(item) {
     if (!confirm('이 연차 발생 내역을 삭제하시겠습니까?')) return;
-    await deleteAccrual.mutateAsync({ id: item.id, employeeId: id });
-    showMsg('연차 발생 내역이 삭제되었습니다.');
+    return run(async () => {
+      await deleteAccrual.mutateAsync({ id: item.id, employeeId: id });
+      showMsg('연차 발생 내역이 삭제되었습니다.');
+    });
   }
 
-  async function handleDeleteUsage(item) {
+  function handleDeleteUsage(item) {
     if (!confirm('이 연차 사용 내역을 삭제하시겠습니까?')) return;
-    await deleteUsage.mutateAsync({ id: item.id, employeeId: id });
-    showMsg('연차 사용 내역이 삭제되었습니다.');
-    await refetch();
+    return run(async () => {
+      await deleteUsage.mutateAsync({ id: item.id, employeeId: id });
+      showMsg('연차 사용 내역이 삭제되었습니다.');
+      await refetch();
+    });
   }
 
   return (
     <div>
       <PageHeader
-        title="연차 수정"
-        description={`${employee.name} · ${year}년 · 잔여 ${employee.leaveSummary.remaining}일`}
+        title={locked ? '연차 내역' : '연차 수정'}
+        description={`${employee.name}${terminatedDate ? ' (퇴사)' : ''} · ${year}년 · ${
+          terminatedDate ? '퇴사일 기준 ' : ''
+        }잔여 ${employee.leaveSummary.remaining}일`}
         backTo="/admin/leave-manage"
         backLabel="연차 관리"
       />
 
+      {terminatedDate && (
+        <div
+          className={`mb-6 rounded-md border px-4 py-3 text-sm ${
+            locked
+              ? 'border-stripe-border bg-[#f6f9fc] text-stripe-muted'
+              : 'border-[#fde68a] bg-[#fffbeb] text-[#92400e]'
+          }`}
+        >
+          {locked
+            ? `${terminatedDate} 퇴사 · ${year}년 연차 정산에서 퇴사 정산을 확정(${employee.resignation.settledAt})해 수정할 수 없습니다.`
+            : `${terminatedDate} 퇴사 · 퇴사 정산 확정 전이라 발생·사용 내역을 고칠 수 있습니다. 잔여는 퇴사일 기준이며, 날짜는 퇴사일까지만 넣을 수 있습니다. 고친 뒤 연차 정산에서 퇴사 정산을 확정하세요.`}
+        </div>
+      )}
+
       {message && (
         <div className="mb-6 rounded-md border border-[#d7f7c2] bg-[#f6fef9] px-4 py-3 text-sm text-[#09825d]">
           {message}
+        </div>
+      )}
+      {error && (
+        <div className="mb-6 rounded-md border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-sm text-[#df1b41]">
+          {error}
         </div>
       )}
 
@@ -138,10 +190,12 @@ export function AdminLeaveManage() {
         <PanelHeader
           title={`${year}년 연차 발생`}
           actions={
-            <Button size="sm" onClick={() => setAccrualModal({ open: true, item: null })}>
-              <Plus className="h-3.5 w-3.5" />
-              추가
-            </Button>
+            !locked && (
+              <Button size="sm" onClick={() => openAccrual()}>
+                <Plus className="h-3.5 w-3.5" />
+                추가
+              </Button>
+            )
           }
         />
         {accrualsLoading ? (
@@ -176,10 +230,12 @@ export function AdminLeaveManage() {
                     <td className="muted text-[13px]">{item.description}</td>
                     <td>
                       <div className="flex items-center justify-center gap-1">
-                        {item.isManual ? (
+                        {item.isManual && locked ? (
+                          <span className="text-xs text-stripe-muted">수동</span>
+                        ) : item.isManual ? (
                           <>
                             <button
-                              onClick={() => setAccrualModal({ open: true, item })}
+                              onClick={() => openAccrual(item)}
                               className="rounded p-1.5 text-stripe-muted hover:bg-[#f0f3f7] hover:text-primary-500"
                             >
                               <Pencil className="h-3.5 w-3.5" />
@@ -208,10 +264,12 @@ export function AdminLeaveManage() {
         <PanelHeader
           title={`${year}년 연차 사용`}
           actions={
-            <Button size="sm" onClick={() => setUsageModal({ open: true, item: null })}>
-              <Plus className="h-3.5 w-3.5" />
-              추가
-            </Button>
+            !locked && (
+              <Button size="sm" onClick={() => openUsage()}>
+                <Plus className="h-3.5 w-3.5" />
+                추가
+              </Button>
+            )
           }
         />
         {usagesLoading ? (
@@ -227,7 +285,7 @@ export function AdminLeaveManage() {
                   <th><SortButton label="유형" column="type" {...usageSort} /></th>
                   <th><SortButton label="사유" column="reason" {...usageSort} /></th>
                   <th className="text-center"><SortButton label="상태" column="status" {...usageSort} /></th>
-                  <th className="text-center">관리</th>
+                  {!locked && <th className="text-center">관리</th>}
                 </tr>
               </thead>
               <tbody>
@@ -253,22 +311,24 @@ export function AdminLeaveManage() {
                         {item.status === 'approved' ? '승인' : item.status === 'rejected' ? '반려' : '대기'}
                       </Badge>
                     </td>
-                    <td>
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => setUsageModal({ open: true, item })}
-                          className="rounded p-1.5 text-stripe-muted hover:bg-[#f0f3f7] hover:text-primary-500"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteUsage(item)}
-                          className="rounded p-1.5 text-stripe-muted hover:bg-[#fee2e2] hover:text-[#df1b41]"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </td>
+                    {!locked && (
+                      <td>
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => openUsage(item)}
+                            className="rounded p-1.5 text-stripe-muted hover:bg-[#f0f3f7] hover:text-primary-500"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteUsage(item)}
+                            className="rounded p-1.5 text-stripe-muted hover:bg-[#fee2e2] hover:text-[#df1b41]"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -279,18 +339,28 @@ export function AdminLeaveManage() {
 
       <LeaveAccrualFormModal
         isOpen={accrualModal.open}
-        onClose={() => setAccrualModal({ open: false, item: null })}
+        onClose={() => {
+          setError('');
+          setAccrualModal({ open: false, item: null });
+        }}
         onSubmit={handleAccrualSubmit}
         isSubmitting={createAccrual.isPending || updateAccrual.isPending}
         initial={accrualModal.item}
         displayYear={year}
+        error={accrualModal.open ? error : ''}
+        {...dateLimits}
       />
       <LeaveUsageFormModal
         isOpen={usageModal.open}
-        onClose={() => setUsageModal({ open: false, item: null })}
+        onClose={() => {
+          setError('');
+          setUsageModal({ open: false, item: null });
+        }}
         onSubmit={handleUsageSubmit}
         isSubmitting={createUsage.isPending || updateUsage.isPending}
         initial={usageModal.item}
+        error={usageModal.open ? error : ''}
+        {...dateLimits}
       />
     </div>
   );

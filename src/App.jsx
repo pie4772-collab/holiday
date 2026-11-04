@@ -41,6 +41,13 @@ import { AdminLeaveReport } from './pages/admin/AdminLeaveReport';
 import { AdminLeaveSettlement } from './pages/admin/AdminLeaveSettlement';
 import { AdminLeaveEventSettlement } from './pages/admin/AdminLeaveEventSettlement';
 import { AdminMailSettings } from './pages/admin/AdminMailSettings';
+import { EmployeeDocuments } from './pages/employee/EmployeeDocuments';
+import { EmployeeDocumentNew } from './pages/employee/EmployeeDocumentNew';
+import { EmployeeDocumentDetail } from './pages/employee/EmployeeDocumentDetail';
+import { EmployeeCertificates } from './pages/employee/EmployeeCertificates';
+import { AdminDocuments } from './pages/admin/AdminDocuments';
+import { AdminCertificates } from './pages/admin/AdminCertificates';
+import { VerifyCertificatePage } from './pages/VerifyCertificatePage';
 import { useAppStore } from './store/useAppStore';
 import { useCurrentEmployee, useLeaveRequest } from './hooks/useLeaveData';
 
@@ -126,6 +133,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/verify" element={<VerifyCertificatePage />} />
       <Route path="/change-password" element={<RequireAuth><ChangePasswordPage /></RequireAuth>} />
       <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
         <Route index element={<RoleRedirect />} />
@@ -144,6 +152,10 @@ function AppRoutes() {
           <Route path="evaluations" element={<EmployeeEvaluations />} />
           <Route path="training" element={<EmployeeTraining />} />
           <Route path="training/:id" element={<EmployeeTrainingDetail />} />
+          <Route path="documents" element={<EmployeeDocuments />} />
+          <Route path="documents/new" element={<EmployeeDocumentNew />} />
+          <Route path="documents/:id" element={<EmployeeDocumentDetail />} />
+          <Route path="certificates" element={<EmployeeCertificates />} />
           <Route
             path="team"
             element={
@@ -164,6 +176,9 @@ function AppRoutes() {
           <Route path="evaluations" element={guard('evaluations.manage', <AdminEvaluations />)} />
           <Route path="training" element={guard('training.manage', <AdminTraining />)} />
           <Route path="training/:id" element={guard('training.manage', <AdminTrainingSession />)} />
+          <Route path="documents" element={guard('documents.manage', <AdminDocuments />)} />
+          <Route path="documents/:id" element={guard('documents.manage', <EmployeeDocumentDetail />)} />
+          <Route path="certificates" element={guard('certificates.manage', <AdminCertificates />)} />
           <Route path="attendance" element={guard('attendance.view', <AdminAttendance />)} />
           <Route path="attendance/:id" element={guard('attendance.view', <AdminAttendanceEmployee />)} />
           <Route path="attendance-reviews" element={<AttendanceRemoteReviews />} />

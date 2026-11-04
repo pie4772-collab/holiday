@@ -302,12 +302,76 @@ function mapAccrualRow(row) {
   };
 }
 
-function getEmployeeRow(id) {
+function getEmployeeRow(id, { includeTerminated = false } = {}) {
   const dbId = parseEmployeeId(id);
   if (!dbId || Number.isNaN(dbId)) return null;
   return getDb()
-    .prepare(`${EMPLOYEE_SNAPSHOT_SELECT} WHERE e.id = ? AND e.is_active = 1`)
+    .prepare(`${EMPLOYEE_SNAPSHOT_SELECT} WHERE e.id = ?${includeTerminated ? '' : ' AND e.is_active = 1'}`)
     .get(dbId);
+}
+
+function terminatedDateOf(row) {
+  return !row.is_active && row.terminated_date ? String(row.terminated_date).slice(0, 10) : null;
+}
+
+/** 퇴사자는 퇴사일 기준 잔여(연차 정산의 중도 퇴사 정산일수와 같은 계산) */
+function buildEmployeeLeaveSummary(row) {
+  const terminatedDate = terminatedDateOf(row);
+  if (!terminatedDate) return buildLeaveSummary(row);
+  return buildLeaveSummary(row, {
+    asOfDate: new Date(terminatedDate),
+    consumptionAsOf: new Date(terminatedDate),
+  });
+}
+
+/** 퇴사 연도 연차 정산이 이 직원의 중도 퇴사 항목을 담아 확정됐는지 */
+async function getResignationStatus(row) {
+  const terminatedDate = terminatedDateOf(row);
+  if (!terminatedDate) return null;
+  const saved = await getSavedEventSettlement(Number(terminatedDate.slice(0, 4)));
+  let settled = false;
+  if (saved) {
+    try {
+      const payload = JSON.parse(saved.payload);
+      settled = (payload.workplaces || []).some((group) =>
+        (group.employees || []).some(
+          (item) => item.employeeId === toApiId(row.id) && item.eventType === 'resignation'
+        )
+      );
+    } catch {
+      settled = false;
+    }
+  }
+  return {
+    terminatedDate,
+    settled,
+    settledAt: settled ? saved.generated_at : null,
+  };
+}
+
+/** 정산이 확정된 퇴사자의 연차는 고칠 수 없고, 퇴사자는 퇴사일 이후 날짜를 넣을 수 없습니다. */
+async function assertLeaveEditable(employeeDbId, dates = [], { accrual = false } = {}) {
+  const row = await getDb().prepare('SELECT * FROM employees WHERE id = ?').get(employeeDbId);
+  if (!row) throw httpError('직원을 찾을 수 없습니다.', 404);
+  const status = await getResignationStatus(row);
+  if (!status) return;
+  if (status.settled) {
+    throw httpError(
+      `${status.terminatedDate.slice(0, 4)}년 연차 정산에서 퇴사 정산이 확정되어 연차를 수정할 수 없습니다.`,
+      409
+    );
+  }
+  const year = status.terminatedDate.slice(0, 4);
+  for (const date of dates) {
+    const key = String(date || '').slice(0, 10);
+    if (!key) continue;
+    if (key > status.terminatedDate) {
+      throw httpError(`퇴사일(${status.terminatedDate}) 이후 날짜는 넣을 수 없습니다.`);
+    }
+    if (accrual && key.slice(0, 4) !== year) {
+      throw httpError(`퇴사자의 연차 발생은 퇴사 연도(${year}년) 날짜로 넣어 주세요.`);
+    }
+  }
 }
 
 async function getApprovedUsages(dbId) {
@@ -517,11 +581,11 @@ async function getSnapshotAwareCarryInDays(row, asOfDate, options = {}) {
   return Number(prior.overusedDays) || 0;
 }
 
-function buildAutoAccrualLogs(employee, balance) {
+function buildAutoAccrualLogs(employee, balance, asOf = getBalanceAsOf()) {
   const logs = [];
   const hireDate = employee.hireDate;
   const displayYear = balance.displayYear;
-  const monthlyInYear = getMonthlyAccrualInYear(hireDate, displayYear, getBalanceAsOf());
+  const monthlyInYear = getMonthlyAccrualInYear(hireDate, displayYear, asOf);
 
   for (let m = 1; m <= monthlyInYear; m++) {
     let count = 0;
@@ -584,8 +648,8 @@ function buildAutoAccrualLogs(employee, balance) {
   return logs;
 }
 
-async function buildAccrualLogs(employee, balance) {
-  const auto = buildAutoAccrualLogs(employee, balance);
+async function buildAccrualLogs(employee, balance, asOf) {
+  const auto = buildAutoAccrualLogs(employee, balance, asOf);
   const manual = await getManualAccruals(parseEmployeeId(employee.id), balance.displayYear);
   return [...auto, ...manual].sort((a, b) => new Date(b.date) - new Date(a.date));
 }
@@ -604,18 +668,46 @@ export async function getAllEmployees(employeeIds = null) {
   return employees;
 }
 
-export async function getEmployeeById(id) {
-  const row = await getEmployeeRow(id);
+/** 연차 관리의 퇴사자 목록: 퇴사일 기준 잔여와 퇴사 정산 확정 여부 */
+export async function getTerminatedEmployees(employeeIds = null) {
+  const rows = await getDb()
+    .prepare(
+      `${EMPLOYEE_SNAPSHOT_SELECT}
+       WHERE e.is_active = 0 AND e.terminated_date IS NOT NULL
+       ORDER BY e.terminated_date DESC, e.name, e.id`
+    )
+    .all();
+
+  const employees = [];
+  for (const row of rows) {
+    if (employeeIds && !employeeIds.has(String(row.id))) continue;
+    employees.push({
+      ...toEmployeeBase(row),
+      isActive: false,
+      terminatedDate: terminatedDateOf(row),
+      resignation: await getResignationStatus(row),
+      leaveSummary: await buildEmployeeLeaveSummary(row),
+    });
+  }
+  return employees;
+}
+
+export async function getEmployeeById(id, { includeTerminated = false } = {}) {
+  const row = await getEmployeeRow(id, { includeTerminated });
   if (!row) return null;
 
   const base = toEmployeeBase(row);
-  const leaveSummary = await buildLeaveSummary(row);
+  const terminatedDate = terminatedDateOf(row);
+  const leaveSummary = await buildEmployeeLeaveSummary(row);
   const displayYear = leaveSummary.displayYear;
 
   return {
     ...base,
+    ...(terminatedDate
+      ? { isActive: false, terminatedDate, resignation: await getResignationStatus(row) }
+      : {}),
     leaveSummary,
-    accrualLogs: await buildAccrualLogs(base, leaveSummary),
+    accrualLogs: await buildAccrualLogs(base, leaveSummary, terminatedDate ? new Date(terminatedDate) : undefined),
     usages: await getAllUsages(row.id, displayYear),
   };
 }
@@ -1637,7 +1729,7 @@ export async function getSavedLeaveEventSettlement(year) {
 }
 
 export async function getLeaveHistory(employeeId) {
-  const emp = await getEmployeeById(employeeId);
+  const emp = await getEmployeeById(employeeId, { includeTerminated: true });
   return emp?.accrualLogs || [];
 }
 
@@ -1658,9 +1750,10 @@ export function getAdminAccruals(employeeId) {
 }
 
 export async function getAdminUsages(employeeId) {
-  const row = await getEmployeeRow(employeeId);
+  const row = await getEmployeeRow(employeeId, { includeTerminated: true });
   if (!row) return [];
-  return getAllUsages(row.id, getCurrentDisplayYear(getBalanceAsOf()));
+  const terminatedDate = terminatedDateOf(row);
+  return getAllUsages(row.id, terminatedDate ? Number(terminatedDate.slice(0, 4)) : getCurrentDisplayYear(getBalanceAsOf()));
 }
 
 function httpError(message, status = 400) {
@@ -1979,6 +2072,7 @@ export async function cancelLeaveRequest(usageId, employeeId) {
 export async function createAccrual(data) {
   const dbId = parseEmployeeId(data.employeeId);
   if (!dbId) throw new Error('유효하지 않은 직원 ID입니다.');
+  await assertLeaveEditable(dbId, [data.date], { accrual: true });
 
   const result = await getDb()
     .prepare(
@@ -1995,6 +2089,7 @@ export async function createAccrual(data) {
 export async function updateAccrual(id, data) {
   const row = await getDb().prepare('SELECT * FROM leave_accruals WHERE id = ? AND is_manual = 1').get(id);
   if (!row) throw new Error('수동 발생 내역을 찾을 수 없습니다.');
+  await assertLeaveEditable(row.employee_id, [data.date], { accrual: true });
 
   await getDb()
     .prepare(
@@ -2009,8 +2104,10 @@ export async function updateAccrual(id, data) {
 }
 
 export async function deleteAccrual(id) {
-  const result = await getDb().prepare('DELETE FROM leave_accruals WHERE id = ? AND is_manual = 1').run(id);
-  if (result.changes === 0) throw new Error('수동 발생 내역을 찾을 수 없습니다.');
+  const row = await getDb().prepare('SELECT * FROM leave_accruals WHERE id = ? AND is_manual = 1').get(id);
+  if (!row) throw new Error('수동 발생 내역을 찾을 수 없습니다.');
+  await assertLeaveEditable(row.employee_id);
+  await getDb().prepare('DELETE FROM leave_accruals WHERE id = ?').run(row.id);
 }
 
 const USAGE_STATUS_LABELS = { approved: '승인', pending: '대기', rejected: '반려' };
@@ -2035,6 +2132,7 @@ export async function createUsage(data, actor = null) {
   if (!isValidLeaveDate(data.date)) throw new Error('날짜를 확인해주세요.');
   const blocked = leaveBlockedReason(data.date);
   if (blocked) throw httpError(blocked);
+  await assertLeaveEditable(dbId, [data.date]);
 
   const days = data.type === 'half' ? 0.5 : 1;
   const halfPeriod = data.type === 'half' ? normalizeHalfPeriod(data.halfPeriod) : null;
@@ -2061,6 +2159,7 @@ export async function updateUsage(id, data, actor = null) {
   if (!isValidLeaveDate(data.date)) throw new Error('날짜를 확인해주세요.');
   const blocked = leaveBlockedReason(data.date);
   if (blocked) throw httpError(blocked);
+  await assertLeaveEditable(row.employee_id, [data.date]);
 
   const days = data.type === 'half' ? 0.5 : 1;
   const halfPeriod = data.type === 'half' ? normalizeHalfPeriod(data.halfPeriod) : null;
@@ -2087,6 +2186,7 @@ export async function deleteUsage(id, actor = null) {
   await db.transaction(async () => {
     const row = await db.prepare('SELECT * FROM leave_usages WHERE id = ?').get(id);
     if (!row) throw new Error('사용 내역을 찾을 수 없습니다.');
+    await assertLeaveEditable(row.employee_id);
     // 이력이 사용 내역을 참조하므로 지우기 전에 남깁니다(삭제 후에는 참조만 비워집니다).
     await recordAdminUsageLog(row, actor, 'admin_delete', usageStatusNote(row));
     await db.prepare('DELETE FROM leave_usages WHERE id = ?').run(row.id);

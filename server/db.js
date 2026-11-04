@@ -273,6 +273,10 @@ export const LOCK_EMPLOYEE_LEAVE = 1;
 export const LOCK_LEAVE_USAGE = 2;
 export const LOCK_EVALUATION = 3;
 export const LOCK_TRAINING = 4;
+export const LOCK_APPROVAL_DOCUMENT = 5;
+export const LOCK_DOCUMENT_NUMBER = 6;
+export const LOCK_CERTIFICATE_NUMBER = 7;
+export const LOCK_CERTIFICATE_REQUEST = 8;
 
 function activeTx() {
   const store = txContext.getStore();
@@ -283,24 +287,21 @@ function activeTx() {
 function createSqliteBackend(sync) {
   let running = null;
 
-  async function waitIdle() {
-    while (running) await running;
-  }
-
+  // 대기가 끝난 뒤 다시 await 하지 않고 바로 실행해야, 그 사이 다른 요청이 트랜잭션을 시작하지 못합니다.
   return {
     name: sync.driver.name,
     dialect: 'sqlite',
     sync,
     async query(kind, sql, params, tx) {
-      if (!tx) await waitIdle();
+      if (!tx) while (running) await running;
       return sync.execute(kind, sql, params);
     },
     async exec(sql, tx) {
-      if (!tx) await waitIdle();
+      if (!tx) while (running) await running;
       sync.exec(sql);
     },
     async transaction(fn) {
-      await waitIdle();
+      while (running) await running;
       let finish;
       running = new Promise((resolve) => {
         finish = resolve;

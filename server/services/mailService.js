@@ -723,3 +723,189 @@ export async function notifyRemoteReviewed(employee, info, decision, reviewer, r
     console.error('[mail] notifyRemoteReviewed failed:', error.message);
   }
 }
+
+function documentTable(doc) {
+  const rows = [
+    ['양식', doc.formLabel],
+    ['제목', doc.title],
+    ...(doc.summary ? [['내용', doc.summary]] : []),
+    ['기안자', `${doc.drafter.name}${doc.drafter.department ? ` (${doc.drafter.department})` : ''}`],
+    ['기안 일시', String(doc.submittedAt || '').slice(0, 16)],
+    ...(doc.documentNo ? [['문서번호', doc.documentNo]] : []),
+  ];
+  return `<table style="border-collapse:collapse;font-size:14px;">${rows
+    .map(
+      ([label, value]) => `<tr>
+        <td style="padding:4px 12px 4px 0;color:#6b7c93;white-space:nowrap;">${escapeHtml(label)}</td>
+        <td style="padding:4px 0;">${escapeHtml(value)}</td>
+      </tr>`
+    )
+    .join('')}</table>`;
+}
+
+function documentUrl(settings, doc) {
+  return pageUrl(settings, `/employee/documents/${doc.id}`);
+}
+
+/** 결재할 차례가 된 사람들에게 알립니다. */
+/**
+ * 다음 결재자(합의자)에게 알립니다. 앞 단계에서 결재한 사람이 있으면 함께 적습니다.
+ * options: { kind: 'approval' | 'agreement', previous: { name, kind } | null }
+ */
+export async function notifyDocumentPending(approvers, doc, { kind = 'approval', previous = null } = {}) {
+  try {
+    const settings = rowToPublic(await getRow(), true);
+    if (!settings.enabled) return;
+    const to = uniqueEmails(approvers);
+    if (!to.length) return;
+    const action = kind === 'agreement' ? '합의' : '결재';
+    const before = previous?.name
+      ? `<p>${escapeHtml(previous.name)}님이 ${previous.kind === 'agreement' ? '합의' : '결재'}했습니다.</p>`
+      : '';
+    const body = `
+      ${before}
+      <p>${action}할 문서가 도착했습니다.</p>
+      ${documentTable(doc)}
+    `;
+    await sendMail(
+      to.map((r) => r.email),
+      `${action} 요청: [${doc.formLabel}] ${doc.title} (기안 ${doc.drafter.name})`,
+      htmlLayout(`${action} 요청`, body, '문서 보기', documentUrl(settings, doc))
+    );
+  } catch (error) {
+    console.error('[mail] notifyDocumentPending failed:', error.message);
+  }
+}
+
+/** 결재가 끝나면 기안자에게, 참조자는 참조로 알립니다. */
+export async function notifyDocumentCompleted(drafter, doc, refs = []) {
+  try {
+    const settings = rowToPublic(await getRow(), true);
+    if (!settings.enabled) return;
+    const to = uniqueEmails([drafter]);
+    const cc = uniqueEmails(refs);
+    if (!to.length && !cc.length) return;
+    const body = `
+      <p>아래 문서의 결재가 완료되었습니다.</p>
+      ${documentTable(doc)}
+      ${
+        doc.formKey === 'certificate' || doc.formKey === 'certificate_issue'
+          ? '<p>증명서가 발급되었습니다. 증명서 발급대장에서 인쇄할 수 있습니다.</p>'
+          : ''
+      }
+    `;
+    await sendMail(
+      (to.length ? to : cc).map((r) => r.email),
+      `결재 완료: [${doc.formLabel}] ${doc.title}${doc.documentNo ? ` (${doc.documentNo})` : ''}`,
+      htmlLayout('결재 완료', body, '문서 보기', documentUrl(settings, doc)),
+      { cc: to.length ? cc : [] }
+    );
+  } catch (error) {
+    console.error('[mail] notifyDocumentCompleted failed:', error.message);
+  }
+}
+
+export async function notifyDocumentRejected(drafter, doc, actorName, reason, { kind = 'approval' } = {}) {
+  try {
+    const settings = rowToPublic(await getRow(), true);
+    if (!settings.enabled) return;
+    const to = uniqueEmails([drafter]);
+    if (!to.length) return;
+    const by = kind === 'agreement' ? '합의 반대' : '반려';
+    const body = `
+      <p>아래 문서가 <strong>반려</strong>되었습니다.</p>
+      ${documentTable(doc)}
+      <p>${by}: ${escapeHtml(actorName || '-')}${reason ? `<br/>사유: ${escapeHtml(reason)}` : ''}</p>
+      <p>내용을 고쳐 "다시 기안"할 수 있습니다.</p>
+    `;
+    await sendMail(
+      to.map((r) => r.email),
+      `결재 반려: [${doc.formLabel}] ${doc.title}`,
+      htmlLayout('결재 반려', body, '문서 보기', documentUrl(settings, doc))
+    );
+  } catch (error) {
+    console.error('[mail] notifyDocumentRejected failed:', error.message);
+  }
+}
+
+function certificateRequestTable(request) {
+  const rows = [
+    ['증명서', request.typeLabel],
+    ['신청자', `${request.employeeName}${request.department ? ` (${request.department})` : ''}`],
+    ...(request.workplace ? [['사업장', request.workplace]] : []),
+    ['용도', request.request?.purpose || ''],
+    ...(request.request?.submitTo ? [['제출처', request.request.submitTo]] : []),
+    ['신청 일시', String(request.requestedAt || '').slice(0, 16)],
+  ];
+  return `<table style="border-collapse:collapse;font-size:14px;">${rows
+    .map(
+      ([label, value]) => `<tr>
+        <td style="padding:4px 12px 4px 0;color:#6b7c93;white-space:nowrap;">${escapeHtml(label)}</td>
+        <td style="padding:4px 0;">${escapeHtml(value)}</td>
+      </tr>`
+    )
+    .join('')}</table>`;
+}
+
+/** 직원의 증명서 신청을 사업장 인사담당에게 알립니다. */
+export async function notifyCertificateRequested(handlers, request) {
+  try {
+    const settings = rowToPublic(await getRow(), true);
+    if (!settings.enabled) return;
+    const to = uniqueEmails(handlers);
+    if (!to.length) return;
+    const body = `
+      <p>증명서 발급 신청이 접수되었습니다. 내용을 확인하고 관리팀 내부 결재(증명서 발급 품의)로 발급하거나 반려하세요.</p>
+      ${certificateRequestTable(request)}
+    `;
+    await sendMail(
+      to.map((r) => r.email),
+      `증명서 신청: ${request.typeLabel} (${request.employeeName})`,
+      htmlLayout('증명서 발급 신청', body, '신청 확인', pageUrl(settings, '/admin/certificates'))
+    );
+  } catch (error) {
+    console.error('[mail] notifyCertificateRequested failed:', error.message);
+  }
+}
+
+/** 신청한 증명서가 내부 결재를 거쳐 발급되었음을 직원에게 알립니다. */
+export async function notifyCertificateIssued(employee, { typeLabel, certNo }) {
+  try {
+    const settings = rowToPublic(await getRow(), true);
+    if (!settings.enabled) return;
+    const to = uniqueEmails([employee]);
+    if (!to.length) return;
+    const body = `
+      <p>신청하신 <strong>${escapeHtml(typeLabel)}</strong>가 발급되었습니다. (발급번호 ${escapeHtml(certNo)})</p>
+      <p>"증명서" 메뉴에서 인쇄하거나 PDF로 저장할 수 있습니다.</p>
+    `;
+    await sendMail(
+      to.map((r) => r.email),
+      `증명서 발급: ${typeLabel} (${certNo})`,
+      htmlLayout('증명서 발급 완료', body, '증명서 보기', pageUrl(settings, '/employee/certificates'))
+    );
+  } catch (error) {
+    console.error('[mail] notifyCertificateIssued failed:', error.message);
+  }
+}
+
+export async function notifyCertificateRequestRejected(employee, request, handlerName, reason) {
+  try {
+    const settings = rowToPublic(await getRow(), true);
+    if (!settings.enabled) return;
+    const to = uniqueEmails([employee]);
+    if (!to.length) return;
+    const body = `
+      <p>증명서 신청이 <strong>반려</strong>되었습니다.</p>
+      ${certificateRequestTable(request)}
+      <p>반려: ${escapeHtml(handlerName || '-')}<br/>사유: ${escapeHtml(reason)}</p>
+    `;
+    await sendMail(
+      to.map((r) => r.email),
+      `증명서 신청 반려: ${request.typeLabel}`,
+      htmlLayout('증명서 신청 반려', body, '증명서 보기', pageUrl(settings, '/employee/certificates'))
+    );
+  } catch (error) {
+    console.error('[mail] notifyCertificateRequestRejected failed:', error.message);
+  }
+}

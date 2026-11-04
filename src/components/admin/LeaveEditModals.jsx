@@ -21,12 +21,37 @@ const emptyForm = {
   description: '',
 };
 
-export function LeaveAccrualFormModal({ isOpen, onClose, onSubmit, isSubmitting, initial, displayYear }) {
+function clampDate(date, minDate, maxDate) {
+  if (maxDate && date > maxDate) return maxDate;
+  if (minDate && date < minDate) return minDate;
+  return date;
+}
+
+function FormError({ message }) {
+  if (!message) return null;
+  return (
+    <p className="rounded-md border border-[#fecaca] bg-[#fef2f2] px-3 py-2 text-[13px] text-[#df1b41]">{message}</p>
+  );
+}
+
+export function LeaveAccrualFormModal({
+  isOpen,
+  onClose,
+  onSubmit,
+  isSubmitting,
+  initial,
+  displayYear,
+  error,
+  minDate,
+  maxDate,
+}) {
   const [form, setForm] = useState(initial || emptyForm);
 
   useEffect(() => {
-    if (isOpen) setForm(initial || emptyForm);
-  }, [isOpen, initial]);
+    if (isOpen) {
+      setForm(initial || { ...emptyForm, date: clampDate(todayLocalIsoDate(), minDate, maxDate) });
+    }
+  }, [isOpen, initial, minDate, maxDate]);
 
   if (!isOpen) return null;
 
@@ -69,10 +94,13 @@ export function LeaveAccrualFormModal({ isOpen, onClose, onSubmit, isSubmitting,
             <input
               type="date"
               value={form.date}
+              min={minDate}
+              max={maxDate}
               onChange={(e) => setForm({ ...form, date: e.target.value })}
               required
               className="stripe-input"
             />
+            {maxDate && <p className="mt-1 text-[12px] text-stripe-muted">퇴사자: {minDate} ~ {maxDate} 사이 날짜</p>}
           </div>
           <div>
             <label className="stripe-label">일수</label>
@@ -96,6 +124,7 @@ export function LeaveAccrualFormModal({ isOpen, onClose, onSubmit, isSubmitting,
               emptyLabel="자동 (유형 기준)"
             />
           </div>
+          <FormError message={error} />
           <div className="flex gap-2 pt-1">
             <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>취소</Button>
             <Button type="submit" className="flex-1" disabled={isSubmitting}>
@@ -116,8 +145,8 @@ function todayLocalIsoDate() {
   return `${y}-${m}-${d}`;
 }
 
-export function LeaveUsageFormModal({ isOpen, onClose, onSubmit, isSubmitting, initial }) {
-  const defaultForm = { date: todayLocalIsoDate(), type: 'full', reason: '', status: 'approved' };
+export function LeaveUsageFormModal({ isOpen, onClose, onSubmit, isSubmitting, initial, error, maxDate }) {
+  const defaultForm = { date: clampDate(todayLocalIsoDate(), null, maxDate), type: 'full', reason: '', status: 'approved' };
   const [form, setForm] = useState(initial || defaultForm);
 
   useEffect(() => {
@@ -131,14 +160,22 @@ export function LeaveUsageFormModal({ isOpen, onClose, onSubmit, isSubmitting, i
               reason: initial.reason || '',
               status: initial.status || 'approved',
             }
-          : { date: todayLocalIsoDate(), type: 'full', halfPeriod: '', reason: '', status: 'approved' }
+          : {
+              date: clampDate(todayLocalIsoDate(), null, maxDate),
+              type: 'full',
+              halfPeriod: '',
+              reason: '',
+              status: 'approved',
+            }
       );
     }
-  }, [isOpen, initial]);
+  }, [isOpen, initial, maxDate]);
 
   if (!isOpen) return null;
 
-  const blocked = leaveBlockedReason(form.date);
+  const blocked =
+    leaveBlockedReason(form.date) ||
+    (maxDate && form.date > maxDate ? `퇴사일(${maxDate}) 이후 날짜는 넣을 수 없습니다.` : '');
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -164,6 +201,7 @@ export function LeaveUsageFormModal({ isOpen, onClose, onSubmit, isSubmitting, i
             <input
               type="date"
               value={form.date}
+              max={maxDate}
               onChange={(e) => setForm({ ...form, date: e.target.value })}
               required
               className="stripe-input"
@@ -230,6 +268,7 @@ export function LeaveUsageFormModal({ isOpen, onClose, onSubmit, isSubmitting, i
               <option value="pending">대기</option>
             </select>
           </div>
+          <FormError message={error} />
           <div className="flex gap-2 pt-1">
             <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>취소</Button>
             <Button type="submit" className="flex-1" disabled={isSubmitting || Boolean(blocked)}>

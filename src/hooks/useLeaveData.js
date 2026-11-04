@@ -5,6 +5,7 @@ export const leaveKeys = {
   currentEmployee: ['employee', 'me'],
   employee: (id) => ['employee', id],
   employees: ['employees'],
+  terminatedEmployees: ['employees', 'terminated'],
   adminStats: ['admin', 'stats'],
   leaveHistory: (id) => ['leave', 'history', id],
   leaveUsages: (id) => ['leave', 'usages', id],
@@ -49,6 +50,14 @@ export function useEmployees({ enabled = true } = {}) {
   return useQuery({
     queryKey: leaveKeys.employees,
     queryFn: leaveApi.getEmployees,
+    enabled,
+  });
+}
+
+export function useTerminatedLeaveEmployees({ enabled = true } = {}) {
+  return useQuery({
+    queryKey: leaveKeys.terminatedEmployees,
+    queryFn: leaveApi.getTerminatedLeaveEmployees,
     enabled,
   });
 }
@@ -174,6 +183,8 @@ export function useSaveLeaveEventSettlement() {
       queryClient.invalidateQueries({
         queryKey: leaveKeys.leaveEventSettlement(variables.year, true),
       });
+      queryClient.invalidateQueries({ queryKey: leaveKeys.terminatedEmployees });
+      queryClient.invalidateQueries({ queryKey: ['employee'] });
     },
   });
 }

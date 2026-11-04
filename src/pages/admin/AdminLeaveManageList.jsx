@@ -7,7 +7,7 @@ import { PageHeader } from '../../components/ui/PageHeader';
 import { Panel } from '../../components/ui/Panel';
 import { Badge } from '../../components/ui/Badge';
 import { SortButton } from '../../components/ui/SortButton';
-import { useEmployees } from '../../hooks/useLeaveData';
+import { useEmployees, useTerminatedLeaveEmployees } from '../../hooks/useLeaveData';
 import { formatDate } from '../../utils/leaveCalculations';
 
 const FILTER_STORAGE_KEY = 'admin-leave-manage-filters';
@@ -38,8 +38,22 @@ function phaseKey(summary) {
   return 'regular';
 }
 
+function settlementBadge(emp) {
+  return emp.resignation?.settled ? (
+    <Badge variant="default">정산 확정</Badge>
+  ) : (
+    <Badge variant="warning">정산 전</Badge>
+  );
+}
+
+function settlementKey(emp) {
+  return emp.resignation?.settled ? 'settled' : 'unsettled';
+}
+
 function sortValue(emp, key) {
   switch (key) {
+    case 'terminatedDate':
+      return emp.terminatedDate || '';
     case 'name':
       return emp.name || '';
     case 'empNo':
@@ -59,15 +73,21 @@ function sortValue(emp, key) {
     case 'remaining':
       return Number(emp.leaveSummary.remaining) || 0;
     case 'status':
-      return phaseKey(emp.leaveSummary);
+      return emp.terminatedDate ? settlementKey(emp) : phaseKey(emp.leaveSummary);
     default:
       return '';
   }
 }
 
 export function AdminLeaveManageList() {
-  const { data: employees, isLoading, isError, refetch } = useEmployees();
   const savedFilters = useMemo(() => loadSavedFilters(), []);
+  const [employment, setEmployment] = useState(() =>
+    savedFilters?.employment === 'terminated' ? 'terminated' : 'active'
+  );
+  const terminatedView = employment === 'terminated';
+  const activeQuery = useEmployees({ enabled: !terminatedView });
+  const terminatedQuery = useTerminatedLeaveEmployees({ enabled: terminatedView });
+  const { data: employees, isLoading, isError, refetch } = terminatedView ? terminatedQuery : activeQuery;
   const [query, setQuery] = useState(() => String(savedFilters?.query || ''));
   const [workplace, setWorkplace] = useState(() => String(savedFilters?.workplace || ''));
   const [department, setDepartment] = useState(() => String(savedFilters?.department || ''));
@@ -85,12 +105,12 @@ export function AdminLeaveManageList() {
     try {
       sessionStorage.setItem(
         FILTER_STORAGE_KEY,
-        JSON.stringify({ query, workplace, department, status, sort })
+        JSON.stringify({ employment, query, workplace, department, status, sort })
       );
     } catch {
       // ignore quota / private mode errors
     }
-  }, [query, workplace, department, status, sort]);
+  }, [employment, query, workplace, department, status, sort]);
 
   const workplaces = useMemo(() => {
     return [...new Set((employees || []).map((emp) => emp.workplace).filter(Boolean))].sort((a, b) =>
@@ -114,7 +134,7 @@ export function AdminLeaveManageList() {
     const rows = (employees || []).filter((emp) => {
       if (workplace && emp.workplace !== workplace) return false;
       if (department && emp.department !== department) return false;
-      if (status && phaseKey(emp.leaveSummary) !== status) return false;
+      if (status && (terminatedView ? settlementKey(emp) : phaseKey(emp.leaveSummary)) !== status) return false;
       if (!keyword) return true;
       const haystack = [emp.name, emp.empNo, emp.workplace, emp.department, emp.position]
         .filter(Boolean)
@@ -132,7 +152,7 @@ export function AdminLeaveManageList() {
           : String(va).localeCompare(String(vb), 'ko', { numeric: true });
       return sort.dir === 'desc' ? -cmp : cmp;
     });
-  }, [employees, query, workplace, department, status, sort]);
+  }, [employees, terminatedView, query, workplace, department, status, sort]);
 
   function handleSort(column) {
     setSort((prev) =>
@@ -143,6 +163,14 @@ export function AdminLeaveManageList() {
   function handleWorkplace(value) {
     setWorkplace(value);
     setDepartment('');
+  }
+
+  function handleEmployment(value) {
+    setEmployment(value);
+    setStatus('');
+    setSort((prev) =>
+      value !== 'terminated' && prev.key === 'terminatedDate' ? { key: 'name', dir: 'asc' } : prev
+    );
   }
 
   if (isLoading) {
@@ -159,15 +187,24 @@ export function AdminLeaveManageList() {
 
   const year = employees?.[0]?.leaveSummary?.displayYear ?? new Date().getFullYear();
   const total = employees?.length ?? 0;
+  const countLabel = `${filtered.length}명${filtered.length !== total ? ` / ${total}명` : ''}`;
 
   return (
     <div>
       <PageHeader
         title="연차 관리"
-        description={`${year}년 기준 · ${filtered.length}명${filtered.length !== total ? ` / ${total}명` : ''} · 직원별 발생·사용 내역 수정`}
+        description={
+          terminatedView
+            ? `퇴사자 ${countLabel} · 퇴사일 기준 잔여 · 퇴사 정산 확정 전까지 발생·사용 내역 수정`
+            : `${year}년 기준 · ${countLabel} · 직원별 발생·사용 내역 수정`
+        }
       />
 
-      <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <select className="stripe-input" value={employment} onChange={(e) => handleEmployment(e.target.value)}>
+          <option value="active">재직자</option>
+          <option value="terminated">퇴사자</option>
+        </select>
         <div className="relative sm:col-span-2 lg:col-span-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stripe-muted" />
           <input
@@ -194,11 +231,21 @@ export function AdminLeaveManageList() {
           ))}
         </select>
         <select className="stripe-input" value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">상태 전체</option>
-          <option value="first">첫해</option>
-          <option value="prorated">비례</option>
-          <option value="regular">정규</option>
-          <option value="exempt">임원제외</option>
+          {terminatedView ? (
+            <>
+              <option value="">정산 전체</option>
+              <option value="unsettled">정산 전</option>
+              <option value="settled">정산 확정</option>
+            </>
+          ) : (
+            <>
+              <option value="">상태 전체</option>
+              <option value="first">첫해</option>
+              <option value="prorated">비례</option>
+              <option value="regular">정규</option>
+              <option value="exempt">임원제외</option>
+            </>
+          )}
         </select>
       </div>
 
@@ -217,10 +264,13 @@ export function AdminLeaveManageList() {
                       {emp.workplace ? `${emp.workplace} · ` : ''}
                       {emp.department}
                     </p>
-                    <p className="text-xs text-stripe-muted mt-0.5">입사 {formatDate(emp.hireDate)}</p>
+                    <p className="text-xs text-stripe-muted mt-0.5">
+                      입사 {formatDate(emp.hireDate)}
+                      {emp.terminatedDate && ` · 퇴사 ${formatDate(emp.terminatedDate)}`}
+                    </p>
                   </div>
                   <div className="text-right shrink-0">
-                    {phaseBadge(emp.leaveSummary)}
+                    {terminatedView ? settlementBadge(emp) : phaseBadge(emp.leaveSummary)}
                     <p className="text-sm tabular-nums mt-2">
                       <span className="text-stripe-muted text-xs">잔여 </span>
                       <span
@@ -244,7 +294,7 @@ export function AdminLeaveManageList() {
                     to={`/admin/leave-manage/${emp.id}`}
                     className="flex-1 text-center text-[13px] text-stripe-muted py-1.5 rounded-md bg-[#f0f3f7]"
                   >
-                    연차 수정
+                    {emp.resignation?.settled ? '연차 내역' : '연차 수정'}
                   </Link>
                 </div>
               </div>
@@ -277,6 +327,11 @@ export function AdminLeaveManageList() {
                   <th>
                     <SortButton label="입사일" column="hireDate" sort={sort} onSort={handleSort} />
                   </th>
+                  {terminatedView && (
+                    <th>
+                      <SortButton label="퇴사일" column="terminatedDate" sort={sort} onSort={handleSort} />
+                    </th>
+                  )}
                   <th>
                     <SortButton label="발생" column="accrued" sort={sort} onSort={handleSort} />
                   </th>
@@ -287,7 +342,7 @@ export function AdminLeaveManageList() {
                     <SortButton label="잔여" column="remaining" sort={sort} onSort={handleSort} />
                   </th>
                   <th>
-                    <SortButton label="상태" column="status" sort={sort} onSort={handleSort} />
+                    <SortButton label={terminatedView ? '정산' : '상태'} column="status" sort={sort} onSort={handleSort} />
                   </th>
                   <th />
                 </tr>
@@ -301,6 +356,9 @@ export function AdminLeaveManageList() {
                     <td className="muted whitespace-nowrap">{emp.department || '-'}</td>
                     <td className="muted whitespace-nowrap">{emp.position || '-'}</td>
                     <td className="font-mono text-[13px] muted whitespace-nowrap">{formatDate(emp.hireDate)}</td>
+                    {terminatedView && (
+                      <td className="font-mono text-[13px] muted whitespace-nowrap">{formatDate(emp.terminatedDate)}</td>
+                    )}
                     <td className="tabular-nums whitespace-nowrap">{emp.leaveSummary.accruedThisYear}</td>
                     <td className="tabular-nums muted whitespace-nowrap">{emp.leaveSummary.usedDays}</td>
                     <td className="tabular-nums whitespace-nowrap">
@@ -312,13 +370,13 @@ export function AdminLeaveManageList() {
                         {emp.leaveSummary.remaining}
                       </span>
                     </td>
-                    <td>{phaseBadge(emp.leaveSummary)}</td>
+                    <td>{terminatedView ? settlementBadge(emp) : phaseBadge(emp.leaveSummary)}</td>
                     <td className="whitespace-nowrap">
                       <Link
                         to={`/admin/leave-manage/${emp.id}`}
                         className="text-[13px] font-medium text-primary-500 hover:text-primary-600"
                       >
-                        수정
+                        {emp.resignation?.settled ? '내역' : '수정'}
                       </Link>
                       <span className="text-[#e3e8ee] mx-2">|</span>
                       <Link

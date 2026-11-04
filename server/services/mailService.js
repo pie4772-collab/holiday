@@ -782,13 +782,14 @@ export async function notifyDocumentPending(approvers, doc, { kind = 'approval',
     if (!settings.enabled) return;
     const to = uniqueEmails(approvers);
     if (!to.length) return;
-    const action = kind === 'agreement' ? '합의' : '결재';
+    const ACTIONS = { agreement: '합의', receive: '수신' };
+    const action = ACTIONS[kind] || '결재';
     const before = previous?.name
-      ? `<p>${escapeHtml(previous.name)}님이 ${previous.kind === 'agreement' ? '합의' : '결재'}했습니다.</p>`
+      ? `<p>${escapeHtml(previous.name)}님이 ${ACTIONS[previous.kind] || '결재'}했습니다.</p>`
       : '';
     const body = `
       ${before}
-      <p>${action}할 문서가 도착했습니다.</p>
+      <p>${action}할 문서가 도착했습니다.${kind === 'receive' ? ' 내용을 확인하고 결재선을 지정해 주세요.' : ''}</p>
       ${documentTable(doc)}
     `;
     await sendMail(

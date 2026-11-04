@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Check, FileBadge, Printer, RotateCcw, Undo2, X } from 'lucide-react';
+import { Check, FileBadge, Inbox, Printer, RotateCcw, Undo2, X } from 'lucide-react';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
@@ -10,9 +10,96 @@ import { Badge } from '../../components/ui/Badge';
 import { DocumentStatusBadge, StepStatusBadge } from '../../components/documents/DocumentBadges';
 import { DocumentPrintSheet } from '../../components/documents/DocumentPrintSheet';
 import { DocumentSheetView } from '../../components/documents/DraftSheet';
+import { ApprovalLineEditor } from '../../components/documents/ApprovalLineEditor';
 import { stepBoxLabel } from '../../components/documents/documentFormat';
-import { useApproveDocument, useDocument, useRejectDocument, useWithdrawDocument } from '../../hooks/useDocuments';
-import { STEP_KINDS } from '../../constants/approvalDocs';
+import {
+  useApproveDocument,
+  useDocument,
+  useDocumentPeople,
+  useReceiveDocument,
+  useRejectDocument,
+  useWithdrawDocument,
+} from '../../hooks/useDocuments';
+import { MAX_LINE, RECEIVE_STEP, STEP_KINDS } from '../../constants/approvalDocs';
+
+/** 인사 수신: 내용을 확인하고 결재선을 지정해 넘기거나, 반려합니다. */
+function ReceivePanel({ doc }) {
+  const people = useDocumentPeople();
+  const receive = useReceiveDocument();
+  const reject = useRejectDocument();
+  const [line, setLine] = useState([]);
+  const [rejecting, setRejecting] = useState(false);
+  const [note, setNote] = useState('');
+  const [error, setError] = useState('');
+  const busy = receive.isPending || reject.isPending;
+
+  async function submit() {
+    setError('');
+    try {
+      if (rejecting) await reject.mutateAsync({ id: doc.id, reason: note });
+      else await receive.mutateAsync({ id: doc.id, line, comment: note });
+      setRejecting(false);
+      setNote('');
+      setLine([]);
+    } catch (err) {
+      setError(err.message || '처리하지 못했습니다.');
+    }
+  }
+
+  return (
+    <Panel className="mb-6 border-primary-200" overflowVisible>
+      <PanelHeader
+        title="인사 수신할 차례입니다"
+        description={
+          doc.permissions.proxy
+            ? '이 문서의 수신 담당이 아니므로 인사담당 대리 처리로 기록됩니다.'
+            : '결재·합의할 사람을 위에서부터 차례로 지정하고 수신하면 첫 지정자에게 메일이 갑니다. 마지막은 결재자여야 합니다.'
+        }
+      />
+      <PanelBody className="space-y-3">
+        {!rejecting && (
+          <ApprovalLineEditor
+            people={people.data || []}
+            value={line}
+            onChange={setLine}
+            max={MAX_LINE}
+            excludeId={doc.drafter.id}
+            drafterLabel={`${doc.drafter.name} (기안자)`}
+          />
+        )}
+        <div>
+          <label className="stripe-label">
+            {rejecting ? '반려 사유' : '의견 (선택)'}
+            {rejecting && <span className="ml-0.5 text-[#df1b41]">*</span>}
+          </label>
+          <textarea className="stripe-input min-h-[64px]" maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} />
+        </div>
+        {error && <p className="text-sm text-[#df1b41]">{error}</p>}
+        <div className="flex flex-wrap justify-end gap-2">
+          {rejecting ? (
+            <>
+              <Button variant="secondary" onClick={() => setRejecting(false)} disabled={busy}>
+                취소
+              </Button>
+              <Button variant="danger" onClick={submit} disabled={busy}>
+                반려하기
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="secondary" onClick={() => setRejecting(true)} disabled={busy}>
+                <X className="h-4 w-4" /> 반려
+              </Button>
+              <Button onClick={submit} disabled={busy || !line.length}>
+                <Inbox className="h-4 w-4" /> {receive.isPending ? '처리 중…' : '수신하고 결재선 지정'}
+              </Button>
+            </>
+          )}
+        </div>
+      </PanelBody>
+    </Panel>
+  );
+}
 
 function DecisionPanel({ doc }) {
   const approve = useApproveDocument();
@@ -156,6 +243,7 @@ export function EmployeeDocumentDetail() {
 
       {actionError && <p className="mb-4 rounded-md bg-[#fee2e2] px-3 py-2 text-sm text-[#df1b41]">{actionError}</p>}
       {doc.permissions.approve && <DecisionPanel doc={doc} />}
+      {doc.permissions.receive && <ReceivePanel doc={doc} />}
 
       {doc.certificate && (
         <div className="mb-6 flex flex-wrap items-center justify-between gap-2 rounded-md border border-[#bbf7d0] bg-[#f0fdf4] px-4 py-3 text-sm text-[#166534]">
@@ -202,7 +290,7 @@ export function EmployeeDocumentDetail() {
                       <div className="text-sm font-medium text-stripe-text">
                         {step.order}.{' '}
                         <Badge variant={step.kind === 'agreement' ? 'warning' : 'primary'} className="mr-1">
-                          {STEP_KINDS[step.kind]}
+                          {step.role === RECEIVE_STEP ? '수신' : STEP_KINDS[step.kind]}
                         </Badge>
                         {step.assigneeId ? (
                           <>

@@ -9,9 +9,9 @@ const KIND_STYLES = {
 
 /**
  * 결재선 지정. value: [{ employeeId, kind: 'approval' | 'agreement' }] — 위에서부터 차례로 처리합니다.
- * hrStep 이면 끝에 고정된 인사 확인 단계를 보여 줍니다.
+ * hrStep 이면 끝에 고정된 인사 확인 단계를 보여 줍니다. drafterLabel: 맨 위 기안 줄에 적을 이름
  */
-export function ApprovalLineEditor({ people = [], value = [], onChange, max = 10, excludeId, hrStep = false }) {
+export function ApprovalLineEditor({ people = [], value = [], onChange, max = 10, excludeId, hrStep = false, drafterLabel = '본인' }) {
   const [query, setQuery] = useState('');
   const [addKind, setAddKind] = useState('approval');
   const byId = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
@@ -48,7 +48,7 @@ export function ApprovalLineEditor({ people = [], value = [], onChange, max = 10
         <li className="flex items-center gap-3 bg-[#f6f9fc] px-3 py-2 text-sm text-stripe-muted">
           <span className="w-5 text-center text-xs">-</span>
           <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold bg-white">기안</span>
-          <span>본인</span>
+          <span>{drafterLabel}</span>
         </li>
         {value.map((item, index) => {
           const person = byId.get(String(item.employeeId));

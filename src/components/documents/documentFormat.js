@@ -1,4 +1,4 @@
-import { DOC_FORM_MAP, HR_STEP, formatAmount } from '../../constants/approvalDocs';
+import { DOC_FORM_MAP, HR_STEP, RECEIVE_STEP, formatAmount } from '../../constants/approvalDocs';
 import { CERT_ITEMS, CERT_TYPES } from '../../constants/certificates';
 
 const ITEM_LABELS = Object.fromEntries(CERT_ITEMS.map((item) => [item.key, item.label]));
@@ -94,7 +94,8 @@ function dotDate(value) {
 /** 문서 보기·인쇄용 결재란: { approval, agreement } 각각 [{ key, position, name, sub, alert }] */
 export function signersFromDoc(doc) {
   const stepSigner = (step) => {
-    const agreement = step.kind === 'agreement';
+    const receive = step.role === RECEIVE_STEP;
+    const agreement = step.kind === 'agreement' && !receive;
     let sub = '';
     let alert = false;
     if (step.status === 'approved') sub = `${dotDate(step.actedAt)}${step.proxy ? ' 대리' : ''}`;
@@ -105,7 +106,7 @@ export function signersFromDoc(doc) {
     return {
       key: `step-${step.order}`,
       position: step.assigneeId ? step.label : step.role === HR_STEP ? '인사 확인' : stepBoxLabel(step),
-      name: step.actorName || step.assignee || (step.role === HR_STEP ? '인사담당' : ''),
+      name: step.actorName || step.assignee || (step.role === HR_STEP || receive ? '인사담당' : ''),
       sub,
       alert,
     };
@@ -119,8 +120,8 @@ export function signersFromDoc(doc) {
   };
 }
 
-/** 기안 중인 결재란: 지정한 결재선 그대로 미리 보여 줍니다. */
-export function signersFromDraft({ me, line, peopleById, hr = false }) {
+/** 기안 중인 결재란: 지정한 결재선 그대로 미리 보여 줍니다. receive 면 합의란에 인사 수신만 둡니다. */
+export function signersFromDraft({ me, line, peopleById, hr = false, receive = false }) {
   const toSigner = (item, index) => {
     const person = peopleById.get(String(item.employeeId));
     return {
@@ -137,6 +138,9 @@ export function signersFromDraft({ me, line, peopleById, hr = false }) {
       ...indexed.filter(({ item }) => item.kind !== 'agreement').map(({ item, index }) => toSigner(item, index)),
       ...(hr ? [{ key: 'hr', position: '인사 확인', name: '인사담당', sub: '' }] : []),
     ],
-    agreement: indexed.filter(({ item }) => item.kind === 'agreement').map(({ item, index }) => toSigner(item, index)),
+    agreement: [
+      ...(receive ? [{ key: 'receive', position: RECEIVE_STEP, name: '인사담당', sub: '' }] : []),
+      ...indexed.filter(({ item }) => item.kind === 'agreement').map(({ item, index }) => toSigner(item, index)),
+    ],
   };
 }

@@ -1127,6 +1127,14 @@ router.post('/documents/:id/reject', loadAccess, async (req, res, next) => {
   }
 });
 
+router.post('/documents/:id/receive', loadAccess, async (req, res, next) => {
+  try {
+    res.json(await documentService.receiveDocument(req.access, req.params.id, req.body || {}));
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.post('/documents/:id/withdraw', loadAccess, async (req, res, next) => {
   try {
     res.json(await documentService.withdrawDocument(req.access, req.params.id));

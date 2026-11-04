@@ -16,6 +16,7 @@ import {
   HR_STEP,
   MAX_LINE,
   MAX_REFS,
+  RECEIVE_STEP,
   STEP_KINDS,
   TITLE_MAX,
   formatAmount,
@@ -125,42 +126,67 @@ function cleanBody(form, data = {}) {
 }
 
 /**
+ * 지정한 결재자·합의자를 단계로 바꿉니다. line: [{ employeeId, kind: 'approval' | 'agreement' }]
+ * selfLabel: 기안자를 넣었을 때 안내에 쓸 말 (기안자 본인이 지정하면 "본인", 인사담당이 지정하면 "기안자")
+ */
+async function cleanLine(drafter, line, { selfLabel = '본인은' } = {}) {
+  const entries = Array.isArray(line) ? line : [];
+  if (!entries.length) throw httpError('결재자를 1명 이상 지정하세요.');
+  if (entries.length > MAX_LINE) throw httpError(`결재선은 ${MAX_LINE}명까지 지정할 수 있습니다.`);
+  const steps = [];
+  const seen = new Set();
+  for (const entry of entries) {
+    const id = toId(entry?.employeeId);
+    const kind = entry?.kind === 'agreement' ? 'agreement' : 'approval';
+    if (!id) throw httpError('결재선에 지정할 직원을 선택하세요.');
+    if (id === Number(drafter.id)) throw httpError(`${selfLabel} 결재선에 넣을 수 없습니다.`);
+    if (seen.has(id)) throw httpError('결재선에 같은 사람이 두 번 들어 있습니다.');
+    seen.add(id);
+    const person = await employeeRow(id);
+    if (!person?.is_active) throw httpError('결재선에 재직 중이 아닌 직원이 있습니다.');
+    steps.push({ role: STEP_KINDS[kind], kind, assignee: person });
+  }
+  if (steps.at(-1).kind !== 'approval') throw httpError('결재선의 마지막은 결재자여야 합니다. 합의자 뒤에 결재자를 지정하세요.');
+  return steps;
+}
+
+/**
  * 결재선: 기안자가 지정한 결재자·합의자를 순서대로 놓고, 인사 확인 양식이면 끝에 인사 단계를 붙입니다.
- * line: [{ employeeId, kind: 'approval' | 'agreement' }]
+ * 인사 수신 양식은 인사 수신 단계 하나로 시작하고, 인사담당이 수신하면서 결재선을 붙입니다.
  */
 async function buildSteps(drafter, form, line) {
-  const steps = [];
-  if (form.line === 'select') {
-    const entries = Array.isArray(line) ? line : [];
-    if (!entries.length) throw httpError('결재자를 1명 이상 지정하세요.');
-    if (entries.length > MAX_LINE) throw httpError(`결재선은 ${MAX_LINE}명까지 지정할 수 있습니다.`);
-    const seen = new Set();
-    for (const entry of entries) {
-      const id = toId(entry?.employeeId);
-      const kind = entry?.kind === 'agreement' ? 'agreement' : 'approval';
-      if (!id) throw httpError('결재선에 지정할 직원을 선택하세요.');
-      if (id === Number(drafter.id)) throw httpError('본인은 결재선에 넣을 수 없습니다.');
-      if (seen.has(id)) throw httpError('결재선에 같은 사람이 두 번 들어 있습니다.');
-      seen.add(id);
-      const person = await employeeRow(id);
-      if (!person?.is_active) throw httpError('결재선에 재직 중이 아닌 직원이 있습니다.');
-      steps.push({ role: STEP_KINDS[kind], kind, assignee: person });
-    }
-    if (steps.at(-1).kind !== 'approval') throw httpError('결재선의 마지막은 결재자여야 합니다. 합의자 뒤에 결재자를 지정하세요.');
-  }
+  if (form.line === 'receive') return [{ role: RECEIVE_STEP, kind: 'agreement', assignee: null }];
+  const steps = form.line === 'select' ? await cleanLine(drafter, line) : [];
   if (form.hr) steps.push({ role: HR_STEP, kind: 'approval', assignee: null });
   return steps;
+}
+
+/**
+ * 인사 수신 담당: 기안자 사업장의 인사담당(사업장에 없으면 전체 인사담당).
+ * 인사담당 본인 문서는 같은 사업장의 다른 인사담당이 받고, 그 사업장 인사담당이 본인뿐이면 본인이 받습니다.
+ */
+async function receiveHandlers(drafter) {
+  const admins = await getDb().prepare('SELECT * FROM employees WHERE is_active = 1 AND is_admin = 1 ORDER BY id').all();
+  const code = text(drafter?.workplace_code);
+  const local = code ? admins.filter((emp) => text(emp.workplace_code) === code) : [];
+  const candidates = local.length ? local : admins;
+  const others = candidates.filter((emp) => Number(emp.id) !== Number(drafter?.id));
+  return others.length ? others : candidates;
 }
 
 /** 지정한 사람이 있는 단계는 그 사람만, 없는 단계(인사·이전 문서)는 직위별 규칙으로 판정합니다. */
 async function stepMatches(actor, drafter, step) {
   if (!actor?.is_active || !drafter) return false;
+  if (step.role === RECEIVE_STEP && !step.assignee_id) {
+    return (await receiveHandlers(drafter)).some((emp) => Number(emp.id) === Number(actor.id));
+  }
   if (Number(actor.id) === Number(drafter.id)) return false;
   if (step.assignee_id) return Number(actor.id) === Number(step.assignee_id);
   return matchesDocumentStep(actor, drafter, step.role);
 }
 
 async function stepApprovers(drafter, step) {
+  if (step.role === RECEIVE_STEP && !step.assignee_id) return receiveHandlers(drafter);
   if (!step.assignee_id) return listDocumentStepApprovers(drafter, step.role);
   const person = await employeeRow(step.assignee_id);
   return person?.is_active ? [person] : [];
@@ -251,6 +277,8 @@ async function mapStep(step, drafter, { current = false } = {}) {
   let described;
   if (step.assignee_id || step.assignee_name) {
     described = { label: step.assignee_position || STEP_KINDS[kind], assignee: step.assignee_name || null };
+  } else if (step.role === RECEIVE_STEP) {
+    described = { label: RECEIVE_STEP, assignee: null };
   } else {
     described = drafter ? await describeDocumentStep(drafter, step.role) : { label: step.role, assignee: null };
   }
@@ -263,7 +291,7 @@ async function mapStep(step, drafter, { current = false } = {}) {
     assigneeId: step.assignee_id ? String(step.assignee_id) : null,
     assigneeDepartment: step.assignee_department || '',
     status: step.status,
-    statusLabel: stepStatusLabel(kind, step.status),
+    statusLabel: stepStatusLabel(kind, step.status, step.role),
     current,
     actorName: step.actor_name || '',
     actorPosition: step.actor_position || '',
@@ -320,6 +348,7 @@ export async function getDocument(access, id) {
     .prepare('SELECT id, cert_no, status FROM certificates WHERE document_id = ? ORDER BY id DESC LIMIT 1')
     .get(doc.id);
   const mine = Number(doc.employee_id) === me;
+  const receiving = step?.role === RECEIVE_STEP;
   const stepItems = [];
   for (const item of steps) stepItems.push(await mapStep(item, drafter, { current: item === step }));
 
@@ -347,7 +376,8 @@ export async function getDocument(access, id) {
       ? { id: Number(certificate.id), certNo: certificate.cert_no, status: certificate.status }
       : null,
     permissions: {
-      approve: lineMatch || canProxy,
+      approve: (lineMatch || canProxy) && !receiving,
+      receive: (lineMatch || canProxy) && receiving,
       proxy: canProxy,
       withdraw: mine && doc.status === 'pending' && !steps.some((s) => s.status === 'approved'),
       resubmit: mine && (doc.status === 'rejected' || doc.status === 'withdrawn'),
@@ -631,9 +661,11 @@ async function decide(access, id, decision, note) {
     const steps = await documentSteps(doc.id);
     const step = currentStep(doc, steps);
     if (!step) throw httpError('결재할 단계가 없습니다.', 409);
+    const receiving = step.role === RECEIVE_STEP;
+    if (receiving && decision !== 'reject') throw httpError('인사 수신 단계는 결재선을 지정해 수신하세요.', 409);
     comment =
       decision === 'reject'
-        ? limited(note, COMMENT_MAX, step.kind === 'agreement' ? '반대 사유' : '반려 사유', { required: true })
+        ? limited(note, COMMENT_MAX, step.kind === 'agreement' && !receiving ? '반대 사유' : '반려 사유', { required: true })
         : limited(note, COMMENT_MAX, '의견');
     const drafter = await employeeRow(doc.employee_id);
     const lineMatch = await stepMatches(actor, drafter, step);
@@ -687,6 +719,61 @@ export function rejectDocument(access, id, reason) {
   return decide(access, toId(id), 'reject', reason);
 }
 
+/** 인사 수신: 인사담당이 문서를 받고 결재선(결재·합의)을 지정하면 첫 지정자에게 넘어갑니다. */
+export async function receiveDocument(access, id, data = {}) {
+  const db = getDb();
+  const actor = access.employee;
+  const docId = toId(id);
+  await db.transaction(async () => {
+    await db.lock(LOCK_APPROVAL_DOCUMENT, docId);
+    const doc = await documentRow(docId);
+    if (doc.status !== 'pending') throw httpError('이미 처리가 끝난 문서입니다.', 409);
+    const steps = await documentSteps(doc.id);
+    const step = currentStep(doc, steps);
+    if (step?.role !== RECEIVE_STEP) throw httpError('인사 수신을 기다리는 문서가 아닙니다.', 409);
+    const drafter = await employeeRow(doc.employee_id);
+    const lineMatch = await stepMatches(actor, drafter, step);
+    const proxy = !lineMatch && access.has('documents.manage') && Number(actor.id) !== Number(doc.employee_id);
+    if (!lineMatch && !proxy) throw httpError('이 문서를 수신할 담당이 아닙니다.', 403);
+    const comment = limited(data.comment, COMMENT_MAX, '의견');
+    const added = await cleanLine(drafter, data.line, { selfLabel: '기안자는' });
+
+    const now = kstStamp();
+    await db
+      .prepare(
+        `UPDATE approval_document_steps
+         SET status = 'approved', actor_id = ?, actor_name = ?, actor_position = ?, proxy = ?, comment = ?, acted_at = ?
+         WHERE id = ?`
+      )
+      .run(actor.id, actor.name, actor.position || null, proxy ? 1 : 0, comment || null, now, step.id);
+    const base = Math.max(...steps.map((item) => Number(item.step_order)));
+    for (const [index, item] of added.entries()) {
+      await db
+        .prepare(
+          `INSERT INTO approval_document_steps (
+             document_id, step_order, role, kind, status, assignee_id, assignee_name, assignee_department, assignee_position
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          doc.id,
+          base + index + 1,
+          item.role,
+          item.kind,
+          index === 0 ? 'pending' : 'waiting',
+          item.assignee.id,
+          item.assignee.name,
+          item.assignee.department || null,
+          item.assignee.position || null
+        );
+    }
+    await db
+      .prepare('UPDATE approval_documents SET current_step = ?, updated_at = ? WHERE id = ?')
+      .run(base + 1, now, doc.id);
+  });
+  notifyAfterChange(docId).catch((error) => console.error('[documents] notify failed:', error.message));
+  return getDocument(access, docId);
+}
+
 export async function withdrawDocument(access, id) {
   const db = getDb();
   await db.transaction(async () => {
@@ -732,11 +819,11 @@ async function notifyAfterChange(id, { rejectNote = '' } = {}) {
     const steps = await documentSteps(doc.id);
     const { kind, recipients } = await getPendingRecipients(doc.id);
     const step = currentStep(doc, steps);
-    const roleStep = step && !step.assignee_id && ['인사', '관리자'].includes(step.role);
+    const roleStep = step && !step.assignee_id && [HR_STEP, '관리자', RECEIVE_STEP].includes(step.role);
     const done = steps.filter((s) => s.status === 'approved').at(-1);
     await mailService.notifyDocumentPending(roleStep ? await mailService.withoutSystemAdmins(recipients) : recipients, item, {
-      kind,
-      previous: done ? { name: done.actor_name, kind: done.kind } : null,
+      kind: step?.role === RECEIVE_STEP ? 'receive' : kind,
+      previous: done ? { name: done.actor_name, kind: done.role === RECEIVE_STEP ? 'receive' : done.kind } : null,
     });
     return;
   }
@@ -755,7 +842,7 @@ async function notifyAfterChange(id, { rejectNote = '' } = {}) {
     const steps = await documentSteps(doc.id);
     const rejected = steps.find((step) => step.status === 'rejected');
     await mailService.notifyDocumentRejected(drafter, item, rejected?.actor_name || '', rejectNote || rejected?.comment || '', {
-      kind: rejected?.kind,
+      kind: rejected?.role === RECEIVE_STEP ? 'approval' : rejected?.kind,
     });
   }
 }

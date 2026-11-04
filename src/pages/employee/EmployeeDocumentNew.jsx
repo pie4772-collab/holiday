@@ -77,7 +77,7 @@ export function EmployeeDocumentNew() {
   const requestId = issueForm ? params.get('request') || source.data?.body?.requestId || null : null;
   const { data: me } = useCurrentEmployee();
   const people = useDocumentPeople(Boolean(form));
-  const suggestion = useDocumentLineSuggestion(Boolean(form) && !sourceId);
+  const suggestion = useDocumentLineSuggestion(form?.line === 'select' && !sourceId);
   const certRequest = useCertificateRequest(requestId);
   const certTargets = useCertificateTargets(issueForm && !requestId);
   const create = useCreateDocument();
@@ -210,7 +210,13 @@ export function EmployeeDocumentNew() {
   const request = certRequest.data || null;
   const requestClosed = Boolean(request && request.status !== 'requested');
   const issueTargetName = request?.employeeName || certTargets.data?.find((t) => t.id === String(body.employeeId || ''))?.name;
-  const signers = signersFromDraft({ me, line: form.line === 'select' ? line : [], peopleById, hr: form.hr });
+  const signers = signersFromDraft({
+    me,
+    line: form.line === 'select' ? line : [],
+    peopleById,
+    hr: form.hr,
+    receive: form.line === 'receive',
+  });
   const writer = me ? [me.name, [me.department, me.position].filter(Boolean).join(' ')].filter(Boolean).join(' · ') : '';
 
   return (
@@ -302,6 +308,17 @@ export function EmployeeDocumentNew() {
                     excludeId={me?.id}
                     hrStep={form.hr}
                   />
+                </PanelBody>
+              </Panel>
+            )}
+            {form.line === 'receive' && (
+              <Panel>
+                <PanelHeader title="결재선" />
+                <PanelBody>
+                  <p className="text-sm text-stripe-muted">
+                    기안하면 인사담당이 문서를 <strong className="text-stripe-text">수신</strong>하고, 내용을 확인한 뒤 결재·합의할
+                    사람을 직접 지정합니다. 지정된 결재선이 끝나면 결과를 메일로 알려 드립니다.
+                  </p>
                 </PanelBody>
               </Panel>
             )}

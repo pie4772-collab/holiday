@@ -4,21 +4,30 @@ export const DOC_STATUS_LABELS = { pending: '진행 중', approved: '완료', re
 export const STEP_STATUS_LABELS = { waiting: '대기', pending: '결재 대기', approved: '승인', rejected: '반려', skipped: '건너뜀' };
 const AGREEMENT_STATUS_LABELS = { ...STEP_STATUS_LABELS, pending: '합의 대기', approved: '합의', rejected: '반대' };
 
+const RECEIVE_STATUS_LABELS = { ...STEP_STATUS_LABELS, pending: '수신 대기', approved: '수신', rejected: '반려' };
+
 /** 결재선 단계 종류. 합의는 결재 전에 관련 부서의 동의를 받는 단계로, 반대하면 문서가 반려됩니다. */
 export const STEP_KINDS = { approval: '결재', agreement: '합의' };
 
-export function stepStatusLabel(kind, status) {
+/** 마지막에 붙는 인사 확인 단계(이전 문서). 시스템관리자·인사담당(is_admin)이 처리합니다. */
+export const HR_STEP = '인사';
+
+/**
+ * 인사담당이 먼저 받아 결재선을 지정하는 양식의 첫 단계. 합의란에 "인사 수신"으로 표시합니다.
+ * 기안자 사업장의 인사담당이 처리하고, 수신하면서 지정한 결재·합의 단계가 뒤에 붙습니다.
+ */
+export const RECEIVE_STEP = '인사 수신';
+
+export function stepStatusLabel(kind, status, role) {
+  if (role === RECEIVE_STEP) return RECEIVE_STATUS_LABELS[status] || status;
   return (kind === 'agreement' ? AGREEMENT_STATUS_LABELS : STEP_STATUS_LABELS)[status] || status;
 }
-
-/** 마지막에 붙는 인사 확인 단계. 시스템관리자·인사담당(is_admin)이 처리합니다. */
-export const HR_STEP = '인사';
 export const MAX_REFS = 20;
 export const MAX_LINE = 10;
 export const TITLE_MAX = 200;
 
 /**
- * line: select 기안자가 결재자·합의자를 지정, none 결재선 없음
+ * line: select 기안자가 결재자·합의자를 지정, receive 인사담당이 받아(인사 수신) 결재선을 지정, none 결재선 없음
  * hr: 지정한 결재선 뒤에 인사 확인 단계를 붙입니다.
  * permission: 이 권한이 있는 사람만 기안 (내부 결재 양식)
  * retired: 새로 기안할 수 없고 이전 문서 보기에만 씁니다.
@@ -40,9 +49,9 @@ export const DOC_FORMS = [
     key: 'business_trip',
     label: '출장 신청',
     prefix: '출장',
-    line: 'select',
+    line: 'receive',
     hr: false,
-    description: '국내·해외 출장 계획과 예상 경비',
+    description: '국내·해외 출장 계획과 예상 경비 (인사 수신 후 결재)',
     fields: [
       { key: 'destination', label: '출장지', type: 'text', required: true, max: 100 },
       { key: 'startDate', label: '시작일', type: 'date', required: true },
@@ -56,9 +65,9 @@ export const DOC_FORMS = [
     key: 'condolence',
     label: '경조금 신청',
     prefix: '경조',
-    line: 'select',
-    hr: true,
-    description: '경조사 발생 시 경조금 지급 신청 (인사 확인)',
+    line: 'receive',
+    hr: false,
+    description: '경조사 발생 시 경조금 지급 신청 (인사 수신 후 결재)',
     fields: [
       {
         key: 'eventType',
@@ -89,9 +98,9 @@ export const DOC_FORMS = [
     key: 'training_request',
     label: '교육 신청',
     prefix: '교육',
-    line: 'select',
-    hr: true,
-    description: '외부 교육·세미나 참가 신청 (인사 확인)',
+    line: 'receive',
+    hr: false,
+    description: '외부 교육·세미나 참가 신청 (인사 수신 후 결재)',
     fields: [
       { key: 'courseName', label: '교육명', type: 'text', required: true, max: 200 },
       { key: 'institution', label: '교육기관', type: 'text', required: true, max: 100 },
@@ -140,6 +149,7 @@ export function sheetTitle(form) {
 
 /** 결재선 규칙 설명 (양식 선택 화면) */
 export function formLineText(form) {
+  if (form.line === 'receive') return '인사 수신 → 인사담당이 지정한 결재·합의';
   const line = form.line === 'select' ? '지정한 결재·합의' : '';
   return [line, form.hr ? '인사 확인' : ''].filter(Boolean).join(' → ');
 }

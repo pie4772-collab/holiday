@@ -70,3 +70,7 @@ export function useRejectDocument() {
 export function useWithdrawDocument() {
   return useDocumentMutation((id) => leaveApi.withdrawDocument(id));
 }
+
+export function useReceiveDocument() {
+  return useDocumentMutation(({ id, line, comment }) => leaveApi.receiveDocument(id, { line, comment }));
+}

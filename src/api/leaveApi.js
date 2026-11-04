@@ -532,6 +532,10 @@ export const leaveApi = {
     return apiClient(`/documents/${id}/withdraw`, { method: 'POST' });
   },
 
+  async receiveDocument(id, { line, comment }) {
+    return apiClient(`/documents/${id}/receive`, { method: 'POST', body: { line, comment } });
+  },
+
   async getAdminDocuments(filters = {}) {
     return apiClient(`/admin/documents?${new URLSearchParams(filters)}`);
   },

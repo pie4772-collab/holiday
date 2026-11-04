@@ -31,6 +31,40 @@ export const MAX_REFS = 20;
 export const MAX_LINE = 10;
 export const TITLE_MAX = 200;
 
+/* ───────────── 인사명령 ───────────── */
+
+export const ORDER_TYPES = ['입사', '퇴사', '승진', '전보', '직위 변경', '겸직', '휴직', '복직', '기타'];
+export const ORDER_ENTRIES_MAX = 30;
+/** 인사명령 종이 양식 맨 위의 회사명 */
+export const ORDER_COMPANY_TITLE = '동양철관주식회사';
+/** 대상자 줄의 칸: [키, 이름, 최대 글자 수] */
+export const ORDER_ENTRY_FIELDS = [
+  ['name', '성명', 50],
+  ['jobType', '직종', 30],
+  ['workplace', '사업장', 50],
+  ['department', '부서', 50],
+  ['position', '직위', 50],
+];
+
+/** 인사명령 제목: 인사명령 (입사) 김민석 외 1명 */
+export function orderTitle(body = {}) {
+  const entries = body.entries || [];
+  const names = entries.length ? `${entries[0].name}${entries.length > 1 ? ` 외 ${entries.length - 1}명` : ''}` : '';
+  return [`인사명령${body.orderType ? ` (${body.orderType})` : ''}`, names].filter(Boolean).join(' ');
+}
+
+/** 발령번호: 문서번호 인사-2026-0013 → "인사 26 - 13호" */
+export function orderNoText(documentNo) {
+  const m = /^(.+)-(\d{4})-(\d+)$/.exec(documentNo || '');
+  return m ? `${m[1]} ${m[2].slice(2)} - ${Number(m[3])}호` : '';
+}
+
+/** 발령일: 2026-11-01 → "26' 11/1부" */
+export function orderDateText(dateKey) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey || '');
+  return m ? `${m[1].slice(2)}' ${Number(m[2])}/${Number(m[3])}부` : '';
+}
+
 /**
  * line: select 기안자가 결재자·합의자를 지정(지정한 순서대로),
  *       staged 기안자가 결재자·합의자를 지정하고 결재가 모두 끝난 뒤 합의 — 합의자는 합의하며 다음 결재선을 붙일 수 있음,
@@ -39,14 +73,17 @@ export const TITLE_MAX = 200;
  * permission: 이 권한이 있는 사람만 기안 (내부 결재 양식)
  * retired: 새로 기안할 수 없고 이전 문서 보기에만 씁니다.
  * sheetTitle: 문서 양식 맨 위 제목 (없으면 "양식 이름 + 서")
- * fields.type: text, textarea, date, amount(원), select, richtext(서식 있는 본문, 서버에서 허용 태그만 남김)
+ * fields.type: text, textarea, date, amount(원), select, richtext(서식 있는 본문, 서버에서 허용 태그만 남김),
+ *              orderEntries(인사명령 대상자 줄: 성명·직종·사업장·부서·직위)
+ * layout: order 면 인사명령 종이 양식(회사명·발령번호·결재란·발령 구분·대상자 표·발령일)으로 그립니다.
+ * numberFrom: { 연도: 첫 번호 } — 종이 결재로 이미 쓴 번호 다음부터 매길 때
  */
 export const DOC_FORMS = [
   {
     key: 'general',
     label: '일반 기안',
     prefix: '기안',
-    line: 'select',
+    line: 'staged',
     hr: false,
     sheetTitle: '기안',
     description: '품의·보고 등 정해진 양식이 없는 문서',
@@ -121,12 +158,30 @@ export const DOC_FORMS = [
     key: 'certificate_issue',
     label: '증명서 발급 품의',
     prefix: '발급',
-    line: 'select',
+    line: 'staged',
     hr: false,
     permission: 'certificates.manage',
     sheetTitle: '증명서 발급 품의',
     description: '인사담당이 증명서 발급을 관리팀 내부 결재로 올립니다 (최종 승인되면 자동 발급)',
     fields: [],
+  },
+  {
+    key: 'personnel_order',
+    label: '인사명령',
+    prefix: '인사',
+    line: 'staged',
+    hr: false,
+    permission: 'employees.manage',
+    layout: 'order',
+    numberFrom: { 2026: 14 },
+    sheetTitle: '인사명령',
+    description: '입사·승진·전보 등 인사 발령. 결재가 끝나면 발령번호(인사 연도 - 번호호)가 매겨집니다.',
+    fields: [
+      { key: 'orderType', label: '발령 구분', type: 'select', required: true, options: ORDER_TYPES },
+      { key: 'entries', label: '발령 대상', type: 'orderEntries', required: true, max: ORDER_ENTRIES_MAX },
+      { key: 'effectiveDate', label: '발령일', type: 'date', required: true },
+      { key: 'content', label: '비고', type: 'textarea', max: 2000 },
+    ],
   },
   {
     key: 'certificate',

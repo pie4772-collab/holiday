@@ -16,11 +16,13 @@ import {
   HR_STEP,
   MAX_LINE,
   MAX_REFS,
+  ORDER_ENTRY_FIELDS,
   RECEIVE_STEP,
   STEP_KINDS,
   TITLE_MAX,
   approvalsFirst,
   formatAmount,
+  orderTitle,
   stepStatusLabel,
 } from '../../src/constants/approvalDocs.js';
 
@@ -105,6 +107,18 @@ function cleanField(field, value) {
     }
     if (!field.options.includes(raw)) throw httpError(`${field.label} 값을 목록에서 선택하세요.`);
     return raw;
+  }
+  if (field.type === 'orderEntries') {
+    const rows = Array.isArray(value) ? value : [];
+    if (field.required && !rows.length) throw httpError(`${field.label}을(를) 1명 이상 입력하세요.`);
+    if (rows.length > field.max) throw httpError(`${field.label}은(는) ${field.max}명까지 입력할 수 있습니다.`);
+    return rows.map((row, index) => {
+      const entry = { employeeId: toId(row?.employeeId) || null };
+      for (const [key, label, max] of ORDER_ENTRY_FIELDS) {
+        entry[key] = limited(row?.[key], max, `${index + 1}번째 대상자 ${label}`, { required: key === 'name' });
+      }
+      return entry;
+    });
   }
   if (field.type === 'richtext') {
     const raw = value == null ? '' : String(value);
@@ -239,6 +253,11 @@ function bodySummary(form, body) {
     return [body.employeeName, CERT_TYPES[body.certType]?.label, body.requestId ? '직원 신청' : '인사 품의']
       .filter(Boolean)
       .join(' · ');
+  }
+  if (form.layout === 'order') {
+    const names = (body.entries || []).map((entry) => entry.name);
+    const who = names.length > 2 ? `${names.slice(0, 2).join(', ')} 외 ${names.length - 2}명` : names.join(', ');
+    return [body.orderType, who, body.effectiveDate].filter(Boolean).join(' · ');
   }
   const parts = [];
   if (body.destination) parts.push(body.destination);
@@ -531,7 +550,7 @@ async function assignNumber(db, doc, form, completedAt) {
   const max = await db
     .prepare('SELECT MAX(doc_seq) AS m FROM approval_documents WHERE form_key = ? AND doc_year = ?')
     .get(doc.form_key, year);
-  const seq = (Number(max?.m) || 0) + 1;
+  const seq = Math.max((Number(max?.m) || 0) + 1, Number(form.numberFrom?.[year]) || 1);
   const documentNo = `${form.prefix}-${year}-${String(seq).padStart(4, '0')}`;
   await db
     .prepare(
@@ -573,13 +592,16 @@ export async function createDocument(employeeId, data = {}, { access = null } = 
       form.key === 'certificate' ? '증명서는 "증명서" 메뉴에서 신청하세요.' : '더 이상 쓰지 않는 양식입니다.'
     );
   }
-  if (form.permission && !access?.has(form.permission)) throw httpError(`${form.label}는 인사담당만 기안할 수 있습니다.`, 403);
+  if (form.permission && !access?.has(form.permission)) throw httpError(`${form.label} 양식은 인사담당만 기안할 수 있습니다.`, 403);
 
   let body;
   let title;
   if (form.key === 'certificate_issue') {
     body = await certificateService.prepareIssueDraft(data.body || {});
     title = `${body.employeeName} ${CERT_TYPES[body.certType].label} 발급 품의`;
+  } else if (form.layout === 'order') {
+    body = cleanBody(form, data.body || {});
+    title = orderTitle(body);
   } else {
     body = cleanBody(form, data.body || {});
     title = limited(data.title, TITLE_MAX, '제목', { required: true });

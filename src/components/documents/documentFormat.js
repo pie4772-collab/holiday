@@ -46,6 +46,10 @@ export function documentBodyRows(doc) {
       continue;
     }
     if (value === '' || value == null) continue;
+    if (field.type === 'orderEntries') {
+      rows.push({ label: field.label, value: value.map((entry) => entry.name).join(', ') });
+      continue;
+    }
     rows.push({
       label: field.label,
       value: field.type === 'amount' ? formatAmount(value) : String(value),

@@ -10,6 +10,7 @@ import { PeoplePicker } from '../../components/documents/PeoplePicker';
 import { ApprovalLineEditor } from '../../components/documents/ApprovalLineEditor';
 import { RichTextEditor } from '../../components/documents/RichTextEditor';
 import { DraftSheet, SheetFields, SheetRow } from '../../components/documents/DraftSheet';
+import { PersonnelOrderSheet } from '../../components/documents/PersonnelOrderSheet';
 import { plainToHtml, sheetInput, signersFromDraft } from '../../components/documents/documentFormat';
 import { CertificateIssueFields } from '../../components/certificates/CertificateIssueFields';
 import { CERT_TYPES, initialCertRequest } from '../../constants/certificates';
@@ -75,6 +76,7 @@ export function EmployeeDocumentNew() {
   const formKey = DOC_FORM_MAP[params.get('form')] ? params.get('form') : source.data?.formKey || null;
   const form = formKey ? DOC_FORM_MAP[formKey] : null;
   const issueForm = formKey === 'certificate_issue';
+  const orderForm = form?.layout === 'order';
   const requestId = issueForm ? params.get('request') || source.data?.body?.requestId || null : null;
   const { data: me } = useCurrentEmployee();
   const people = useDocumentPeople(Boolean(form));
@@ -100,7 +102,7 @@ export function EmployeeDocumentNew() {
   useEffect(() => {
     if (!formKey || source.data) return;
     setTitle('');
-    setBody(formKey === 'certificate_issue' ? { employeeId: '' } : {});
+    setBody(formKey === 'certificate_issue' ? { employeeId: '' } : DOC_FORM_MAP[formKey]?.layout === 'order' ? { entries: [] } : {});
     setRefIds([]);
     setError('');
   }, [formKey, source.data]);
@@ -184,7 +186,7 @@ export function EmployeeDocumentNew() {
               ) : form.retired ? (
                 '더 이상 쓰지 않는 양식입니다.'
               ) : (
-                `${form.label}는 인사담당만 기안할 수 있습니다.`
+                `${form.label} 양식은 인사담당만 기안할 수 있습니다.`
               )}
             </p>
           </PanelBody>
@@ -228,6 +230,16 @@ export function EmployeeDocumentNew() {
       <form onSubmit={handleSubmit}>
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
           <div className="min-w-0 overflow-x-auto rounded-md border border-stripe-border bg-white p-4">
+            {orderForm ? (
+              <PersonnelOrderSheet
+                className="min-w-[720px]"
+                signers={signers}
+                orderNo={<span className="text-[13px] text-stripe-muted">발령번호(인사 연도 - 번호호)는 결재가 끝나면 매깁니다</span>}
+                body={body}
+                onChange={setBody}
+                people={people.data || []}
+              />
+            ) : (
             <DraftSheet
               className="min-w-[720px]"
               title={sheetTitle(form)}
@@ -283,6 +295,7 @@ export function EmployeeDocumentNew() {
                 </div>
               )}
             </DraftSheet>
+            )}
           </div>
 
           <div className="space-y-6">

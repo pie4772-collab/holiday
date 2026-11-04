@@ -267,15 +267,15 @@ await check('기안 본문(서식): 허용 서식만 남기고 스크립트·링
   await documents.withdrawDocument(memberAcc, id);
 });
 
-await check('결재선 검사: 없음·본인·중복·합의로 끝남·인원 초과', async () => {
+await check('결재선 검사: 없음·본인·중복·인원 초과, 합의로 끝나도 됨(결재 먼저 정렬)', async () => {
   const base = { formKey: 'general', title: 'x', body: { content: 'x' } };
   await expectError(() => documents.createDocument(member.id, base), /결재자를 1명 이상/);
   await expectError(() => documents.createDocument(member.id, { ...base, line: line(member) }), /본인은/);
   await expectError(() => documents.createDocument(member.id, { ...base, line: line(leader, leader) }), /두 번/);
-  await expectError(
-    () => documents.createDocument(member.id, { ...base, line: line(leader, [outsider, 'agreement']) }),
-    /마지막은 결재자/
-  );
+  const { id } = await documents.createDocument(member.id, { ...base, line: line([outsider, 'agreement'], leader) });
+  const doc = await documents.getDocument(memberAcc, id);
+  assert(doc.steps.map((s) => s.kind).join() === 'approval,agreement', doc.steps.map((s) => s.kind).join());
+  await documents.withdrawDocument(memberAcc, id);
   const eleven = active.filter((e) => e.id !== member.id).slice(0, 11);
   await expectError(() => documents.createDocument(member.id, { ...base, line: line(...eleven) }), /10명까지/);
 });
@@ -385,7 +385,7 @@ await check('교육 신청: 임원 결재 → 합의로 끝나면 완료, 인사
   assert(doc.steps[1].proxy && doc.steps[1].actorName === adminB.name, '대리 표시');
 });
 
-await check('합의: 합의자 → 결재자 순서, 합의하면 다음 결재자에게 메일·결재함', async () => {
+await check('일반 기안 합의: 결재가 끝난 뒤 합의자에게 메일·결재함, 합의하면 완료', async () => {
   const { id } = await documents.createDocument(member.id, {
     formKey: 'general',
     title: '타부서 합의 품의',
@@ -393,21 +393,22 @@ await check('합의: 합의자 → 결재자 순서, 합의하면 다음 결재�
     line: line([outsider, 'agreement'], leader),
   });
   let doc = await documents.getDocument(memberAcc, id);
-  assert(doc.steps.map((s) => `${s.kind}:${s.assigneeId}`).join() === `agreement:${outsider.id},approval:${leader.id}`, '단계 순서');
-  assert(doc.steps[0].statusLabel === '합의 대기', doc.steps[0].statusLabel);
-  assert((await recipientIds(id)).join() === String(outsider.id), '첫 메일은 합의자');
-  assert(!(await documents.listBox(leader.id, 'todo')).items.some((item) => item.id === id), '결재자 결재함에는 아직 없음');
-  const preview = await documents.getDocument(leaderAcc, id);
-  assert(!preview.permissions.approve, '결재선에 있는 결재자는 미리 볼 수 있으나 처리 불가');
-  await expectError(() => documents.approveDocument(leaderAcc, id), /차례가 아닙니다/, 403);
+  assert(doc.steps.map((s) => `${s.kind}:${s.assigneeId}`).join() === `approval:${leader.id},agreement:${outsider.id}`, '결재 먼저');
+  assert(doc.steps[1].statusLabel === '합의 대기' || doc.steps[1].status === 'waiting', doc.steps[1].statusLabel);
+  assert((await recipientIds(id)).join() === String(leader.id), '첫 메일은 결재자');
+  assert(!(await documents.listBox(outsider.id, 'todo')).items.some((item) => item.id === id), '합의자 결재함에는 아직 없음');
+  const preview = await documents.getDocument(outsiderAcc, id);
+  assert(!preview.permissions.approve, '결재선에 있는 합의자는 미리 볼 수 있으나 처리 불가');
+  await expectError(() => documents.approveDocument(outsiderAcc, id), /차례가 아닙니다/, 403);
+  doc = await documents.approveDocument(leaderAcc, id);
+  assert(doc.steps[0].status === 'approved' && doc.steps[1].status === 'pending', '결재 완료 → 합의 대기');
+  assert((await recipientIds(id)).join() === String(outsider.id), '결재 후 메일은 합의자');
   const todo = await documents.listBox(outsider.id, 'todo');
   assert(todo.items.some((item) => item.id === id && item.currentRole === `${outsider.name} 합의`), '합의자 결재함');
+  doc = await documents.getDocument(outsiderAcc, id);
+  assert(doc.permissions.addLine, '일반 기안 합의자도 다음 결재선 지정 가능');
   doc = await documents.approveDocument(outsiderAcc, id, '이견 없음');
-  assert(doc.steps[0].statusLabel === '합의' && doc.steps[1].status === 'pending', '합의 완료 → 결재 대기');
-  assert((await recipientIds(id)).join() === String(leader.id), '합의 후 메일은 다음 결재자');
-  assert((await documents.listBox(leader.id, 'todo')).items.some((item) => item.id === id), '결재자 결재함');
-  doc = await documents.approveDocument(leaderAcc, id);
-  assert(doc.status === 'approved' && doc.documentNo, '완료');
+  assert(doc.status === 'approved' && doc.documentNo && doc.steps[1].statusLabel === '합의', '합의로 완료');
 });
 
 await check('합의 반대: 반대 사유 필수, 문서 반려', async () => {
@@ -415,11 +416,15 @@ await check('합의 반대: 반대 사유 필수, 문서 반려', async () => {
     formKey: 'general',
     title: '반대 검증',
     body: { content: 'x' },
-    line: line([outsider, 'agreement'], leader),
+    line: line([outsider, 'agreement'], leader, [seoulLead, 'agreement']),
   });
+  await documents.approveDocument(leaderAcc, id);
   await expectError(() => documents.rejectDocument(outsiderAcc, id, ''), /반대 사유/);
   const doc = await documents.rejectDocument(outsiderAcc, id, '예산 초과');
-  assert(doc.status === 'rejected' && doc.steps[0].statusLabel === '반대' && doc.steps[1].status === 'skipped', '반려');
+  assert(
+    doc.status === 'rejected' && doc.steps[1].statusLabel === '반대' && doc.steps[2].status === 'skipped',
+    `반려 ${doc.steps.map((s) => s.status).join()}`
+  );
 });
 
 await check('결재 3단계: 하위 결재자 승인 시 상위 결재자에게 차례가 넘어감', async () => {
@@ -490,6 +495,38 @@ await check('이전 방식 인사 수신 문서: 인사담당 본인 문서는 �
     assert(own.permissions.receive && !own.permissions.proxy, '사업장 인사담당이 본인뿐이면 본인이 수신');
     await documents.withdrawDocument(adminAAcc, id);
   });
+});
+
+await check('인사명령: 인사담당만 기안, 대상자·발령일 검사, 제목 자동, 결재 후 발령번호 인사 연도 - 번호호', async () => {
+  const body = {
+    orderType: '입사',
+    effectiveDate: '2026-11-01',
+    entries: [
+      { name: '김민석', jobType: '사무직', workplace: '천안', department: '관리팀', position: '사원' },
+      { employeeId: outsider.id, name: outsider.name, jobType: '', workplace: '', department: '관리팀', position: '사원' },
+    ],
+  };
+  const draft = (data, who = adminA, whoAcc = adminAAcc) =>
+    documents.createDocument(who.id, { formKey: 'personnel_order', body: data, line: line(leader) }, { access: whoAcc });
+  await expectError(() => draft(body, member, memberAcc), /인사담당만/, 403);
+  await expectError(() => draft({ ...body, entries: [] }), /발령 대상을\(를\) 1명 이상/);
+  await expectError(() => draft({ ...body, entries: [{ name: '' }] }), /1번째 대상자 성명/);
+  await expectError(() => draft({ ...body, effectiveDate: '' }), /발령일/);
+  await expectError(() => draft({ ...body, orderType: '없는구분' }), /목록에서 선택/);
+  const { id } = await draft(body);
+  let doc = await documents.getDocument(adminAAcc, id);
+  assert(doc.title === '인사명령 (입사) 김민석 외 1명', doc.title);
+  assert(doc.body.entries.length === 2 && doc.body.entries[1].employeeId === Number(outsider.id), JSON.stringify(doc.body.entries));
+  assert(doc.summary.startsWith('입사 · 김민석'), doc.summary);
+  doc = await documents.approveDocument(leaderAcc, id);
+  const { DOC_FORM_MAP, orderNoText, orderDateText } = await import('../src/constants/approvalDocs.js');
+  const first = DOC_FORM_MAP.personnel_order.numberFrom[year] || 1;
+  assert(doc.status === 'approved' && doc.documentNo === `인사-${year}-${String(first).padStart(4, '0')}`, doc.documentNo);
+  assert(orderNoText(doc.documentNo) === `인사 ${String(year).slice(2)} - ${first}호`, orderNoText(doc.documentNo));
+  const second = await draft({ ...body, orderType: '전보' });
+  const next = await documents.approveDocument(leaderAcc, second.id);
+  assert(next.documentNo === `인사-${year}-${String(first + 1).padStart(4, '0')}`, `다음 번호 ${next.documentNo}`);
+  assert(orderDateText('2026-11-01') === "26' 11/1부", orderDateText('2026-11-01'));
 });
 
 await check('문서함(관리): 양식·상태 필터, CSV', async () => {
@@ -641,8 +678,8 @@ await check('발급 품의: 인사담당만 기안, 신청 대상·종류 고정
   const doc = await documents.getDocument(adminAAcc, id);
   assert(doc.title === `${member.name} 재직증명서 발급 품의`, doc.title);
   assert(Number(doc.body.employeeId) === Number(member.id) && doc.body.certType === 'employment', '신청 대상·종류 고정');
-  assert(doc.steps.map((s) => s.kind).join() === 'agreement,approval', doc.steps.map((s) => s.kind).join());
-  assert((await recipientIds(id)).join() === String(adminB.id), '첫 메일은 합의자');
+  assert(doc.steps.map((s) => s.kind).join() === 'approval,agreement', doc.steps.map((s) => s.kind).join());
+  assert((await recipientIds(id)).join() === String(officer.id), '첫 메일은 결재자');
   const req = await certificates.getRequest(employmentRequest.id);
   assert(req.status === 'processing' && req.documentId === id && req.handlerName === adminA.name, `신청 ${req.status}`);
   assert((await certificates.countOpenRequests(adminA.id)) === 0, '결재 중이면 접수 대기 숫자에서 빠짐');
@@ -660,8 +697,9 @@ await check('발급 품의: 같은 신청 중복 품의·반려·취소 409, 신
 
 let employmentCert = null;
 await check('내부 결재 반대 → 신청 접수 대기로 복귀, 다시 품의 → 최종 승인 시 발급', async () => {
+  await documents.approveDocument(officerAcc, issueDocId);
   const rejected = await documents.rejectDocument(adminBAcc, issueDocId, '제출처 확인 필요');
-  assert(rejected.status === 'rejected', rejected.status);
+  assert(rejected.status === 'rejected' && !rejected.steps[1].proxy, rejected.status);
   let req = await certificates.getRequest(employmentRequest.id);
   assert(req.status === 'requested' && req.documentId === null, `반려 후 ${req.status}`);
   const { id } = await issueDraft(

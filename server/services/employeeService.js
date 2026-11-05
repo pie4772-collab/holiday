@@ -6,6 +6,7 @@ import {
   PAY_STEP_MAX,
   POSITIONS,
   gradesForRank,
+  hasPayGrade,
 } from '../../src/constants/hr.js';
 import { getDb, parseEmployeeId } from '../db.js';
 import { ensureUserForEmployee } from './authService.js';
@@ -28,6 +29,7 @@ function cleanRankGrade(data, row = {}) {
   const payGrade = pick('payGrade', 'pay_grade') || null;
   const rawStep = pick('payStep', 'pay_step');
   if (jobRank && !JOB_RANKS.includes(jobRank)) throw badRequest(`직위는 ${JOB_RANKS.join('·')} 중에서 고르세요.`);
+  if (!hasPayGrade(jobRank) && (payGrade || rawStep)) throw badRequest(`${jobRank} 직위는 급호가 없습니다. 급호를 비워 주세요.`);
   const grade = payGrade && PAY_GRADES.find((g) => g.key === payGrade);
   if (payGrade && !grade) throw badRequest('급호의 급을 목록에서 고르세요.');
   if (grade && jobRank && grade.rank !== jobRank) {

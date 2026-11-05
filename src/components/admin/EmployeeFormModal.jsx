@@ -9,18 +9,20 @@ import {
   PAY_STEP_MAX,
   POSITIONS,
   gradesForRank,
+  hasPayGrade,
   payGradeText,
 } from '../../constants/hr';
+import { HIRE_TYPES } from '../../constants/evaluation';
 
 const PAY_STEPS = Array.from({ length: PAY_STEP_MAX }, (_, i) => i + 1);
 
-/** 직위를 바꾸면 그 직위에 없는 급은 비우고, 급이 하나뿐인 직위는 그 급으로 맞춥니다. */
+/** 직위를 바꾸면 그 직위에 없는 급은 비우고, 급이 하나뿐인 직위는 그 급으로 맞춥니다. 임원은 급호를 비웁니다. */
 function withRank(form, jobRank) {
+  if (!hasPayGrade(jobRank)) return { ...form, jobRank, payGrade: '', payStep: '' };
   const grades = gradesForRank(jobRank);
   const keep = grades.some((g) => g.key === form.payGrade);
   return { ...form, jobRank, payGrade: keep ? form.payGrade : grades.length === 1 && jobRank ? grades[0].key : '' };
 }
-import { HIRE_TYPES } from '../../constants/evaluation';
 
 function uniqueSorted(values) {
   return [...new Set(values.map((v) => String(v || '').trim()).filter(Boolean))].sort((a, b) =>
@@ -291,34 +293,38 @@ export function EmployeeFormModal({
                     <span className="ml-1.5 font-mono text-primary-600">{payGradeText(form.payGrade, form.payStep)}</span>
                   )}
                 </label>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <select
-                    value={form.payGrade}
-                    onChange={(e) => setForm({ ...form, payGrade: e.target.value })}
-                    className="stripe-input"
-                    aria-label="급"
-                  >
-                    <option value="">급</option>
-                    {gradesForRank(form.jobRank).map((grade) => (
-                      <option key={grade.key} value={grade.key}>
-                        {grade.label}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={form.payStep}
-                    onChange={(e) => setForm({ ...form, payStep: e.target.value })}
-                    className="stripe-input"
-                    aria-label="호봉"
-                  >
-                    <option value="">호봉</option>
-                    {PAY_STEPS.map((step) => (
-                      <option key={step} value={step}>
-                        {step}호봉
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                {!hasPayGrade(form.jobRank) ? (
+                  <p className="stripe-input bg-[#f6f9fc] text-stripe-muted">임원은 급호 없음</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <select
+                      value={form.payGrade}
+                      onChange={(e) => setForm({ ...form, payGrade: e.target.value })}
+                      className="stripe-input"
+                      aria-label="급"
+                    >
+                      <option value="">급</option>
+                      {gradesForRank(form.jobRank).map((grade) => (
+                        <option key={grade.key} value={grade.key}>
+                          {grade.label}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={form.payStep}
+                      onChange={(e) => setForm({ ...form, payStep: e.target.value })}
+                      className="stripe-input"
+                      aria-label="호봉"
+                    >
+                      <option value="">호봉</option>
+                      {PAY_STEPS.map((step) => (
+                        <option key={step} value={step}>
+                          {step}호봉
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">

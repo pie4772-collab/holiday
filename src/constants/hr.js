@@ -2,8 +2,15 @@ export const POSITIONS = ['팀원', '팀장', '공장장', '이사', '상무', '
 export const DEFAULT_POSITION = '팀원';
 export const JOB_TYPES = ['사무직', '생산직'];
 
+/** 임원 직위. 급호가 없습니다. */
+export const EXECUTIVE_RANKS = ['사장', '부사장', '전무', '상무', '이사'];
+
 /** 직위(호칭). 결재 체인에 쓰는 직급(팀원·팀장·임원)과 별개로 인사 기록에만 씁니다. 높은 순서입니다. */
-export const JOB_RANKS = ['부장', '차장', '과장', '대리', '사원'];
+export const JOB_RANKS = [...EXECUTIVE_RANKS, '부장', '차장', '과장', '대리', '사원'];
+
+export function hasPayGrade(rank) {
+  return !EXECUTIVE_RANKS.includes(rank);
+}
 
 /** 급호의 급. 직위마다 정해져 있고 사원은 학력에 따라 3·4·5급으로 나뉩니다. 높은 순서입니다. */
 export const PAY_GRADES = [

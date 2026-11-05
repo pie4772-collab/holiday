@@ -942,6 +942,9 @@ await check('직원 정보: 직위·급호(급+호봉 1~14) 저장, 직위에 �
   assert(emp.payGrade === '5급' && emp.payStep === 14, '사원은 학력별 급');
   const roster = await employees.getEmployeeRoster(false);
   assert(roster.find((e) => e.id === String(outsider.id))?.payGrade === '5급', '명부 목록');
+  await expectError(() => employees.updateEmployee(outsider.id, { jobRank: '상무' }), /상무 직위는 급호가 없습니다/, 400);
+  emp = await employees.updateEmployee(outsider.id, { jobRank: '부사장', payGrade: '', payStep: '' });
+  assert(emp.jobRank === '부사장' && !emp.payGrade && emp.payStep === null, '임원 직위는 급호 없이 저장');
   emp = await employees.updateEmployee(outsider.id, { jobRank: '', payGrade: '', payStep: '' });
   assert(emp.jobRank === '' && emp.payGrade === '' && emp.payStep === null, JSON.stringify(emp));
   const created = await employees.createEmployee({ name: '직위시험', hireDate: '2026-11-01', jobRank: '사원', payGrade: '3급', payStep: 1 });

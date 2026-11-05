@@ -1067,7 +1067,7 @@ router.get('/documents/people', requireAuth, async (req, res, next) => {
   try {
     const rows = await getDb()
       .prepare(
-        `SELECT id, name, emp_no, workplace, department, position, job_type FROM employees
+        `SELECT id, name, emp_no, workplace, department, position, job_rank, job_type FROM employees
          WHERE is_active = 1 ORDER BY name, id`
       )
       .all();
@@ -1079,6 +1079,7 @@ router.get('/documents/people', requireAuth, async (req, res, next) => {
         workplace: row.workplace || '',
         department: row.department || '',
         position: row.position || '',
+        jobRank: row.job_rank || '',
         jobType: row.job_type || '',
       }))
     );

@@ -5,6 +5,7 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { PROFILE_FIELDS, RECORD_CATEGORIES } from '../../constants/personnel';
 import { HIRE_TYPE_LABELS } from '../../constants/evaluation';
+import { payGradeText } from '../../constants/hr';
 import { formatDate } from '../../utils/leaveCalculations';
 
 const PROFILE_TABS = [
@@ -32,11 +33,14 @@ function hireTypeText(employee) {
 }
 
 function EmployeeSummary({ employee, compact }) {
+  const gradeNo = payGradeText(employee.payGrade, employee.payStep);
   const items = [
     ['사번', employee.empNo || '-'],
     ['사업장', employee.workplace || '-'],
     ['부서', employee.department || '-'],
     ['직급', employee.position || '-'],
+    ['직위', employee.jobRank || '-'],
+    ['급호', gradeNo ? `${gradeNo} (${employee.payStep}호봉)` : '-'],
     ['겸직', [employee.concurrentDept, employee.concurrentPosition].filter(Boolean).join(' · ') || '-'],
     ['직종', employee.jobType || '-'],
     ['입사일', formatDate(employee.hireDate)],

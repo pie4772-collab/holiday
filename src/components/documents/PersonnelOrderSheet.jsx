@@ -38,7 +38,7 @@ function EntryAdder({ people, disabled, onAdd }) {
       jobType: person.jobType || '',
       workplace: person.workplace || '',
       department: person.department || '',
-      position: person.position || '',
+      position: person.jobRank || person.position || '',
     });
     setQuery('');
   }

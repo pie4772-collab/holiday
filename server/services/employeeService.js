@@ -1,5 +1,12 @@
 import { getCurrentDisplayYear } from '../../src/utils/leaveCalculations.js';
-import { DEFAULT_POSITION, POSITIONS } from '../../src/constants/hr.js';
+import {
+  DEFAULT_POSITION,
+  JOB_RANKS,
+  PAY_GRADES,
+  PAY_STEP_MAX,
+  POSITIONS,
+  gradesForRank,
+} from '../../src/constants/hr.js';
 import { getDb, parseEmployeeId } from '../db.js';
 import { ensureUserForEmployee } from './authService.js';
 import { getRolesByEmployee, isDeptHead } from './accessService.js';
@@ -8,6 +15,30 @@ import { cleanHireType, syncPlan } from './evaluationService.js';
 function normalizePosition(value) {
   const position = String(value || '').trim();
   return POSITIONS.includes(position) ? position : DEFAULT_POSITION;
+}
+
+function badRequest(message) {
+  return Object.assign(new Error(message), { status: 400 });
+}
+
+/** 직위·급·호봉을 함께 검사합니다. 빠진 항목은 row(기존 값)를 따릅니다. */
+function cleanRankGrade(data, row = {}) {
+  const pick = (key, column) => String((key in data ? data[key] : row[column]) ?? '').trim();
+  const jobRank = pick('jobRank', 'job_rank') || null;
+  const payGrade = pick('payGrade', 'pay_grade') || null;
+  const rawStep = pick('payStep', 'pay_step');
+  if (jobRank && !JOB_RANKS.includes(jobRank)) throw badRequest(`직위는 ${JOB_RANKS.join('·')} 중에서 고르세요.`);
+  const grade = payGrade && PAY_GRADES.find((g) => g.key === payGrade);
+  if (payGrade && !grade) throw badRequest('급호의 급을 목록에서 고르세요.');
+  if (grade && jobRank && grade.rank !== jobRank) {
+    throw badRequest(`${jobRank} 직위의 급은 ${gradesForRank(jobRank).map((g) => g.key).join('·')}입니다.`);
+  }
+  const payStep = rawStep ? Number(rawStep) : null;
+  if (rawStep && (!Number.isInteger(payStep) || payStep < 1 || payStep > PAY_STEP_MAX)) {
+    throw badRequest(`호봉은 1~${PAY_STEP_MAX} 사이로 입력하세요.`);
+  }
+  if (Boolean(payGrade) !== Boolean(payStep)) throw badRequest('급호는 급과 호봉을 함께 입력하세요.');
+  return { jobRank, payGrade, payStep };
 }
 
 const AS_OF_DATE = process.env.AS_OF_DATE || '2026-07-31';
@@ -27,6 +58,9 @@ function mapEmployeeRow(row, roles = []) {
     department: row.department || '',
     jobType: row.job_type || '사무직',
     position: row.position || DEFAULT_POSITION,
+    jobRank: row.job_rank || '',
+    payGrade: row.pay_grade || '',
+    payStep: row.pay_step == null ? null : Number(row.pay_step),
     concurrentDept: row.concurrent_dept || '',
     concurrentPosition: row.concurrent_position || '',
     hireDate: row.hire_date,
@@ -140,6 +174,7 @@ export async function createEmployee(data) {
 
   if (!name) throw new Error('이름은 필수입니다.');
   if (!hireDate) throw new Error('입사일은 필수입니다.');
+  const { jobRank, payGrade, payStep } = cleanRankGrade(data);
 
   return db.transaction(async () => {
     if (empNo) {
@@ -150,9 +185,9 @@ export async function createEmployee(data) {
     const result = await db
       .prepare(
         `INSERT INTO employees (
-           emp_no, name, hire_date, hire_type, workplace, department, job_type, position,
+           emp_no, name, hire_date, hire_type, workplace, department, job_type, position, job_rank, pay_grade, pay_step,
            concurrent_dept, concurrent_position, email, notes, is_active, is_admin
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
       )
       .run(
         empNo,
@@ -163,6 +198,9 @@ export async function createEmployee(data) {
         data.department?.trim() || null,
         data.jobType?.trim() || '사무직',
         normalizePosition(data.position),
+        jobRank,
+        payGrade,
+        payStep,
         data.concurrentDept?.trim() || null,
         data.concurrentPosition?.trim() || null,
         data.email?.trim() || '',
@@ -200,9 +238,10 @@ export async function updateEmployee(id, data) {
   }
   const hireDate = data.hireDate || row.hire_date;
   const hireType = 'hireType' in data ? cleanHireType(data.hireType) : row.hire_type;
+  const rankStep = cleanRankGrade(data, row);
 
   await db.transaction(async () => {
-    await writeEmployee(db, row, data, empNo, hireDate, hireType);
+    await writeEmployee(db, row, data, empNo, hireDate, hireType, rankStep);
     await syncOrgCodes(db, row.id, row);
     if (hireType !== row.hire_type || hireDate !== row.hire_date) await syncPlan(row.id);
   });
@@ -212,12 +251,12 @@ export async function updateEmployee(id, data) {
   return mapEmployeeRow(await db.prepare('SELECT * FROM employees WHERE id = ?').get(row.id));
 }
 
-async function writeEmployee(db, row, data, empNo, hireDate, hireType) {
+async function writeEmployee(db, row, data, empNo, hireDate, hireType, { jobRank, payGrade, payStep }) {
   await db
     .prepare(
       `UPDATE employees
        SET emp_no = ?, name = ?, hire_date = ?, hire_type = ?, workplace = ?, department = ?, job_type = ?,
-           position = ?, concurrent_dept = ?, concurrent_position = ?,
+           position = ?, job_rank = ?, pay_grade = ?, pay_step = ?, concurrent_dept = ?, concurrent_position = ?,
            email = ?, notes = ?, updated_at = datetime('now', 'localtime')
        WHERE id = ?`
     )
@@ -230,6 +269,9 @@ async function writeEmployee(db, row, data, empNo, hireDate, hireType) {
       data.department?.trim() ?? row.department,
       data.jobType?.trim() ?? row.job_type ?? '사무직',
       normalizePosition(data.position ?? row.position),
+      jobRank,
+      payGrade,
+      payStep,
       data.concurrentDept?.trim() ?? row.concurrent_dept,
       data.concurrentPosition?.trim() ?? row.concurrent_position,
       data.email?.trim() ?? row.email ?? '',

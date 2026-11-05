@@ -2,7 +2,24 @@ import { useState, useEffect, useMemo } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { SelectOrInput } from '../ui/SelectOrInput';
-import { DEFAULT_POSITION, JOB_TYPES, POSITIONS } from '../../constants/hr';
+import {
+  DEFAULT_POSITION,
+  JOB_RANKS,
+  JOB_TYPES,
+  PAY_STEP_MAX,
+  POSITIONS,
+  gradesForRank,
+  payGradeText,
+} from '../../constants/hr';
+
+const PAY_STEPS = Array.from({ length: PAY_STEP_MAX }, (_, i) => i + 1);
+
+/** 직위를 바꾸면 그 직위에 없는 급은 비우고, 급이 하나뿐인 직위는 그 급으로 맞춥니다. */
+function withRank(form, jobRank) {
+  const grades = gradesForRank(jobRank);
+  const keep = grades.some((g) => g.key === form.payGrade);
+  return { ...form, jobRank, payGrade: keep ? form.payGrade : grades.length === 1 && jobRank ? grades[0].key : '' };
+}
 import { HIRE_TYPES } from '../../constants/evaluation';
 
 function uniqueSorted(values) {
@@ -20,6 +37,9 @@ const emptyForm = {
   department: '',
   jobType: '사무직',
   position: DEFAULT_POSITION,
+  jobRank: '',
+  payGrade: '',
+  payStep: '',
   concurrentDept: '',
   concurrentPosition: '',
   email: '',
@@ -69,6 +89,9 @@ export function EmployeeFormModal({
           department: initial.department || '',
           jobType: initial.jobType || '사무직',
           position: POSITIONS.includes(initial.position) ? initial.position : DEFAULT_POSITION,
+          jobRank: JOB_RANKS.includes(initial.jobRank) ? initial.jobRank : '',
+          payGrade: initial.payGrade || '',
+          payStep: initial.payStep ? String(initial.payStep) : '',
           concurrentDept: initial.concurrentDept || '',
           concurrentPosition: POSITIONS.includes(initial.concurrentPosition)
             ? initial.concurrentPosition
@@ -243,6 +266,59 @@ export function EmployeeFormModal({
                     </option>
                   ))}
                 </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="stripe-label">직위</label>
+                <select
+                  value={form.jobRank}
+                  onChange={(e) => setForm(withRank(form, e.target.value))}
+                  className="stripe-input"
+                >
+                  <option value="">미지정</option>
+                  {JOB_RANKS.map((rank) => (
+                    <option key={rank} value={rank}>
+                      {rank}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="stripe-label">
+                  급호
+                  {payGradeText(form.payGrade, form.payStep) && (
+                    <span className="ml-1.5 font-mono text-primary-600">{payGradeText(form.payGrade, form.payStep)}</span>
+                  )}
+                </label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <select
+                    value={form.payGrade}
+                    onChange={(e) => setForm({ ...form, payGrade: e.target.value })}
+                    className="stripe-input"
+                    aria-label="급"
+                  >
+                    <option value="">급</option>
+                    {gradesForRank(form.jobRank).map((grade) => (
+                      <option key={grade.key} value={grade.key}>
+                        {grade.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={form.payStep}
+                    onChange={(e) => setForm({ ...form, payStep: e.target.value })}
+                    className="stripe-input"
+                    aria-label="호봉"
+                  >
+                    <option value="">호봉</option>
+                    {PAY_STEPS.map((step) => (
+                      <option key={step} value={step}>
+                        {step}호봉
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">

@@ -924,6 +924,31 @@ await check('퇴사자 연차(정산 확정 후): 수정·삭제 409', async () 
   await expectError(() => leave.deleteAccrual(accrualId), /정산이 확정/, 409);
 });
 
+await check('직원 정보: 직위·급호(급+호봉 1~14) 저장, 직위에 맞는 급만, 직급과 별개, 비우기', async () => {
+  const employees = await import('../server/services/employeeService.js');
+  const { payGradeText } = await import('../src/constants/hr.js');
+  assert(payGradeText('1급갑', 7) === '1급갑07' && payGradeText('2급을', 5) === '2급을05' && payGradeText('3급', 5) === '3급05', '표기');
+  const before = await db.prepare('SELECT position FROM employees WHERE id = ?').get(outsider.id);
+  let emp = await employees.updateEmployee(outsider.id, { jobRank: '과장', payGrade: '2급갑', payStep: '7' });
+  assert(emp.jobRank === '과장' && emp.payGrade === '2급갑' && emp.payStep === 7 && emp.position === before.position, JSON.stringify(emp));
+  await expectError(() => employees.updateEmployee(outsider.id, { jobRank: '팀장' }), /직위는/, 400);
+  await expectError(() => employees.updateEmployee(outsider.id, { jobRank: '대리' }), /대리 직위의 급은 2급을/, 400);
+  await expectError(() => employees.updateEmployee(outsider.id, { payGrade: '2갑' }), /급을 목록/, 400);
+  await expectError(() => employees.updateEmployee(outsider.id, { payStep: '15' }), /호봉은 1~14/, 400);
+  await expectError(() => employees.updateEmployee(outsider.id, { payStep: '' }), /급과 호봉을 함께/, 400);
+  emp = await employees.updateEmployee(outsider.id, { name: outsider.name });
+  assert(emp.payGrade === '2급갑' && emp.payStep === 7, '다른 항목만 고치면 유지');
+  emp = await employees.updateEmployee(outsider.id, { jobRank: '사원', payGrade: '5급', payStep: 14 });
+  assert(emp.payGrade === '5급' && emp.payStep === 14, '사원은 학력별 급');
+  const roster = await employees.getEmployeeRoster(false);
+  assert(roster.find((e) => e.id === String(outsider.id))?.payGrade === '5급', '명부 목록');
+  emp = await employees.updateEmployee(outsider.id, { jobRank: '', payGrade: '', payStep: '' });
+  assert(emp.jobRank === '' && emp.payGrade === '' && emp.payStep === null, JSON.stringify(emp));
+  const created = await employees.createEmployee({ name: '직위시험', hireDate: '2026-11-01', jobRank: '사원', payGrade: '3급', payStep: 1 });
+  assert(created.jobRank === '사원' && created.payGrade === '3급' && created.payStep === 1, JSON.stringify(created));
+  await expectError(() => employees.createEmployee({ name: '직위시험2', hireDate: '2026-11-01', jobRank: '부장', payGrade: '1급을', payStep: 1 }), /부장 직위의 급은 1급갑/, 400);
+});
+
 const failed = results.filter((r) => !r.ok);
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'} ${r.name}${r.ok ? '' : `\n     → ${r.error}`}`);
 console.log(`\n${results.length - failed.length}/${results.length} passed (${getDbDialect()})`);

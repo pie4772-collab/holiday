@@ -20,12 +20,18 @@ import {
 } from '../../hooks/useEmployeeRoster';
 import { useCurrentEmployee } from '../../hooks/useLeaveData';
 import { RoleBadges, RoleEditorModal } from '../../components/admin/RoleEditorModal';
-import { DEFAULT_PASSWORD } from '../../constants/hr';
+import { DEFAULT_PASSWORD, JOB_RANKS, PAY_GRADES, rankGradeText } from '../../constants/hr';
 import { ROLE_LABELS, hasPermission, isScopedPermission } from '../../utils/access';
 import { formatDate } from '../../utils/leaveCalculations';
 
 function rosterSortValue(emp, key) {
   switch (key) {
+    case 'rankGrade': {
+      if (!emp.jobRank && !emp.payGrade) return '';
+      const rank = JOB_RANKS.indexOf(emp.jobRank);
+      const grade = PAY_GRADES.findIndex((g) => g.key === emp.payGrade);
+      return (rank < 0 ? JOB_RANKS.length : rank) * 10000 + (grade < 0 ? PAY_GRADES.length : grade) * 100 - (emp.payStep || 0);
+    }
     case 'concurrent':
       return [emp.concurrentDept, emp.concurrentPosition].filter(Boolean).join(' ');
     case 'roles':
@@ -39,7 +45,7 @@ function rosterSortValue(emp, key) {
 
 function matchesKeyword(emp, keyword) {
   if (!keyword) return true;
-  const haystack = [emp.name, emp.empNo, emp.workplace, emp.department, emp.position]
+  const haystack = [emp.name, emp.empNo, emp.workplace, emp.department, emp.position, emp.jobRank]
     .filter(Boolean)
     .join(' ')
     .toLowerCase();
@@ -252,6 +258,10 @@ export function AdminEmployeeRoster() {
                     <span className="text-stripe-muted">직급</span>
                     <span className="text-stripe-text">{emp.position || '-'}</span>
                   </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-stripe-muted">직위 · 급호</span>
+                    <span className="text-stripe-text">{rankGradeText(emp) || '-'}</span>
+                  </div>
                   {(emp.concurrentDept || emp.concurrentPosition) && (
                     <div className="flex justify-between text-xs">
                       <span className="text-stripe-muted">겸직</span>
@@ -324,15 +334,16 @@ export function AdminEmployeeRoster() {
             <colgroup>
               <col style={{ width: '6.5%' }} />
               <col style={{ width: '6.5%' }} />
-              <col style={{ width: '6.5%' }} />
-              <col style={{ width: '10.5%' }} />
               <col style={{ width: '6%' }} />
-              <col style={{ width: '9%' }} />
+              <col style={{ width: '9.5%' }} />
+              <col style={{ width: '5.5%' }} />
+              <col style={{ width: '8%' }} />
               <col style={{ width: '8.5%' }} />
-              <col style={{ width: '8.5%' }} />
-              <col style={{ width: '11%' }} />
-              <col style={{ width: '6%' }} />
-              <col style={{ width: '21%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '10%' }} />
+              <col style={{ width: '5.5%' }} />
+              <col style={{ width: '18%' }} />
             </colgroup>
             <thead>
               <tr>
@@ -341,6 +352,7 @@ export function AdminEmployeeRoster() {
                 <th><SortButton label="사업장" column="workplace" sort={sort} onSort={onSort} /></th>
                 <th><SortButton label="부서" column="department" sort={sort} onSort={onSort} /></th>
                 <th><SortButton label="직급" column="position" sort={sort} onSort={onSort} /></th>
+                <th><SortButton label="직위·급호" column="rankGrade" sort={sort} onSort={onSort} /></th>
                 <th><SortButton label="겸직" column="concurrent" sort={sort} onSort={onSort} /></th>
                 <th><SortButton label="입사일" column="hireDate" sort={sort} onSort={onSort} /></th>
                 <th><SortButton label="퇴사일" column="terminatedDate" sort={sort} onSort={onSort} /></th>
@@ -352,7 +364,7 @@ export function AdminEmployeeRoster() {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-sm text-stripe-muted">
+                  <td colSpan={12} className="py-12 text-center text-sm text-stripe-muted">
                     검색 결과가 없습니다.
                   </td>
                 </tr>
@@ -364,6 +376,7 @@ export function AdminEmployeeRoster() {
                     <td className="muted whitespace-nowrap">{emp.workplace || '-'}</td>
                     <td className="muted whitespace-nowrap">{emp.department || '-'}</td>
                     <td className="muted whitespace-nowrap">{emp.position || '-'}</td>
+                    <td className="muted whitespace-nowrap">{rankGradeText(emp) || '-'}</td>
                     <td className="muted whitespace-nowrap">
                       {emp.concurrentDept || emp.concurrentPosition
                         ? [emp.concurrentDept, emp.concurrentPosition].filter(Boolean).join(' · ')

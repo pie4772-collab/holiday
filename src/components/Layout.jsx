@@ -28,6 +28,7 @@ import {
   FileBadge,
   Files,
   Settings,
+  HardDrive,
   ChevronDown,
 } from 'lucide-react';
 import { ASSIGNABLE_ROLES, ROLE_LABELS, canAccessAdmin, hasPermission } from '../utils/access';
@@ -80,6 +81,7 @@ const adminNav = [
       { to: '/admin/attendance-settings', icon: Settings2, label: '근태 설정', permission: 'attendance.manage' },
       { to: '/admin/approval-lines', icon: GitBranch, label: '결재 라인', permission: 'approvalLines.manage' },
       { to: '/admin/mail-settings', icon: Mail, label: '메일 서버', permission: 'mail.manage' },
+      { to: '/admin/storage', icon: HardDrive, label: '저장공간', permission: 'storage.view' },
     ],
   },
 ];

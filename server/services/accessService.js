@@ -21,7 +21,7 @@ const ROLE_PERMISSIONS = {
     'reports.view', 'reports.save', 'approvalLogs.view', 'approvalLines.manage',
     'payroll', 'mail.manage', 'roles.manage', 'records.view', 'records.edit',
     'attendance.view', 'attendance.edit', 'attendance.manage', 'notices.manage', 'evaluations.manage',
-    'training.manage', 'documents.manage', 'certificates.manage',
+    'training.manage', 'documents.manage', 'certificates.manage', 'storage.view',
   ],
   hr: [
     'admin', 'employees.view', 'employees.manage', 'leave.view', 'leave.edit',

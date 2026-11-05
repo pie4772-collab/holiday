@@ -41,6 +41,7 @@ import { AdminLeaveReport } from './pages/admin/AdminLeaveReport';
 import { AdminLeaveSettlement } from './pages/admin/AdminLeaveSettlement';
 import { AdminLeaveEventSettlement } from './pages/admin/AdminLeaveEventSettlement';
 import { AdminMailSettings } from './pages/admin/AdminMailSettings';
+import { AdminStorage } from './pages/admin/AdminStorage';
 import { EmployeeDocuments } from './pages/employee/EmployeeDocuments';
 import { EmployeeDocumentNew } from './pages/employee/EmployeeDocumentNew';
 import { EmployeeDocumentDetail } from './pages/employee/EmployeeDocumentDetail';
@@ -192,6 +193,7 @@ function AppRoutes() {
           <Route path="leave-settlements" element={guard('payroll', <AdminLeaveSettlement />)} />
           <Route path="leave-event-settlements" element={guard('payroll', <AdminLeaveEventSettlement />)} />
           <Route path="mail-settings" element={guard('mail.manage', <AdminMailSettings />)} />
+          <Route path="storage" element={guard('storage.view', <AdminStorage />)} />
         </Route>
 
         <Route path="*" element={<RoleRedirect />} />

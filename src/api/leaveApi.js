@@ -785,6 +785,10 @@ export const leaveApi = {
     return apiClient('/admin/mail-settings/test', { method: 'POST', body: data });
   },
 
+  async getStorageUsage({ refresh = false } = {}) {
+    return apiClient(`/admin/storage${refresh ? '?refresh=1' : ''}`);
+  },
+
   async reactivateEmployee(id) {
     if (USE_MOCK) {
       await delay(400);

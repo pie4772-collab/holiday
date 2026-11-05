@@ -15,6 +15,7 @@ import * as evaluationService from '../services/evaluationService.js';
 import * as trainingService from '../services/trainingService.js';
 import * as documentService from '../services/documentService.js';
 import * as certificateService from '../services/certificateService.js';
+import * as storageService from '../services/storageService.js';
 import { sendFile } from '../utils/fileUpload.js';
 import { getClientIp, describeClientIp } from '../utils/clientIp.js';
 import { DOCUMENT_MAX_BYTES } from '../../src/constants/personnel.js';
@@ -222,6 +223,14 @@ router.post('/admin/mail-settings/test', requirePermission('mail.manage'), async
     .sendTestMail(req.body?.to, req.body || {})
     .then((result) => res.json(result))
     .catch(next);
+});
+
+router.get('/admin/storage', requirePermission('storage.view'), async (req, res, next) => {
+  try {
+    res.json(await storageService.getStorageUsage({ refresh: req.query.refresh === '1' }));
+  } catch (e) {
+    next(e);
+  }
 });
 
 router.get('/admin/leave-reports', requirePermission('reports.view'), async (req, res, next) => {

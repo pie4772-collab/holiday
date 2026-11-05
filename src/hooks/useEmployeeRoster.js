@@ -104,6 +104,21 @@ export function useSaveMailSettings() {
   });
 }
 
+export function useStorageUsage() {
+  return useQuery({
+    queryKey: ['admin', 'storage'],
+    queryFn: () => leaveApi.getStorageUsage(),
+  });
+}
+
+export function useRefreshStorageUsage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => leaveApi.getStorageUsage({ refresh: true }),
+    onSuccess: (data) => queryClient.setQueryData(['admin', 'storage'], data),
+  });
+}
+
 export function useTestMailSettings() {
   return useMutation({
     mutationFn: (payload) => leaveApi.testMailSettings(payload),

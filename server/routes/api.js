@@ -1188,6 +1188,23 @@ router.get('/admin/documents/export', requirePermission('documents.manage'), asy
   }
 });
 
+router.get('/admin/personnel-orders', requirePermission('employees.manage'), async (req, res, next) => {
+  try {
+    res.json(await documentService.listPersonnelOrders(req.query));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/personnel-orders/export', requirePermission('employees.manage'), async (req, res, next) => {
+  try {
+    const { filename, headers, rows } = await documentService.exportPersonnelOrders(req.query);
+    csvResponse(res, filename, headers, rows);
+  } catch (e) {
+    next(e);
+  }
+});
+
 /* ───────────── 증명서 ───────────── */
 
 router.get('/certificates/mine', requireAuth, async (req, res, next) => {

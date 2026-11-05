@@ -30,6 +30,7 @@ import {
   Settings,
   HardDrive,
   ChevronDown,
+  Stamp,
 } from 'lucide-react';
 import { ASSIGNABLE_ROLES, ROLE_LABELS, canAccessAdmin, hasPermission } from '../utils/access';
 import { useAppStore } from '../store/useAppStore';
@@ -68,6 +69,7 @@ const adminNav = [
   },
   { to: '/admin/roster', icon: ClipboardList, label: '사원 명부', permission: 'employees.view' },
   { to: '/admin/personnel', icon: Contact, label: '인사기록카드', permission: 'records.view' },
+  { to: '/admin/personnel-orders', icon: Stamp, label: '인사명령 대장', permission: 'employees.manage' },
   { to: '/admin/evaluations', icon: UserCheck, label: '수습·정기 평가', permission: 'evaluations.manage' },
   { to: '/admin/training', icon: GraduationCap, label: '법정의무교육', permission: 'training.manage' },
   { to: '/admin/documents', icon: Files, label: '전자결재 문서함', permission: 'documents.manage' },

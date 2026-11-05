@@ -47,6 +47,7 @@ import { EmployeeDocumentNew } from './pages/employee/EmployeeDocumentNew';
 import { EmployeeDocumentDetail } from './pages/employee/EmployeeDocumentDetail';
 import { EmployeeCertificates } from './pages/employee/EmployeeCertificates';
 import { AdminDocuments } from './pages/admin/AdminDocuments';
+import { AdminPersonnelOrders } from './pages/admin/AdminPersonnelOrders';
 import { AdminCertificates } from './pages/admin/AdminCertificates';
 import { VerifyCertificatePage } from './pages/VerifyCertificatePage';
 import { useAppStore } from './store/useAppStore';
@@ -174,6 +175,7 @@ function AppRoutes() {
           <Route path="roster" element={guard('employees.view', <AdminEmployeeRoster />)} />
           <Route path="personnel" element={guard('records.view', <AdminPersonnelList />)} />
           <Route path="personnel/:id" element={guard('records.view', <AdminPersonnelCard />)} />
+          <Route path="personnel-orders" element={guard('employees.manage', <AdminPersonnelOrders />)} />
           <Route path="evaluations" element={guard('evaluations.manage', <AdminEvaluations />)} />
           <Route path="training" element={guard('training.manage', <AdminTraining />)} />
           <Route path="training/:id" element={guard('training.manage', <AdminTrainingSession />)} />

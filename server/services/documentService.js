@@ -22,6 +22,7 @@ import {
   TITLE_MAX,
   approvalsFirst,
   formatAmount,
+  orderNoText,
   orderTitle,
   stepStatusLabel,
 } from '../../src/constants/approvalDocs.js';
@@ -525,6 +526,86 @@ export async function exportAll(filters = {}) {
       item.currentRole || '',
       item.submittedAt,
       item.completedAt || '',
+    ]),
+  };
+}
+
+/* ───────────── 인사명령 대장 ───────────── */
+
+/** 결재가 끝난 인사명령을 대상자 한 명당 한 줄로 펼칩니다. 최근 발령번호가 위로 옵니다. */
+export async function listPersonnelOrders(filters = {}) {
+  const where = ["d.form_key = 'personnel_order'", "d.status = 'approved'"];
+  const params = [];
+  const year = Number(filters.year);
+  if (Number.isInteger(year) && year > 2000) {
+    where.push('d.doc_year = ?');
+    params.push(year);
+  }
+  const rows = await getDb()
+    .prepare(
+      `SELECT d.id, d.document_no, d.doc_year, d.doc_seq, d.body, d.completed_at, d.drafter_name
+       FROM approval_documents d
+       WHERE ${where.join(' AND ')}
+       ORDER BY d.doc_year DESC, d.doc_seq DESC, d.id DESC`
+    )
+    .all(...params);
+  const orderType = text(filters.orderType);
+  const q = text(filters.q).toLowerCase();
+  const items = [];
+  for (const row of rows) {
+    const body = parseJson(row.body, {});
+    if (orderType && body.orderType !== orderType) continue;
+    const entries = Array.isArray(body.entries) ? body.entries : [];
+    entries.forEach((entry, index) => {
+      items.push({
+        key: `${row.id}-${index}`,
+        documentId: Number(row.id),
+        documentNo: row.document_no || '',
+        orderNo: orderNoText(row.document_no),
+        year: Number(row.doc_year) || null,
+        seq: Number(row.doc_seq) || null,
+        orderType: body.orderType || '',
+        effectiveDate: body.effectiveDate || '',
+        employeeId: entry.employeeId ? String(entry.employeeId) : null,
+        name: entry.name || '',
+        jobType: entry.jobType || '',
+        workplace: entry.workplace || '',
+        department: entry.department || '',
+        position: entry.position || '',
+        note: body.content || '',
+        drafterName: row.drafter_name || '',
+        completedAt: row.completed_at || null,
+        entryIndex: index,
+        entryCount: entries.length,
+      });
+    });
+  }
+  if (!q) return items;
+  return items.filter((item) =>
+    [item.name, item.orderNo, item.documentNo, item.workplace, item.department, item.position, item.jobType, item.note].some((v) =>
+      String(v).toLowerCase().includes(q)
+    )
+  );
+}
+
+export async function exportPersonnelOrders(filters = {}) {
+  const items = await listPersonnelOrders(filters);
+  return {
+    filename: `personnel-orders-${Number(filters.year) || 'all'}.csv`,
+    headers: ['발령번호', '발령일', '발령 구분', '성명', '직종', '사업장', '부서', '직위', '비고', '기안자', '결재 완료', '문서번호'],
+    rows: items.map((item) => [
+      item.orderNo,
+      item.effectiveDate,
+      item.orderType,
+      item.name,
+      item.jobType,
+      item.workplace,
+      item.department,
+      item.position,
+      item.note,
+      item.drafterName,
+      item.completedAt || '',
+      item.documentNo,
     ]),
   };
 }

@@ -549,6 +549,10 @@ export const leaveApi = {
     return apiClient(`/admin/documents?${new URLSearchParams(filters)}`);
   },
 
+  async getPersonnelOrders(filters = {}) {
+    return apiClient(`/admin/personnel-orders?${new URLSearchParams(filters)}`);
+  },
+
   async getMyCertificates() {
     return apiClient('/certificates/mine');
   },

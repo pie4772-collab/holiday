@@ -9,6 +9,7 @@ export const documentKeys = {
   people: ['documents', 'people'],
   lineSuggestion: ['documents', 'line-suggestion'],
   admin: (filters) => ['documents', 'admin', filters],
+  personnelOrders: (filters) => ['documents', 'personnel-orders', filters],
 };
 
 export function useDocumentBox(box) {
@@ -39,6 +40,14 @@ export function useDocumentLineSuggestion(enabled = true) {
 
 export function useAdminDocuments(filters) {
   return useQuery({ queryKey: documentKeys.admin(filters), queryFn: () => leaveApi.getAdminDocuments(filters), staleTime: 0 });
+}
+
+export function usePersonnelOrders(filters) {
+  return useQuery({
+    queryKey: documentKeys.personnelOrders(filters),
+    queryFn: () => leaveApi.getPersonnelOrders(filters),
+    staleTime: 0,
+  });
 }
 
 /** 결재·기안 뒤에는 결재함·Home 할 일 수·증명서 목록을 새로 받습니다. */

@@ -497,7 +497,7 @@ await check('이전 방식 인사 수신 문서: 인사담당 본인 문서는 �
   });
 });
 
-await check('인사명령: 인사담당만 기안, 대상자·발령일 검사, 제목 자동, 결재 후 발령번호 인사 연도 - 번호호', async () => {
+await check('인사명령: 인사담당만 기안, 대상자·발령일 검사, 제목 자동, 결재 후 발령번호 인사 연도 - 번호호, 인사명령 대장', async () => {
   const body = {
     orderType: '입사',
     effectiveDate: '2026-11-01',
@@ -527,6 +527,23 @@ await check('인사명령: 인사담당만 기안, 대상자·발령일 검사, 
   const next = await documents.approveDocument(leaderAcc, second.id);
   assert(next.documentNo === `인사-${year}-${String(first + 1).padStart(4, '0')}`, `다음 번호 ${next.documentNo}`);
   assert(orderDateText('2026-11-01') === "26' 11/1부", orderDateText('2026-11-01'));
+
+  const pendingOrder = await draft({ ...body, orderType: '승진' });
+  const register = await documents.listPersonnelOrders({ year });
+  const mine = register.filter((item) => [id, second.id].includes(item.documentId));
+  assert(mine.length === 4, `대장 ${mine.length}줄 (명령 2건 × 대상자 2명)`);
+  assert(!register.some((item) => item.documentId === pendingOrder.id), '결재 중인 명령은 대장에 없음');
+  assert(register.findIndex((i) => i.documentId === second.id) < register.findIndex((i) => i.documentId === id), '최근 번호가 위');
+  const row = mine.find((item) => item.documentId === id && item.entryIndex === 1);
+  assert(
+    row.orderNo === orderNoText(doc.documentNo) && row.employeeId === String(outsider.id) && row.orderType === '입사' && row.effectiveDate === '2026-11-01',
+    JSON.stringify(row)
+  );
+  const transfers = await documents.listPersonnelOrders({ year, orderType: '전보', q: '김민석' });
+  assert(transfers.some((i) => i.documentId === second.id) && !transfers.some((i) => i.documentId === id), '구분·검색 필터');
+  const csv = await documents.exportPersonnelOrders({ year });
+  assert(csv.headers[0] === '발령번호' && csv.rows.length === register.length, 'CSV');
+  await documents.withdrawDocument(adminAAcc, pendingOrder.id);
 });
 
 await check('문서함(관리): 양식·상태 필터, CSV', async () => {

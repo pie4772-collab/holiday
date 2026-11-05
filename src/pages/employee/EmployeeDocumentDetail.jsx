@@ -239,8 +239,8 @@ export function EmployeeDocumentDetail() {
     <div>
       <PageHeader
         title={doc.title}
-        backTo={fromAdmin ? '/admin/documents' : '/employee/documents'}
-        backLabel={fromAdmin ? '전자결재 문서함' : '전자결재'}
+        backTo={location.state?.backTo || (fromAdmin ? '/admin/documents' : '/employee/documents')}
+        backLabel={location.state?.backLabel || (fromAdmin ? '전자결재 문서함' : '전자결재')}
         actions={
           <>
             {doc.permissions.withdraw && (

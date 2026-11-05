@@ -7,7 +7,9 @@ import { PageHeader } from '../../components/ui/PageHeader';
 import { Panel, PanelHeader } from '../../components/ui/Panel';
 import { Badge } from '../../components/ui/Badge';
 import { LeaveSummaryCard } from '../../components/LeaveSummaryCard';
-import { useCurrentEmployee, useLeaveHistory, useLeaveUsages } from '../../hooks/useLeaveData';
+import { SpecialLeavePanel } from '../../components/SpecialLeavePanel';
+import { useCurrentEmployee, useLeaveHistory, useLeaveUsages, useSpecialLeaves } from '../../hooks/useLeaveData';
+import { isSpecialLeave } from '../../constants/leaveKinds';
 
 const HIDE_SETTLEMENTS_THROUGH_YEAR = 2026;
 
@@ -15,8 +17,12 @@ export function EmployeeLeaveHistory() {
   const { data: employee, isLoading: empLoading, isError: empError, refetch } = useCurrentEmployee();
   const { data: logs, isLoading: logsLoading } = useLeaveHistory(employee?.id);
   const { data: usages, isLoading: usagesLoading } = useLeaveUsages(employee?.id);
+  const { data: specialLeaves, isLoading: specialLoading } = useSpecialLeaves(employee?.id);
   const sortedUsages = useMemo(
-    () => [...(usages || [])].sort((a, b) => String(b.date).localeCompare(String(a.date))),
+    () =>
+      (usages || [])
+        .filter((u) => !isSpecialLeave(u.kind))
+        .sort((a, b) => String(b.date).localeCompare(String(a.date))),
     [usages]
   );
   const visibleLogs = useMemo(
@@ -68,6 +74,8 @@ export function EmployeeLeaveHistory() {
         />
         <LeaveUsageTable usages={sortedUsages} isLoading={usagesLoading} />
       </Panel>
+
+      <SpecialLeavePanel className="mb-5" usages={specialLeaves} isLoading={specialLoading} defaultYear={year} />
 
       <Panel>
         <PanelHeader

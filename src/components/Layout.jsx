@@ -47,7 +47,7 @@ const employeeNav = [
   { to: '/employee/training', icon: GraduationCap, label: '법정의무교육' },
   { to: '/employee/history', icon: History, label: '연차 사용현황' },
   { to: '/employee/calendar', icon: Calendar, label: '캘린더' },
-  { to: '/employee/request', icon: FilePlus, label: '연차 신청' },
+  { to: '/employee/request', icon: FilePlus, label: '연차·휴가 신청' },
   { to: '/employee/profile', icon: Contact, label: '내 인사기록' },
 ];
 
@@ -59,7 +59,7 @@ const adminNav = [
     label: '연차',
     children: [
       { to: '/admin/leave-manage', icon: CalendarDays, label: '연차 관리', permission: 'leave.view' },
-      { to: '/admin/approvals', icon: ClipboardCheck, label: '연차 승인' },
+      { to: '/admin/approvals', icon: ClipboardCheck, label: '연차·휴가 승인' },
       { to: '/admin/approval-history', icon: ScrollText, label: '승인·반려 이력', permission: 'approvalLogs.view' },
       { to: '/admin/leave-reports', icon: FileSpreadsheet, label: '연차 보고서', permission: 'reports.view' },
       { to: '/admin/leave-settlements', icon: Scale, label: 'IFRS 연차부채', permission: 'payroll' },
@@ -203,7 +203,7 @@ export function Layout() {
     ...employeeNav.map((item) =>
       item.to === '/employee/documents' ? { ...item, badge: currentEmployee?.documentTasks || 0 } : item
     ),
-    ...(canApprove ? [{ to: '/employee/approvals', icon: ClipboardCheck, label: '연차 승인' }] : []),
+    ...(canApprove ? [{ to: '/employee/approvals', icon: ClipboardCheck, label: '연차·휴가 승인' }] : []),
     ...(canReviewRemote
       ? [{ to: '/employee/attendance-reviews', icon: MapPinCheck, label: '외근·출장 확인' }]
       : []),

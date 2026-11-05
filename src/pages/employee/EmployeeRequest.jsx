@@ -34,7 +34,7 @@ export function EmployeeRequest() {
   return (
     <div>
       <PageHeader
-        title="연차 신청"
+        title="연차·휴가 신청"
         description="시작일과 종료일을 선택하면 그 사이 평일만 한 번에 신청합니다. 주말·공휴일은 제외됩니다."
       />
 
@@ -52,7 +52,7 @@ export function EmployeeRequest() {
               <FilePlus className="h-6 w-6 text-primary-500" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-stripe-text">연차 신청하기</h2>
+              <h2 className="text-base font-semibold text-stripe-text">연차·휴가 신청하기</h2>
               {leaveExempt ? (
                 <p className="text-sm text-stripe-muted mt-1">
                   임원(이사·상무·전무·대표이사)은 연차 발생·신청 대상이 아닙니다.
@@ -83,9 +83,10 @@ export function EmployeeRequest() {
             </p>
             <ul className="space-y-2 text-[13px] text-stripe-muted">
               <li>연속 연차는 시작일~종료일의 평일만 신청됩니다 (주말·공휴일 제외)</li>
+              <li>경조휴가·공가·출산전후휴가·배우자 출산휴가·가족돌봄휴가는 신청 창의 휴가 종류에서 고르세요. 연차 잔여에서 빠지지 않고, 결재선은 연차와 같습니다</li>
               <li>반차는 평일 하루만 신청할 수 있습니다</li>
               <li>신청·승인 직후에는 잔여가 줄지 않고, 사용일이 지난 뒤에 차감됩니다</li>
-              <li>승인 전에는 아래 승인 대기 목록에서 날짜별로 직접 취소할 수 있습니다 (승인 후에는 인사담당에게 요청)</li>
+              <li>승인 전에는 아래 승인 대기 목록에서 신청별로 직접 취소할 수 있습니다 (승인 후에는 인사담당에게 요청)</li>
               <li>팀원 신청은 팀장 승인, 공장장은 본인 신청으로 승인, 경영전략실은 지정 담당자 승인</li>
             </ul>
           </div>

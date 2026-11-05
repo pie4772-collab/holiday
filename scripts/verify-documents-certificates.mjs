@@ -952,6 +952,80 @@ await check('직원 정보: 직위·급호(급+호봉 1~14) 저장, 직위에 �
   await expectError(() => employees.createEmployee({ name: '직위시험2', hireDate: '2026-11-01', jobRank: '부장', payGrade: '1급을', payStep: 1 }), /부장 직위의 급은 1급갑/, 400);
 });
 
+/* ───────────── 특별휴가(경조·공가·출산전후·배우자 출산·가족돌봄) ───────────── */
+
+const { listLeaveRequestDates } = await import('../src/utils/leaveRequestDates.js');
+const attendance = await import('../server/services/attendanceService.js');
+const pastWeeks = [];
+{
+  const today = new Date().toISOString().slice(0, 10);
+  for (let d = new Date(`${year}-02-01T00:00:00Z`); pastWeeks.length < 4; d.setUTCDate(d.getUTCDate() + 7)) {
+    const mon = new Date(d);
+    mon.setUTCDate(mon.getUTCDate() + ((8 - mon.getUTCDay()) % 7));
+    const start = mon.toISOString().slice(0, 10);
+    const fri = new Date(mon);
+    fri.setUTCDate(fri.getUTCDate() + 4);
+    const end = fri.toISOString().slice(0, 10);
+    if (end >= today) break;
+    if (listLeaveRequestDates(start, end).length !== 5) continue;
+    const busy = await db
+      .prepare("SELECT 1 FROM leave_usages WHERE employee_id = ? AND usage_date BETWEEN ? AND ? AND status IN ('pending', 'approved')")
+      .get(member.id, start, end);
+    if (!busy && !pastWeeks.some((w) => w.start === start)) pastWeeks.push({ start, end });
+  }
+}
+const usedOf = async () => {
+  const emp = await leave.getEmployeeById(member.id);
+  return { used: emp.leaveSummary.usedDays, remaining: emp.leaveSummary.remaining };
+};
+
+await check('특별휴가: 종류·반차 검사, 공가 5일 한 번에 승인해도 연차 사용·잔여 그대로, 근태는 휴가', async () => {
+  assert(pastWeeks.length >= 3, `빈 주가 부족합니다: ${JSON.stringify(pastWeeks)}`);
+  const { start, end } = pastWeeks[0];
+  await expectError(() => leave.submitLeaveRequest({ employeeId: member.id, kind: 'nope', type: 'full', startDate: start, endDate: start }), /휴가 종류/, 400);
+  await expectError(
+    () => leave.submitLeaveRequest({ employeeId: member.id, kind: 'condolence', type: 'half', halfPeriod: 'am', startDate: start }),
+    /하루 단위로만/,
+    400
+  );
+  const before = await usedOf();
+  const submitted = await leave.submitLeaveRequest({ employeeId: member.id, kind: 'official', type: 'full', startDate: start, endDate: end });
+  assert(submitted.count === 5 && submitted.kind === 'official' && submitted.reason === '공가', JSON.stringify(submitted));
+  const pending = (await leave.getPendingApprovals(leader.id)).filter((u) => u.requestGroup === submitted.requestGroup);
+  assert(pending.length === 5, `결재함 ${pending.length}건`);
+  const decided = await leave.decideLeaveRequest(submitted.id, leader.id, 'approve', '', { group: true });
+  assert(decided.count === 5 && decided.status === 'approved', JSON.stringify(decided));
+  const special = (await leave.getSpecialLeaves(member.id)).filter((u) => u.requestGroup === submitted.requestGroup);
+  assert(special.length === 5 && special.every((u) => u.status === 'approved' && u.kind === 'official'), '특별휴가 기록');
+  const after = await usedOf();
+  assert(after.used === before.used && after.remaining === before.remaining, `연차 변동 ${JSON.stringify({ before, after })}`);
+  const admin = await leave.getAdminUsages(member.id);
+  assert(!admin.some((u) => u.requestGroup === submitted.requestGroup), '연차 사용 목록에 섞이면 안 됨');
+  const month = await attendance.getEmployeeMonth(member.id, start.slice(0, 7));
+  const day = month.days.find((d) => d.date === start);
+  assert(day?.leave?.leaveKind === 'official' && !day.evaluation.flags.includes('absent'), JSON.stringify(day?.evaluation));
+});
+
+await check('특별휴가: 여러 날 한 번에 반려·취소, 가족돌봄 연 10일 넘으면 안내(신청은 됨)', async () => {
+  assert(pastWeeks.length >= 4, `빈 주가 부족합니다: ${JSON.stringify(pastWeeks)}`);
+  const [, second, third, fourth] = pastWeeks;
+  const care = await leave.submitLeaveRequest({ employeeId: member.id, kind: 'family_care', type: 'full', startDate: second.start, endDate: second.end });
+  assert(care.count === 5 && care.warnings.length === 0, JSON.stringify(care.warnings));
+  const rejected = await leave.decideLeaveRequest(care.id, leader.id, 'reject', '서류 보완', { group: true });
+  assert(rejected.count === 5 && rejected.status === 'rejected', JSON.stringify(rejected));
+  const careAgain = await leave.submitLeaveRequest({ employeeId: member.id, kind: 'family_care', type: 'full', startDate: second.start, endDate: second.end });
+  await leave.decideLeaveRequest(careAgain.id, leader.id, 'approve', '', { group: true });
+  const ten = await leave.submitLeaveRequest({ employeeId: member.id, kind: 'family_care', type: 'full', startDate: third.start, endDate: third.end });
+  assert(ten.warnings.length === 0, `딱 10일은 안내 없음: ${JSON.stringify(ten.warnings)}`);
+  const over = await leave.submitLeaveRequest({ employeeId: member.id, kind: 'family_care', type: 'full', startDate: fourth.start, endDate: fourth.end });
+  assert(over.count === 5 && over.warnings.some((w) => /10일/.test(w)), JSON.stringify(over.warnings));
+  await expectError(() => leave.cancelLeaveRequest(over.id, outsider.id, { group: true }), /찾을 수 없/, 404);
+  const cancelled = await leave.cancelLeaveRequest(over.id, member.id, { group: true });
+  assert(cancelled.count === 5, JSON.stringify(cancelled));
+  const left = (await leave.getSpecialLeaves(member.id)).filter((u) => u.requestGroup === over.requestGroup);
+  assert(left.length === 0, `취소 후 ${left.length}건 남음`);
+});
+
 const failed = results.filter((r) => !r.ok);
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'} ${r.name}${r.ok ? '' : `\n     → ${r.error}`}`);
 console.log(`\n${results.length - failed.length}/${results.length} passed (${getDbDialect()})`);

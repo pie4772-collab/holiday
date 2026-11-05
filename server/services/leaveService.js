@@ -26,10 +26,16 @@ import {
   isValidLeaveDate,
   leaveBlockedReason,
   listLeaveRequestDates,
-  MAX_LEAVE_RANGE_DAYS,
 } from '../../src/utils/leaveRequestDates.js';
-import { getDb, parseEmployeeId, LOCK_EMPLOYEE_LEAVE, LOCK_LEAVE_USAGE } from '../db.js';
+import { randomUUID } from 'node:crypto';
+import { getDb, parseEmployeeId, LOCK_EMPLOYEE_LEAVE } from '../db.js';
 import { isLeaveExemptPosition } from '../../src/constants/hr.js';
+import {
+  LEAVE_KIND_MAP,
+  isSpecialLeave,
+  specialLeaveWarnings,
+  usageLabel,
+} from '../../src/constants/leaveKinds.js';
 import * as approvalService from './approvalService.js';
 import * as mailService from './mailService.js';
 
@@ -106,6 +112,8 @@ function mapUsageRow(row) {
     date: row.usage_date,
     type: row.usage_type,
     ...(row.usage_type === 'half' ? { halfPeriod: row.half_period || null } : {}),
+    kind: row.leave_kind || 'annual',
+    requestGroup: row.request_group || null,
     days: row.days,
     reason: row.reason,
     status: row.status,
@@ -137,10 +145,10 @@ async function recordApprovalLog({ usage, employee, actor, action, step = null, 
     .prepare(
       `INSERT INTO leave_approval_logs (
          leave_usage_id, employee_id, actor_id, action, step, note,
-         usage_date, usage_type, days, reason,
+         usage_date, usage_type, leave_kind, days, reason,
          employee_emp_no, employee_name, workplace, workplace_code, department, position,
          actor_emp_no, actor_name, actor_position, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now', 'localtime')))`
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now', 'localtime')))`
     )
     .run(
       usage.id ?? null,
@@ -151,6 +159,7 @@ async function recordApprovalLog({ usage, employee, actor, action, step = null, 
       note,
       usage.usage_date || usage.date,
       usage.usage_type || usage.type || 'full',
+      usage.leave_kind || usage.kind || 'annual',
       usage.days ?? (usage.type === 'half' || usage.usage_type === 'half' ? 0.5 : 1),
       usage.reason || null,
       employee.emp_no || '',
@@ -178,6 +187,7 @@ function mapApprovalLogRow(row) {
     note: row.note || null,
     usageDate: row.usage_date,
     usageType: row.usage_type,
+    kind: row.leave_kind || 'annual',
     days: row.days,
     reason: row.reason || '',
     employeeEmpNo: row.employee_emp_no || '',
@@ -374,24 +384,41 @@ async function assertLeaveEditable(employeeDbId, dates = [], { accrual = false }
   }
 }
 
+/** 연차 잔여·보고서·정산은 연차만 셉니다. 연차 외 휴가(leave_kind)는 따로 봅니다. */
+const ANNUAL_ONLY = `COALESCE(leave_kind, 'annual') = 'annual'`;
+
 async function getApprovedUsages(dbId) {
   const rows = await getDb()
     .prepare(
       `SELECT * FROM leave_usages
-       WHERE employee_id = ? AND status = 'approved'
+       WHERE employee_id = ? AND status = 'approved' AND ${ANNUAL_ONLY}
        ORDER BY usage_date DESC, id DESC`
     )
     .all(dbId);
   return rows.map(mapUsageRow);
 }
 
-async function getAllUsages(dbId, year) {
+async function getAllUsages(dbId, year, { includeSpecial = false } = {}) {
   const rows = (
     await getDb()
-      .prepare(`SELECT * FROM leave_usages WHERE employee_id = ? ORDER BY usage_date DESC, id DESC`)
+      .prepare(
+        `SELECT * FROM leave_usages WHERE employee_id = ?${includeSpecial ? '' : ` AND ${ANNUAL_ONLY}`}
+         ORDER BY usage_date DESC, id DESC`
+      )
       .all(dbId)
   ).map(mapUsageRow);
   return year ? filterUsagesByYear(rows, year) : rows;
+}
+
+async function getSpecialUsageRows(dbId) {
+  return (
+    await getDb()
+      .prepare(
+        `SELECT * FROM leave_usages WHERE employee_id = ? AND NOT (${ANNUAL_ONLY})
+         ORDER BY usage_date DESC, id DESC`
+      )
+      .all(dbId)
+  ).map(mapUsageRow);
 }
 
 async function getManualAccruals(dbId, year) {
@@ -735,7 +762,7 @@ export async function getAdminStats(employeeIds = null) {
     await getDb()
       .prepare(
         `SELECT employee_id, usage_type FROM leave_usages
-         WHERE status = 'approved'
+         WHERE status = 'approved' AND ${ANNUAL_ONLY}
            AND usage_date < ?
            AND substr(usage_date, 1, 4) = ?
            AND CAST(substr(usage_date, 6, 2) AS INTEGER) = ?`
@@ -1737,12 +1764,19 @@ export async function getLeaveUsages(employeeId) {
   const row = await getEmployeeRow(employeeId);
   if (!row) return [];
   const year = String(getCurrentDisplayYear(getBalanceAsOf()));
-  return (await getAllUsages(row.id)).filter(
+  return (await getAllUsages(row.id, null, { includeSpecial: true })).filter(
     (usage) =>
       usage.status === 'pending' ||
       usage.status === 'rejected' ||
       usage.date?.slice(0, 4) === year
   );
+}
+
+/** 연차 외 휴가 전체(모든 연도). 법정 일수 안내와 특별휴가 기록 화면에 씁니다. */
+export async function getSpecialLeaves(employeeId) {
+  const row = await getEmployeeRow(employeeId, { includeTerminated: true });
+  if (!row) return [];
+  return getSpecialUsageRows(row.id);
 }
 
 export function getAdminAccruals(employeeId) {
@@ -1766,12 +1800,19 @@ export async function submitLeaveRequest(data) {
   const employee = await getDb().prepare('SELECT * FROM employees WHERE id = ? AND is_active = 1').get(dbId);
   if (!employee) throw httpError('직원을 찾을 수 없습니다.');
   if (isLeaveExemptPosition(employee.position)) {
-    throw httpError('임원(이사·상무·전무·대표이사)은 연차 신청 대상이 아닙니다.');
+    throw httpError('임원(이사·상무·전무·대표이사)은 휴가 신청 대상이 아닙니다.');
   }
 
+  const kind = data.kind || 'annual';
+  const kindMeta = LEAVE_KIND_MAP[kind];
+  if (!kindMeta) throw httpError('휴가 종류를 확인해주세요.');
+  const kindLabel = kindMeta.label;
+  const special = isSpecialLeave(kind);
+
   const type = data.type === 'half' ? 'half' : data.type === 'full' ? 'full' : null;
-  if (!type) throw httpError('연차 유형을 선택해주세요.');
-  const reason = String(data.reason || '').trim();
+  if (!type) throw httpError(`${kindLabel} 유형을 선택해주세요.`);
+  if (type === 'half' && !kindMeta.half) throw httpError(`${kindLabel}는 하루 단위로만 신청할 수 있습니다.`);
+  const reason = String(data.reason || '').trim() || (special ? kindLabel : '');
   if (!reason) throw httpError('연차 사유를 입력해주세요.');
   const halfPeriod = type === 'half' ? normalizeHalfPeriod(data.halfPeriod) : null;
 
@@ -1783,11 +1824,11 @@ export async function submitLeaveRequest(data) {
   if (type === 'full' && endDate < startDate) {
     throw httpError('종료일은 시작일 이후여야 합니다.');
   }
-  if (type === 'full' && calendarSpanDays(startDate, endDate) > MAX_LEAVE_RANGE_DAYS) {
-    throw httpError(`한 번에 최대 ${MAX_LEAVE_RANGE_DAYS}일까지 신청할 수 있습니다.`);
+  if (type === 'full' && calendarSpanDays(startDate, endDate) > kindMeta.maxRangeDays) {
+    throw httpError(`${kindLabel}는 한 번에 최대 ${kindMeta.maxRangeDays}일까지 신청할 수 있습니다.`);
   }
 
-  const dates = listLeaveRequestDates(startDate, endDate);
+  const dates = listLeaveRequestDates(startDate, endDate, { maxDays: kindMeta.maxRangeDays });
   if (!dates.length) {
     const blocked = leaveBlockedReason(startDate) || leaveBlockedReason(endDate);
     throw httpError(
@@ -1806,17 +1847,21 @@ export async function submitLeaveRequest(data) {
   const chain = await approvalService.getApprovalChain(employee);
   const autoApprove = chain.length === 0;
   const firstStep = autoApprove ? null : chain[0]?.role || '팀장';
+  const requestGroup = randomUUID();
 
   const insertPending = db.prepare(
-    `INSERT INTO leave_usages (employee_id, usage_date, usage_type, half_period, days, reason, status, created_by, approval_step)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', 'employee', ?)`
+    `INSERT INTO leave_usages (
+       employee_id, usage_date, usage_type, half_period, days, reason, status, created_by, approval_step,
+       leave_kind, request_group
+     ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 'employee', ?, ?, ?)`
   );
   const insertApproved = db.prepare(
     `INSERT INTO leave_usages (
        employee_id, usage_date, usage_type, half_period, days, reason, status, created_by, approval_step,
-       approved_by, approved_at
-     ) VALUES (?, ?, ?, ?, ?, ?, 'approved', 'employee', NULL, ?, datetime('now', 'localtime'))`
+       approved_by, approved_at, leave_kind, request_group
+     ) VALUES (?, ?, ?, ?, ?, ?, 'approved', 'employee', NULL, ?, datetime('now', 'localtime'), ?, ?)`
   );
+  let warnings = [];
 
   const items = await db.transaction(async () => {
     await db.lock(LOCK_EMPLOYEE_LEAVE, dbId);
@@ -1834,14 +1879,25 @@ export async function submitLeaveRequest(data) {
     if (conflicts.length) {
       const first = conflicts[0];
       const label = first.status === 'pending' ? '승인 대기 중' : '이미 승인됨';
-      throw httpError(`${first.usage_date}은(는) ${label}인 연차가 있어 신청할 수 없습니다.`);
+      throw httpError(`${first.usage_date}은(는) ${label}인 휴가가 있어 신청할 수 없습니다.`);
+    }
+
+    if (special) {
+      warnings = specialLeaveWarnings({
+        kind,
+        startDate,
+        endDate,
+        dates,
+        halfDay: type === 'half',
+        existing: await getSpecialUsageRows(dbId),
+      });
     }
 
     const created = [];
     for (const date of dates) {
       const result = autoApprove
-        ? await insertApproved.run(dbId, date, type, halfPeriod, daysPerDate, reason, dbId)
-        : await insertPending.run(dbId, date, type, halfPeriod, daysPerDate, reason, firstStep);
+        ? await insertApproved.run(dbId, date, type, halfPeriod, daysPerDate, reason, dbId, kind, requestGroup)
+        : await insertPending.run(dbId, date, type, halfPeriod, daysPerDate, reason, firstStep, kind, requestGroup);
       const usageRow = await db.prepare('SELECT * FROM leave_usages WHERE id = ?').get(result.lastInsertRowid);
       if (autoApprove) {
         await recordApprovalLog({
@@ -1873,10 +1929,12 @@ export async function submitLeaveRequest(data) {
   });
 
   const dateLabel = describeLeaveDates(dates);
-  const countLabel = type === 'half' ? '반차 0.5일' : `${dates.length}일`;
+  const countLabel = type === 'half' ? `${special ? kindLabel : '반차'} 0.5일` : `${dates.length}일`;
+  const requestLabel = special ? kindLabel : '연차';
+  const warningText = warnings.length ? ` · 확인: ${warnings.join(' ')}` : '';
 
   if (autoApprove) {
-    mailService.notifyLeaveFinal(employee, items[0], 'approve', null, employee).catch((error) => {
+    mailService.notifyLeaveFinal(employee, { ...items[0], date: dateLabel }, 'approve', null, employee).catch((error) => {
       console.error('[mail] notifyLeaveFinal:', error.message);
     });
     return {
@@ -1885,7 +1943,8 @@ export async function submitLeaveRequest(data) {
       items,
       count: items.length,
       approvalHint: null,
-      message: `${countLabel} 연차 신청이 본인 승인으로 확정되었습니다. ${dateLabel}`,
+      warnings,
+      message: `${countLabel} ${requestLabel} 신청이 본인 승인으로 확정되었습니다. ${dateLabel}${warningText}`,
     };
   }
 
@@ -1900,9 +1959,10 @@ export async function submitLeaveRequest(data) {
     items,
     count: items.length,
     approvalHint,
-    message: `${countLabel} 연차 신청이 접수되었습니다. ${dateLabel}${
+    warnings,
+    message: `${countLabel} ${requestLabel} 신청이 접수되었습니다. ${dateLabel}${
       approvalHint ? ` · ${approvalHint}` : ' · 승인을 기다려주세요'
-    }`,
+    }${warningText}`,
   };
 }
 
@@ -1926,12 +1986,38 @@ export async function getPendingApprovals(approverId) {
   return items;
 }
 
-export async function decideLeaveRequest(usageId, approverId, action, rejectReason) {
+/**
+ * 신청 한 날을 잠그고 다시 읽습니다. group 이면 같은 신청(request_group)에서 상태·결재 단계가 같은 날을 모두 가져옵니다.
+ * 직원 단위로 잠가서 신청·승인·취소가 서로 겹치지 않습니다.
+ */
+async function lockRequestRows(db, usageId, { group = false } = {}) {
+  const found = await db.prepare('SELECT employee_id FROM leave_usages WHERE id = ?').get(Number(usageId));
+  if (!found) return { row: null, rows: [] };
+  await db.lock(LOCK_EMPLOYEE_LEAVE, found.employee_id);
+  const row = await db.prepare('SELECT * FROM leave_usages WHERE id = ?').get(Number(usageId));
+  if (!row || !group || !row.request_group) return { row, rows: row ? [row] : [] };
+  const rows = await db
+    .prepare(
+      `SELECT * FROM leave_usages
+       WHERE request_group = ? AND employee_id = ? AND status = ? AND COALESCE(approval_step, '') = ?
+       ORDER BY usage_date, id`
+    )
+    .all(row.request_group, row.employee_id, row.status, row.approval_step || '');
+  return { row, rows };
+}
+
+/** 메일·안내에 쓰는 대표 한 건: 여러 날이면 날짜 자리에 기간을 넣습니다. */
+function summarizeRows(rows) {
+  const mapped = mapUsageRow(rows[0]);
+  if (rows.length <= 1) return mapped;
+  return { ...mapped, date: describeLeaveDates(rows.map((r) => r.usage_date)) };
+}
+
+export async function decideLeaveRequest(usageId, approverId, action, rejectReason, { group = false } = {}) {
   const db = getDb();
   const approverDbId = parseEmployeeId(approverId);
-  const { updated, requester, approver } = await db.transaction(async () => {
-    await db.lock(LOCK_LEAVE_USAGE, usageId);
-    const row = await db.prepare('SELECT * FROM leave_usages WHERE id = ?').get(Number(usageId));
+  const { updatedRows, requester, approver } = await db.transaction(async () => {
+    const { row, rows } = await lockRequestRows(db, usageId, { group });
     if (!row) throw Object.assign(new Error('신청 내역을 찾을 수 없습니다.'), { status: 404 });
     if (row.status !== 'pending') throw Object.assign(new Error('이미 처리된 신청입니다.'), { status: 400 });
     if (!(await approvalService.canApproveUsage(approverDbId, row))) {
@@ -1941,27 +2027,27 @@ export async function decideLeaveRequest(usageId, approverId, action, rejectReas
     const requester = await db.prepare('SELECT * FROM employees WHERE id = ?').get(row.employee_id);
     const approver = await db.prepare('SELECT * FROM employees WHERE id = ?').get(approverDbId);
     const currentStep = row.approval_step || null;
+    const nextStep = action === 'reject' ? null : await approvalService.nextApprovalStep(requester, row.approval_step);
 
-    if (action === 'reject') {
-      await db
-        .prepare(
-          `UPDATE leave_usages
-           SET status = 'rejected', approved_by = ?, approved_at = datetime('now', 'localtime'),
-               reject_reason = ?, updated_at = datetime('now', 'localtime')
-           WHERE id = ?`
-        )
-        .run(approverDbId, rejectReason || '', row.id);
-      await recordApprovalLog({
-        usage: row,
-        employee: requester,
-        actor: approver,
-        action: 'reject',
-        step: currentStep,
-        note: rejectReason || '',
-      });
-    } else {
-      const nextStep = await approvalService.nextApprovalStep(requester, row.approval_step);
-      if (nextStep) {
+    for (const target of rows) {
+      if (action === 'reject') {
+        await db
+          .prepare(
+            `UPDATE leave_usages
+             SET status = 'rejected', approved_by = ?, approved_at = datetime('now', 'localtime'),
+                 reject_reason = ?, updated_at = datetime('now', 'localtime')
+             WHERE id = ?`
+          )
+          .run(approverDbId, rejectReason || '', target.id);
+        await recordApprovalLog({
+          usage: target,
+          employee: requester,
+          actor: approver,
+          action: 'reject',
+          step: currentStep,
+          note: rejectReason || '',
+        });
+      } else if (nextStep) {
         await db
           .prepare(
             `UPDATE leave_usages
@@ -1969,9 +2055,9 @@ export async function decideLeaveRequest(usageId, approverId, action, rejectReas
                  updated_at = datetime('now', 'localtime')
              WHERE id = ?`
           )
-          .run(nextStep, approverDbId, row.id);
+          .run(nextStep, approverDbId, target.id);
         await recordApprovalLog({
-          usage: row,
+          usage: target,
           employee: requester,
           actor: approver,
           action: 'step_approve',
@@ -1986,9 +2072,9 @@ export async function decideLeaveRequest(usageId, approverId, action, rejectReas
                  reject_reason = NULL, updated_at = datetime('now', 'localtime')
              WHERE id = ?`
           )
-          .run(approverDbId, row.id);
+          .run(approverDbId, target.id);
         await recordApprovalLog({
-          usage: row,
+          usage: target,
           employee: requester,
           actor: approver,
           action: 'approve',
@@ -1997,14 +2083,13 @@ export async function decideLeaveRequest(usageId, approverId, action, rejectReas
       }
     }
 
-    return {
-      updated: await db.prepare('SELECT * FROM leave_usages WHERE id = ?').get(row.id),
-      requester,
-      approver,
-    };
+    const updatedRows = [];
+    for (const target of rows) updatedRows.push(await db.prepare('SELECT * FROM leave_usages WHERE id = ?').get(target.id));
+    return { updatedRows, requester, approver };
   });
 
-  const mapped = mapUsageRow(updated);
+  const updated = updatedRows[0];
+  const mapped = summarizeRows(updatedRows);
   const approvalHint =
     updated.status === 'pending' ? await approvalService.approvalHintFor(requester, updated.approval_step) : null;
 
@@ -2029,44 +2114,53 @@ export async function decideLeaveRequest(usageId, approverId, action, rejectReas
 
   return {
     ...mapped,
+    id: String(updated.id),
+    count: updatedRows.length,
     approvalHint,
   };
 }
 
-export async function cancelLeaveRequest(usageId, employeeId) {
+export async function cancelLeaveRequest(usageId, employeeId, { group = false } = {}) {
   const db = getDb();
   const employeeDbId = parseEmployeeId(employeeId);
-  const { row, employee } = await db.transaction(async () => {
-    await db.lock(LOCK_LEAVE_USAGE, usageId);
-    const row = await db.prepare('SELECT * FROM leave_usages WHERE id = ?').get(Number(usageId));
+  const { rows, employee } = await db.transaction(async () => {
+    const { row, rows } = await lockRequestRows(db, usageId, { group });
     if (!row || Number(row.employee_id) !== employeeDbId) throw httpError('신청 내역을 찾을 수 없습니다.', 404);
     if (row.status !== 'pending') {
       throw httpError(
         row.status === 'approved'
-          ? '이미 승인된 연차는 직접 취소할 수 없습니다. 인사담당에게 요청해주세요.'
+          ? `이미 승인된 ${usageLabel(mapUsageRow(row))}는 직접 취소할 수 없습니다. 인사담당에게 요청해주세요.`
           : '이미 처리된 신청입니다.'
       );
     }
     const employee = await db.prepare('SELECT * FROM employees WHERE id = ?').get(row.employee_id);
-    // 이력이 사용 내역을 참조하므로 지우기 전에 남깁니다(삭제 후에는 참조만 비워집니다).
-    await recordApprovalLog({
-      usage: row,
-      employee,
-      actor: employee,
-      action: 'cancel',
-      step: row.approval_step || null,
-      note: '승인 전 본인 취소',
+    for (const target of rows) {
+      // 이력이 사용 내역을 참조하므로 지우기 전에 남깁니다(삭제 후에는 참조만 비워집니다).
+      await recordApprovalLog({
+        usage: target,
+        employee,
+        actor: employee,
+        action: 'cancel',
+        step: target.approval_step || null,
+        note: '승인 전 본인 취소',
+      });
+      await db.prepare('DELETE FROM leave_usages WHERE id = ?').run(target.id);
+    }
+    return { rows, employee };
+  });
+
+  const summary = summarizeRows(rows);
+  mailService
+    .notifyLeaveCancelled(employee, { ...rows[0], usage_date: summary.date })
+    .catch((error) => {
+      console.error('[mail] notifyLeaveCancelled:', error.message);
     });
-    await db.prepare('DELETE FROM leave_usages WHERE id = ?').run(row.id);
-    return { row, employee };
-  });
 
-  mailService.notifyLeaveCancelled(employee, row).catch((error) => {
-    console.error('[mail] notifyLeaveCancelled:', error.message);
-  });
-
-  const typeLabel = row.usage_type === 'half' ? '반차' : '연차';
-  return { id: String(row.id), message: `${row.usage_date} ${typeLabel} 신청을 취소했습니다.` };
+  return {
+    id: String(rows[0].id),
+    count: rows.length,
+    message: `${summary.date} ${usageLabel(summary)} 신청을 취소했습니다.`,
+  };
 }
 
 export async function createAccrual(data) {
@@ -2113,8 +2207,7 @@ export async function deleteAccrual(id) {
 const USAGE_STATUS_LABELS = { approved: '승인', pending: '대기', rejected: '반려' };
 
 function describeUsageRow(row) {
-  const type = row.usage_type === 'half' ? '반차' : '연차';
-  return `${row.usage_date} ${type} ${row.days}일 · ${USAGE_STATUS_LABELS[row.status] || row.status}`;
+  return `${row.usage_date} ${usageLabel(mapUsageRow(row))} ${row.days}일 · ${USAGE_STATUS_LABELS[row.status] || row.status}`;
 }
 
 function usageStatusNote(row) {

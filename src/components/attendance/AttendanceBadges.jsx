@@ -1,5 +1,12 @@
 import { Badge } from '../ui/Badge';
 import { ATTENDANCE_FLAG_MAP, WORK_TYPE_LABELS } from '../../constants/attendance';
+import { isSpecialLeave, usageLabel } from '../../constants/leaveKinds';
+
+/** 연차 외 휴가 날은 연차 대신 휴가 이름(경조휴가·공가(오전) 등)을 보여 줍니다. */
+function flagLabel(flag, meta, leave) {
+  if (!flag.startsWith('leave_') || !isSpecialLeave(leave?.leaveKind)) return meta.label;
+  return usageLabel({ type: leave.kind, halfPeriod: leave.period, kind: leave.leaveKind });
+}
 
 const HIDDEN_WITH_OTHERS = new Set(['none', 'holiday']);
 
@@ -13,7 +20,7 @@ export function AttendanceFlags({ flags = [], leave, limit }) {
         const pending = leave?.status === 'pending' && flag.startsWith('leave_');
         return (
           <Badge key={flag} variant={meta.variant}>
-            {meta.label}
+            {flagLabel(flag, meta, leave)}
             {pending ? '(대기)' : ''}
           </Badge>
         );

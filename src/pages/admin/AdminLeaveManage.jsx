@@ -10,10 +10,13 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { SortButton } from '../../components/ui/SortButton';
 import { useTableSort } from '../../hooks/useTableSort';
+import { SpecialLeavePanel } from '../../components/SpecialLeavePanel';
+import { describeGroupDates, usageLabel } from '../../constants/leaveKinds';
 import {
   useEmployee,
   useAdminAccruals,
   useAdminUsages,
+  useSpecialLeaves,
   useCreateAccrual,
   useUpdateAccrual,
   useDeleteAccrual,
@@ -50,6 +53,7 @@ export function AdminLeaveManage() {
   const { data: employee, isLoading, isError, refetch } = useEmployee(id);
   const { data: accruals, isLoading: accrualsLoading } = useAdminAccruals(id);
   const { data: usages, isLoading: usagesLoading } = useAdminUsages(id);
+  const { data: specialLeaves, isLoading: specialLoading } = useSpecialLeaves(id);
 
   const createAccrual = useCreateAccrual();
   const updateAccrual = useUpdateAccrual();
@@ -147,6 +151,16 @@ export function AdminLeaveManage() {
       await deleteUsage.mutateAsync({ id: item.id, employeeId: id });
       showMsg('연차 사용 내역이 삭제되었습니다.');
       await refetch();
+    });
+  }
+
+  /** 특별휴가는 신청 단위(여러 날)로 지웁니다. 승인 뒤 취소 요청을 받았을 때 씁니다. */
+  function handleDeleteSpecial(group) {
+    const label = `${describeGroupDates(group)} ${usageLabel(group.first)}`;
+    if (!confirm(`${label} 기록을 삭제하시겠습니까? 승인·반려 이력에는 삭제 기록이 남습니다.`)) return;
+    return run(async () => {
+      for (const item of group.items) await deleteUsage.mutateAsync({ id: item.id, employeeId: id });
+      showMsg(`${label} 기록을 삭제했습니다.`);
     });
   }
 
@@ -336,6 +350,15 @@ export function AdminLeaveManage() {
           </div>
         )}
       </Panel>
+
+      <SpecialLeavePanel
+        className="mt-5"
+        usages={specialLeaves}
+        isLoading={specialLoading}
+        defaultYear={year}
+        onDelete={locked ? undefined : handleDeleteSpecial}
+        deleting={deleteUsage.isPending}
+      />
 
       <LeaveAccrualFormModal
         isOpen={accrualModal.open}

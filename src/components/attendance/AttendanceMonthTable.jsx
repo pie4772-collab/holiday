@@ -12,6 +12,7 @@ export function AttendanceSummary({ summary }) {
     { label: '결근', value: summary.absent, warn: summary.absent > 0 },
     { label: '기록 누락', value: summary.missingIn + summary.missingOut, warn: summary.missingIn + summary.missingOut > 0 },
     { label: '연차', value: `${summary.leaveDays}일` },
+    { label: '특별휴가', value: `${summary.specialLeaveDays ?? 0}일` },
     {
       label: '출장·외근',
       value: summary.remotePending ? `${summary.tripDays + summary.outsideDays} (대기 ${summary.remotePending})` : summary.tripDays + summary.outsideDays,

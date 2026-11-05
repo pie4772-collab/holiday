@@ -9,6 +9,7 @@ export const leaveKeys = {
   adminStats: ['admin', 'stats'],
   leaveHistory: (id) => ['leave', 'history', id],
   leaveUsages: (id) => ['leave', 'usages', id],
+  specialLeaves: (id) => ['leave', 'special', id],
   pendingApprovals: ['leave', 'approvals'],
   adminAccruals: (id) => ['admin', 'accruals', id],
   adminUsages: (id) => ['admin', 'usages', id],
@@ -22,6 +23,7 @@ function invalidateEmployeeData(queryClient, employeeId) {
   queryClient.invalidateQueries({ queryKey: leaveKeys.employee(employeeId) });
   queryClient.invalidateQueries({ queryKey: leaveKeys.leaveHistory(employeeId) });
   queryClient.invalidateQueries({ queryKey: leaveKeys.leaveUsages(employeeId) });
+  queryClient.invalidateQueries({ queryKey: leaveKeys.specialLeaves(employeeId) });
   queryClient.invalidateQueries({ queryKey: leaveKeys.adminAccruals(employeeId) });
   queryClient.invalidateQueries({ queryKey: leaveKeys.adminUsages(employeeId) });
   queryClient.invalidateQueries({ queryKey: leaveKeys.employees });
@@ -205,6 +207,15 @@ export function useLeaveUsages(employeeId) {
   });
 }
 
+/** 연차 외 휴가(경조휴가·공가·출산전후휴가·배우자 출산휴가·가족돌봄휴가) 전체 */
+export function useSpecialLeaves(employeeId) {
+  return useQuery({
+    queryKey: leaveKeys.specialLeaves(employeeId),
+    queryFn: () => leaveApi.getSpecialLeaves(employeeId),
+    enabled: !!employeeId,
+  });
+}
+
 export function usePendingApprovals(enabled = true) {
   return useQuery({
     queryKey: leaveKeys.pendingApprovals,
@@ -216,8 +227,10 @@ export function usePendingApprovals(enabled = true) {
 export function useDecideLeaveRequest() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, action, reason }) =>
-      action === 'reject' ? leaveApi.rejectLeaveRequest(id, reason) : leaveApi.approveLeaveRequest(id),
+    mutationFn: ({ id, action, reason, group = false }) =>
+      action === 'reject'
+        ? leaveApi.rejectLeaveRequest(id, reason, { group })
+        : leaveApi.approveLeaveRequest(id, { group }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: leaveKeys.pendingApprovals });
       queryClient.invalidateQueries({ queryKey: leaveKeys.employees });
@@ -232,7 +245,7 @@ export function useDecideLeaveRequest() {
 export function useCancelLeaveRequest(employeeId) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id) => leaveApi.cancelLeaveRequest(id),
+    mutationFn: ({ id, group = false }) => leaveApi.cancelLeaveRequest(id, { group }),
     onSuccess: () => {
       invalidateEmployeeData(queryClient, employeeId);
       queryClient.invalidateQueries({ queryKey: ['attendance'] });

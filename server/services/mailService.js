@@ -4,6 +4,7 @@ import { decryptField, encryptField, isEncrypted } from '../secrets.js';
 import * as approvalService from './approvalService.js';
 import { WORK_TYPE_LABELS } from '../../src/constants/attendance.js';
 import { OUTCOMES, REMINDER_DAYS } from '../../src/constants/evaluation.js';
+import { isSpecialLeave, leaveKindLabel, usageLabel } from '../../src/constants/leaveKinds.js';
 
 const SUBJECT_PREFIX = '[동양철관 관리팀]';
 const APP_NAME = '동양철관 인사관리';
@@ -101,8 +102,19 @@ export async function saveMailSettings(data) {
   return getMailSettings();
 }
 
-function halfLabel(period) {
-  return period === 'am' ? '오전 반차' : period === 'pm' ? '오후 반차' : '반차';
+/** 휴가 이름(연차·오전 반차·경조휴가…). 화면 형태(type)와 DB 행(usage_type) 모두 받습니다. */
+function leaveTypeLabel(usage) {
+  return usageLabel({
+    type: usage?.type || usage?.usage_type,
+    halfPeriod: usage?.halfPeriod ?? usage?.half_period,
+    kind: usage?.kind || usage?.leave_kind,
+  });
+}
+
+/** 메일 제목의 큰 분류: 연차 또는 연차 외 휴가 이름 */
+function leaveGroupLabel(usage) {
+  const kind = usage?.kind || usage?.leave_kind;
+  return isSpecialLeave(kind) ? leaveKindLabel(kind) : '연차';
 }
 
 function uniqueEmails(employees) {
@@ -334,7 +346,8 @@ export async function notifyLeaveSubmitted(employee, items, approvalHint) {
       console.warn('[mail] no line approver email for', employee.name, approvalHint);
       return;
     }
-    const typeLabel = items?.[0]?.type === 'half' ? halfLabel(items[0].halfPeriod) : '연차';
+    const typeLabel = leaveTypeLabel(items?.[0]);
+    const groupLabel = leaveGroupLabel(items?.[0]);
     const dates = datesText(items);
     const reason = items?.[0]?.reason || '';
     const href = approvalUrl(settings, false);
@@ -345,8 +358,8 @@ export async function notifyLeaveSubmitted(employee, items, approvalHint) {
     `;
     await sendMail(
       approvers.map((a) => a.email),
-      `${employee.name} 연차 승인 요청 (${dates})`,
-      htmlLayout('연차 승인 요청', body, '승인하러 가기', href)
+      `${employee.name} ${groupLabel} 승인 요청 (${dates})`,
+      htmlLayout(`${groupLabel} 승인 요청`, body, '승인하러 가기', href)
     );
   } catch (error) {
     console.error('[mail] notifyLeaveSubmitted failed:', error.message);
@@ -359,7 +372,8 @@ export async function notifyLeaveCancelled(employee, usage) {
     if (!settings.enabled) return;
     const approvers = uniqueEmails(await leaveApprovers(employee, usage.approval_step));
     if (!approvers.length) return;
-    const typeLabel = usage.usage_type === 'half' ? halfLabel(usage.half_period) : '연차';
+    const typeLabel = leaveTypeLabel(usage);
+    const groupLabel = leaveGroupLabel(usage);
     const body = `
       <p><strong>${escapeHtml(employee.name)}</strong>님이 승인 대기 중이던 ${escapeHtml(typeLabel)} 신청을 취소했습니다.</p>
       <p>사용일: ${escapeHtml(usage.usage_date)}<br/>사유: ${escapeHtml(usage.reason || '-')}</p>
@@ -367,8 +381,8 @@ export async function notifyLeaveCancelled(employee, usage) {
     `;
     await sendMail(
       approvers.map((a) => a.email),
-      `${employee.name} 연차 신청 취소 (${usage.usage_date})`,
-      htmlLayout('연차 신청 취소', body, '승인 대기 보기', approvalUrl(settings, false))
+      `${employee.name} ${groupLabel} 신청 취소 (${usage.usage_date})`,
+      htmlLayout(`${groupLabel} 신청 취소`, body, '승인 대기 보기', approvalUrl(settings, false))
     );
   } catch (error) {
     console.error('[mail] notifyLeaveCancelled failed:', error.message);
@@ -383,8 +397,8 @@ export async function notifyLeaveFinal(employee, usage, decision, rejectReason, 
   try {
     const settings = rowToPublic(await getRow(), true);
     if (!settings.enabled) return;
-    const typeLabel =
-      usage.type === 'half' || usage.usage_type === 'half' ? halfLabel(usage.halfPeriod ?? usage.half_period) : '연차';
+    const typeLabel = leaveTypeLabel(usage);
+    const groupLabel = leaveGroupLabel(usage);
     const date = usage.date || usage.usage_date;
     const approved = decision === 'approve' || usage.status === 'approved' || options.intermediate;
     const resultLabel = !approved
@@ -401,9 +415,9 @@ export async function notifyLeaveFinal(employee, usage, decision, rejectReason, 
       ${!approved && rejectReason ? `<br/>반려 사유: ${escapeHtml(rejectReason)}` : ''}
       ${nextHint}</p>
     `;
-    const subject = `${employee.name} 연차 ${resultLabel} (${date})`;
+    const subject = `${employee.name} ${groupLabel} ${resultLabel} (${date})`;
     const html = htmlLayout(
-      `연차 ${resultLabel}`,
+      `${groupLabel} ${resultLabel}`,
       body,
       options.intermediate ? '승인 현황 보기' : `${APP_NAME} 열기`,
       options.intermediate

@@ -13,6 +13,7 @@ import {
 import { ko } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { getHolidayName, isNonWorkingDay, isWeekendDate } from '../utils/workCalendar';
+import { isSpecialLeave } from '../constants/leaveKinds';
 
 export function LeaveCalendar({ usages = [], onDateClick, displayYear }) {
   const initialMonth = displayYear
@@ -54,9 +55,11 @@ export function LeaveCalendar({ usages = [], onDateClick, displayYear }) {
     const pending = dayUsages.some((u) => u.status === 'pending');
     if (pending) return 'bg-[#fef3c7] text-[#b45309] ring-1 ring-[#fbbf24]';
 
+    const hasSpecial = dayUsages.some((u) => isSpecialLeave(u.kind));
     const hasFull = dayUsages.some((u) => u.type === 'full');
     const hasHalf = dayUsages.some((u) => u.type === 'half');
 
+    if (hasSpecial) return 'bg-[#7c3aed] text-white';
     if (hasFull) return 'bg-primary-500 text-white';
     if (hasHalf) return 'bg-[#fbbf24] text-white';
     return null;
@@ -140,7 +143,9 @@ export function LeaveCalendar({ usages = [], onDateClick, displayYear }) {
                   <span className="text-[9px] mt-0.5 opacity-90">
                     {usageMap[dateStr].some((u) => u.status === 'pending')
                       ? '대기'
-                      : usageMap[dateStr].map((u) => (u.type === 'half' ? '반' : '연')).join('')}
+                      : usageMap[dateStr]
+                          .map((u) => (isSpecialLeave(u.kind) ? '휴' : u.type === 'half' ? '반' : '연'))
+                          .join('')}
                   </span>
                 ) : holidayName ? (
                   <span className="text-[8px] mt-0.5 text-[#df1b41] leading-tight px-0.5 truncate max-w-full">
@@ -161,6 +166,10 @@ export function LeaveCalendar({ usages = [], onDateClick, displayYear }) {
         <div className="flex items-center gap-2 text-xs text-stripe-muted">
           <span className="h-2.5 w-2.5 rounded-sm bg-[#fbbf24]" />
           반차
+        </div>
+        <div className="flex items-center gap-2 text-xs text-stripe-muted">
+          <span className="h-2.5 w-2.5 rounded-sm bg-[#7c3aed]" />
+          특별휴가
         </div>
         <div className="flex items-center gap-2 text-xs text-stripe-muted">
           <span className="h-2.5 w-2.5 rounded-sm bg-[#fef3c7] ring-1 ring-[#fbbf24]" />

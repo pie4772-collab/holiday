@@ -10,13 +10,17 @@ export function isValidLeaveDate(value) {
   return !Number.isNaN(parsed.getTime()) && format(parsed, 'yyyy-MM-dd') === value;
 }
 
-export function listLeaveRequestDates(startDate, endDate, { skipNonWorkingDays = true } = {}) {
+export function listLeaveRequestDates(
+  startDate,
+  endDate,
+  { skipNonWorkingDays = true, maxDays = MAX_LEAVE_RANGE_DAYS } = {}
+) {
   if (!isValidLeaveDate(startDate) || !isValidLeaveDate(endDate)) return [];
   const start = parseISO(startDate);
   const end = parseISO(endDate);
   if (isAfter(start, end)) return [];
   const span = eachDayOfInterval({ start, end });
-  if (span.length > MAX_LEAVE_RANGE_DAYS) return [];
+  if (span.length > maxDays) return [];
   return span
     .filter((day) => !skipNonWorkingDays || isWorkingDay(day))
     .map((day) => format(day, 'yyyy-MM-dd'));
@@ -39,5 +43,5 @@ export function calendarSpanDays(startDate, endDate) {
 export function leaveBlockedReason(date) {
   if (!isValidLeaveDate(date) || !isNonWorkingDay(date)) return '';
   const reason = nonWorkingDayReason(date);
-  return `${date}은(는) ${reason}이라 연차·반차를 사용할 수 없습니다.`;
+  return `${date}은(는) ${reason}이라 휴가를 신청할 수 없습니다.`;
 }

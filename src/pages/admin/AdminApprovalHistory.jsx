@@ -10,15 +10,21 @@ import { LeaveSummaryCard } from '../../components/LeaveSummaryCard';
 import { SortButton } from '../../components/ui/SortButton';
 import { useLeaveApprovalHistory } from '../../hooks/useLeaveData';
 import { useTableSort } from '../../hooks/useTableSort';
+import { usageLabel } from '../../constants/leaveKinds';
 
 const SEARCH_DELAY_MS = 300;
+
+/** 연차·반차 또는 경조휴가·공가 등 */
+function historyTypeLabel(item) {
+  return usageLabel({ type: item.usageType, kind: item.kind });
+}
 
 function historySortValue(item, key) {
   switch (key) {
     case 'workplace':
       return [item.workplace, item.department].filter(Boolean).join(' ');
     case 'usageType':
-      return item.usageType === 'half' ? '반차' : '연차';
+      return historyTypeLabel(item);
     case 'note':
       return [item.reason, item.note].filter(Boolean).join(' ');
     default:
@@ -74,7 +80,7 @@ function downloadCsv(items, year) {
       item.department,
       item.position,
       item.usageDate,
-      item.usageType === 'half' ? '반차' : '연차',
+      historyTypeLabel(item),
       item.days,
       item.reason,
       item.actorName,
@@ -150,7 +156,7 @@ export function AdminApprovalHistory() {
     <div>
       <PageHeader
         title="승인·반려 이력"
-        description="연차 신청·단계승인·최종승인·반려·본인취소와 관리자의 직접 등록·수정·삭제 기록을 보관합니다. 근로감독 등 증빙용으로 CSV 내려받기가 가능합니다."
+        description="연차·특별휴가 신청·단계승인·최종승인·반려·본인취소와 관리자의 직접 등록·수정·삭제 기록을 보관합니다. 근로감독 등 증빙용으로 CSV 내려받기가 가능합니다."
         actions={
           <Button variant="secondary" onClick={() => downloadCsv(sorted, year)}>
             <Download className="h-4 w-4" />
@@ -238,7 +244,7 @@ export function AdminApprovalHistory() {
                 </div>
                 <p className="mt-2 text-sm font-mono">{item.usageDate}</p>
                 <p className="mt-1 text-xs text-stripe-muted">
-                  {item.usageType === 'half' ? '반차' : '연차'} {item.days}일
+                  {historyTypeLabel(item)} {item.days}일
                   {item.step ? ` · ${item.step}` : ''}
                 </p>
                 {item.reason && <p className="mt-1 text-xs text-stripe-muted">사유: {item.reason}</p>}
@@ -297,7 +303,7 @@ export function AdminApprovalHistory() {
                     </td>
                     <td className="font-mono text-[13px] whitespace-nowrap">{item.usageDate}</td>
                     <td className="whitespace-nowrap">
-                      {item.usageType === 'half' ? '반차' : '연차'} {item.days}
+                      {historyTypeLabel(item)} {item.days}
                     </td>
                     <td className="whitespace-nowrap">
                       {item.actorName || '—'}

@@ -292,6 +292,7 @@ function MonthlyView({ canManage }) {
                   <th className="text-right">결근</th>
                   <th className="text-right">누락</th>
                   <th className="text-right">연차</th>
+                  <th className="text-right">특별휴가</th>
                   <th className="text-right">출장·외근</th>
                   <th className="text-right">휴일근무</th>
                   <th className="text-right">근무시간</th>
@@ -324,6 +325,7 @@ function MonthlyView({ canManage }) {
                       <td className={`text-right tabular-nums ${warn(s.absent)}`}>{s.absent}</td>
                       <td className={`text-right tabular-nums ${warn(s.missingIn + s.missingOut)}`}>{s.missingIn + s.missingOut}</td>
                       <td className="text-right tabular-nums">{s.leaveDays}</td>
+                      <td className="text-right tabular-nums">{s.specialLeaveDays ?? 0}</td>
                       <td className="text-right tabular-nums">{s.tripDays + s.outsideDays}</td>
                       <td className="text-right tabular-nums">{s.holidayWorkDays}</td>
                       <td className="text-right tabular-nums text-[13px]">{formatMinutes(s.workMinutes)}</td>

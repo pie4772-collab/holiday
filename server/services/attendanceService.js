@@ -11,6 +11,7 @@ import {
   WORK_TYPES,
 } from '../../src/constants/attendance.js';
 import { isLeaveExemptPosition } from '../../src/constants/hr.js';
+import { isSpecialLeave, usageLabel } from '../../src/constants/leaveKinds.js';
 import { getHolidayName, isNonWorkingDay, nonWorkingDayReason } from '../../src/utils/workCalendar.js';
 import { ipInRanges, parseIpRanges } from '../utils/clientIp.js';
 import { canReviewRemote, remoteReviewRequired, remoteReviewerLabel } from './approvalService.js';
@@ -289,7 +290,9 @@ async function loadLeaves(from, to, employeeId = null) {
     params.push(Number(employeeId));
   }
   const rows = await getDb()
-    .prepare(`SELECT employee_id, usage_date, usage_type, half_period, status, days FROM leave_usages WHERE ${where}`)
+    .prepare(
+      `SELECT employee_id, usage_date, usage_type, half_period, status, days, leave_kind FROM leave_usages WHERE ${where}`
+    )
     .all(...params);
   const map = new Map();
   for (const row of rows) {
@@ -300,17 +303,21 @@ async function loadLeaves(from, to, employeeId = null) {
   return map;
 }
 
-/** 같은 날 신청 여러 건을 하루 단위로 요약합니다. 반차 둘이면 종일로 봅니다. */
+/**
+ * 같은 날 신청 여러 건을 하루 단위로 요약합니다. 반차 둘이면 종일로 봅니다.
+ * leaveKind: 연차 외 휴가(경조휴가 등)가 섞이면 그 종류, 아니면 'annual'
+ */
 function summarizeLeave(list) {
   if (!list?.length) return null;
   const status = list.some((row) => row.status === 'pending') ? 'pending' : 'approved';
   const total = list.reduce((acc, row) => acc + (Number(row.days) || 0), 0);
+  const leaveKind = list.find((row) => isSpecialLeave(row.leave_kind))?.leave_kind || 'annual';
   const periods = new Set(list.filter((row) => row.usage_type === 'half').map((row) => row.half_period || ''));
   if (list.some((row) => row.usage_type !== 'half') || total >= 1 || (periods.has('am') && periods.has('pm'))) {
-    return { kind: 'full', period: null, status };
+    return { kind: 'full', period: null, status, leaveKind };
   }
   const period = periods.has('am') ? 'am' : periods.has('pm') ? 'pm' : null;
-  return { kind: 'half', period, status };
+  return { kind: 'half', period, status, leaveKind };
 }
 
 /* ───────────── 판정 ───────────── */
@@ -455,6 +462,7 @@ function emptySummary() {
     missingIn: 0,
     missingOut: 0,
     leaveDays: 0,
+    specialLeaveDays: 0,
     tripDays: 0,
     outsideDays: 0,
     remotePending: 0,
@@ -474,9 +482,10 @@ function addToSummary(summary, day) {
   if (f.has('absent')) summary.absent += 1;
   if (f.has('missing_in')) summary.missingIn += 1;
   if (f.has('missing_out')) summary.missingOut += 1;
-  if (f.has('leave_full') && day.evaluation.isWorkingDay) summary.leaveDays += 1;
+  const leaveKey = isSpecialLeave(day.leave?.leaveKind) ? 'specialLeaveDays' : 'leaveDays';
+  if (f.has('leave_full') && day.evaluation.isWorkingDay) summary[leaveKey] += 1;
   if ((f.has('leave_am') || f.has('leave_pm') || f.has('leave_half')) && day.evaluation.isWorkingDay) {
-    summary.leaveDays += 0.5;
+    summary[leaveKey] += 0.5;
   }
   if (f.has('trip')) summary.tripDays += 1;
   if (f.has('outside')) summary.outsideDays += 1;
@@ -545,9 +554,8 @@ async function buildTodayContext(employeeId, ip, nowDate) {
 function leaveLabel(leave) {
   if (!leave) return '';
   const status = leave.status === 'pending' ? '승인 대기' : '승인';
-  if (leave.kind === 'full') return `연차(${status})`;
-  const period = leave.period === 'am' ? '오전 ' : leave.period === 'pm' ? '오후 ' : '';
-  return `${period}반차(${status})`;
+  const name = usageLabel({ type: leave.kind, halfPeriod: leave.period, kind: leave.leaveKind });
+  return `${name}(${status})`;
 }
 
 /** 지금 출근·퇴근을 기록할 수 있는지와 막히는 이유 */
@@ -557,7 +565,7 @@ function actionAvailability(ctx) {
     if (!ctx.employee.is_active) return '재직 중인 직원만 기록할 수 있습니다.';
     if (closedAt) return `${workDate.slice(0, 7)} 근태가 마감되어 기록할 수 없습니다.`;
     if (leave?.kind === 'full') {
-      return `${workDate}은(는) ${leaveLabel(leave)}일이라 출퇴근을 기록할 수 없습니다. 근무가 필요하면 연차 신청을 취소한 뒤 기록해주세요. 승인 전에는 연차 신청 화면에서 직접 취소할 수 있습니다.`;
+      return `${workDate}은(는) ${leaveLabel(leave)}일이라 출퇴근을 기록할 수 없습니다. 근무가 필요하면 휴가 신청을 취소한 뒤 기록해주세요. 승인 전에는 연차 신청 화면에서 직접 취소할 수 있습니다.`;
     }
     return null;
   })();
@@ -1251,13 +1259,13 @@ export async function exportMonthly(monthText, employeeIds = null) {
   const hours = (minutes) => (minutes ? Math.round((minutes / 60) * 100) / 100 : 0);
   const headers = [
     '사번', '성명', '사업장', '부서', '직급', '근무일', '출근일', '지각', '조퇴', '결근', '출근누락', '퇴근누락',
-    '연차(일)', '출장', '외근', '외근·출장 확인대기', '휴일근무', '근무시간(h)', '연장(h)', '야간(h)',
+    '연차(일)', '특별휴가(일)', '출장', '외근', '외근·출장 확인대기', '휴일근무', '근무시간(h)', '연장(h)', '야간(h)',
   ];
   const rows = report.rows.map((row) => {
     const s = row.summary;
     return [
       row.empNo, row.name, row.workplace, row.department, row.position, s.scheduledDays, s.attendedDays, s.late,
-      s.early, s.absent, s.missingIn, s.missingOut, s.leaveDays, s.tripDays, s.outsideDays, s.remotePending,
+      s.early, s.absent, s.missingIn, s.missingOut, s.leaveDays, s.specialLeaveDays, s.tripDays, s.outsideDays, s.remotePending,
       s.holidayWorkDays,
       hours(s.workMinutes), hours(s.overtimeMinutes), hours(s.nightMinutes),
     ];

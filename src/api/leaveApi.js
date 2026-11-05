@@ -155,6 +155,14 @@ export const leaveApi = {
     return apiClient(`/employees/${employeeId}/leave/usages`);
   },
 
+  async getSpecialLeaves(employeeId) {
+    if (USE_MOCK) {
+      await delay();
+      return [];
+    }
+    return apiClient(`/employees/${employeeId}/leave/special`);
+  },
+
   async getAdminAccruals(employeeId) {
     if (USE_MOCK) {
       await delay();
@@ -197,28 +205,29 @@ export const leaveApi = {
     return apiClient(`/admin/leave-approval-logs${qs ? `?${qs}` : ''}`);
   },
 
-  async approveLeaveRequest(id) {
+  /** group: 같은 신청으로 넣은 날을 모두 함께 처리 */
+  async approveLeaveRequest(id, { group = false } = {}) {
     if (USE_MOCK) {
       await delay(300);
       return { id, status: 'approved' };
     }
-    return apiClient(`/leave/usages/${id}/approve`, { method: 'POST' });
+    return apiClient(`/leave/usages/${id}/approve`, { method: 'POST', body: { group } });
   },
 
-  async rejectLeaveRequest(id, reason) {
+  async rejectLeaveRequest(id, reason, { group = false } = {}) {
     if (USE_MOCK) {
       await delay(300);
       return { id, status: 'rejected' };
     }
-    return apiClient(`/leave/usages/${id}/reject`, { method: 'POST', body: { reason } });
+    return apiClient(`/leave/usages/${id}/reject`, { method: 'POST', body: { reason, group } });
   },
 
-  async cancelLeaveRequest(id) {
+  async cancelLeaveRequest(id, { group = false } = {}) {
     if (USE_MOCK) {
       await delay(300);
       return { id };
     }
-    return apiClient(`/leave/usages/${id}/cancel`, { method: 'POST' });
+    return apiClient(`/leave/usages/${id}/cancel`, { method: 'POST', body: { group } });
   },
 
   async createAccrual(data) {

@@ -389,6 +389,15 @@ router.get('/employees/:id/leave/usages', loadAccess, async (req, res, next) => 
   }
 });
 
+router.get('/employees/:id/leave/special', loadAccess, async (req, res, next) => {
+  try {
+    if (!(await canViewEmployee(req.access, req.params.id))) return forbidden(res);
+    res.json(await leaveService.getSpecialLeaves(req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get('/admin/approval-lines', requirePermission('approvalLines.manage'), async (req, res, next) => {
   try {
     res.json(await approvalService.listApprovalLines());
@@ -524,7 +533,11 @@ router.get('/admin/leave-approval-logs', requirePermission('approvalLogs.view'),
 
 router.post('/leave/usages/:id/approve', requireAuth, async (req, res, next) => {
   try {
-    res.json(await leaveService.decideLeaveRequest(req.params.id, req.user.employeeId, 'approve'));
+    res.json(
+      await leaveService.decideLeaveRequest(req.params.id, req.user.employeeId, 'approve', null, {
+        group: Boolean(req.body?.group),
+      })
+    );
   } catch (e) {
     next(e);
   }
@@ -533,7 +546,9 @@ router.post('/leave/usages/:id/approve', requireAuth, async (req, res, next) => 
 router.post('/leave/usages/:id/reject', requireAuth, async (req, res, next) => {
   try {
     res.json(
-      await leaveService.decideLeaveRequest(req.params.id, req.user.employeeId, 'reject', req.body?.reason)
+      await leaveService.decideLeaveRequest(req.params.id, req.user.employeeId, 'reject', req.body?.reason, {
+        group: Boolean(req.body?.group),
+      })
     );
   } catch (e) {
     next(e);
@@ -542,7 +557,9 @@ router.post('/leave/usages/:id/reject', requireAuth, async (req, res, next) => {
 
 router.post('/leave/usages/:id/cancel', requireAuth, async (req, res, next) => {
   try {
-    res.json(await leaveService.cancelLeaveRequest(req.params.id, req.user.employeeId));
+    res.json(
+      await leaveService.cancelLeaveRequest(req.params.id, req.user.employeeId, { group: Boolean(req.body?.group) })
+    );
   } catch (e) {
     next(e);
   }

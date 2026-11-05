@@ -6,13 +6,20 @@ import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Panel, PanelBody, PanelHeader } from '../../components/ui/Panel';
 import { Badge } from '../../components/ui/Badge';
+import { SortButton } from '../../components/ui/SortButton';
 import { PersonnelCsvActions } from '../../components/personnel/PersonnelCsvActions';
 import { useEmployeeRoster } from '../../hooks/useEmployeeRoster';
+import { useTableSort } from '../../hooks/useTableSort';
 import { useCurrentEmployee } from '../../hooks/useLeaveData';
 import { hasPermission, isScopedPermission } from '../../utils/access';
 import { RECORD_CATEGORIES, RECORD_CSV_LABELS } from '../../constants/personnel';
 
 const CSV_FIELD_ORDER = ['startDate', 'endDate', 'title', 'organization', 'result', 'detail'];
+
+function personnelSortValue(emp, key) {
+  if (key === 'status') return emp.isActive ? '재직' : '퇴사';
+  return emp[key];
+}
 
 function CsvGuide() {
   return (
@@ -63,6 +70,7 @@ export function AdminPersonnelList() {
   const scoped = isScopedPermission(currentEmployee, 'records.view');
   const [query, setQuery] = useState('');
   const [workplace, setWorkplace] = useState('');
+  const [department, setDepartment] = useState('');
   const [status, setStatus] = useState('active');
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -80,16 +88,41 @@ export function AdminPersonnelList() {
     [roster]
   );
 
+  const departments = useMemo(
+    () =>
+      [
+        ...new Set(
+          (roster || [])
+            .filter((e) => !workplace || e.workplace === workplace)
+            .map((e) => e.department)
+            .filter(Boolean)
+        ),
+      ].sort((a, b) => a.localeCompare(b, 'ko')),
+    [roster, workplace]
+  );
+
   const filtered = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return (roster || []).filter((emp) => {
       if (workplace && emp.workplace !== workplace) return false;
+      if (department && emp.department !== department) return false;
       if (status === 'active' && !emp.isActive) return false;
       if (status === 'inactive' && emp.isActive) return false;
       if (!keyword) return true;
-      return [emp.name, emp.empNo, emp.department, emp.position].filter(Boolean).join(' ').toLowerCase().includes(keyword);
+      return [emp.name, emp.empNo, emp.workplace, emp.department, emp.position, emp.jobRank]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(keyword);
     });
-  }, [roster, query, workplace, status]);
+  }, [roster, query, workplace, department, status]);
+
+  const { sorted, sort, onSort } = useTableSort(filtered, personnelSortValue);
+
+  function handleWorkplace(value) {
+    setWorkplace(value);
+    setDepartment('');
+  }
 
   if (isLoading) {
     return (
@@ -141,8 +174,8 @@ export function AdminPersonnelList() {
       )}
       {canEdit && showGuide && <CsvGuide />}
 
-      <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="relative">
+      <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="relative sm:col-span-2 lg:col-span-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stripe-muted" />
           <input
             className="stripe-input stripe-input-search"
@@ -151,9 +184,17 @@ export function AdminPersonnelList() {
             placeholder="이름, 사번, 부서 검색"
           />
         </div>
-        <select className="stripe-input" value={workplace} onChange={(e) => setWorkplace(e.target.value)}>
+        <select className="stripe-input" value={workplace} onChange={(e) => handleWorkplace(e.target.value)}>
           <option value="">사업장 전체</option>
           {workplaces.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </select>
+        <select className="stripe-input" value={department} onChange={(e) => setDepartment(e.target.value)}>
+          <option value="">부서 전체</option>
+          {departments.map((item) => (
             <option key={item} value={item}>
               {item}
             </option>
@@ -174,17 +215,17 @@ export function AdminPersonnelList() {
             <table className="stripe-table stripe-table-fit w-full">
               <thead>
                 <tr>
-                  <th>이름</th>
-                  <th>사번</th>
-                  <th>사업장</th>
-                  <th>부서</th>
-                  <th>직급</th>
-                  <th>상태</th>
+                  <th><SortButton label="이름" column="name" sort={sort} onSort={onSort} /></th>
+                  <th><SortButton label="사번" column="empNo" sort={sort} onSort={onSort} /></th>
+                  <th><SortButton label="사업장" column="workplace" sort={sort} onSort={onSort} /></th>
+                  <th><SortButton label="부서" column="department" sort={sort} onSort={onSort} /></th>
+                  <th><SortButton label="직급" column="position" sort={sort} onSort={onSort} /></th>
+                  <th><SortButton label="상태" column="status" sort={sort} onSort={onSort} /></th>
                   <th />
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((emp) => (
+                {sorted.map((emp) => (
                   <tr
                     key={emp.id}
                     onClick={(e) => handleRowClick(e, emp)}

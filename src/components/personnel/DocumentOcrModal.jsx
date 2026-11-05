@@ -199,7 +199,7 @@ function OcrResult({ employeeId, result, card, onClose, onDone }) {
               · {result.pages}쪽 ·{' '}
               {result.method === 'text'
                 ? 'PDF 글자 정보 사용'
-                : `${result.method === 'mixed' ? '일부 쪽 ' : ''}인식 정확도 ${result.confidence}%`}
+                : `${result.engine === 'clova' ? 'CLOVA OCR · ' : ''}${result.method === 'mixed' ? '일부 쪽 ' : ''}인식 정확도 ${result.confidence}%`}
             </span>
           </h3>
           <pre className="whitespace-pre-wrap break-words rounded-md border border-stripe-border bg-[#f6f9fc] p-3 text-[13px] leading-relaxed max-h-[60vh] overflow-y-auto">

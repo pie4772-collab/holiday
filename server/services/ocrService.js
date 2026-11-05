@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { randomUUID } from 'node:crypto';
 import { getDb } from '../db.js';
 import { getDocumentFile } from './personnelService.js';
 import { readPdfPages } from '../utils/pdfReader.js';
@@ -9,7 +10,9 @@ import { parsePersonnelText } from '../utils/personnelTextParser.js';
 import { OCR_BLOCKED_DOCUMENT_TYPES, OCR_EXTENSIONS } from '../../src/constants/personnel.js';
 
 /**
- * 스캔 증명서류 글자 읽기(OCR). 서버 안에서 tesseract.js(WASM)로 처리하고 외부로 보내지 않습니다.
+ * 스캔 증명서류 글자 읽기(OCR).
+ * CLOVA_OCR_URL·CLOVA_OCR_SECRET 이 있으면 스캔 그림(PNG·JPG)을 네이버 CLOVA OCR 로 보내 읽고,
+ * 없거나 CLOVA 호출이 실패하면 서버 안의 tesseract.js(WASM)로 읽습니다(외부 전송 없음).
  * PDF 에 글자 정보가 있으면 OCR 없이 그 글자를 씁니다.
  * 읽은 글자는 저장하지 않고 화면에 후보로만 돌려줍니다.
  */
@@ -25,9 +28,50 @@ const MAX_PAGES = 5;
 const MAX_WAITING = 3;
 const JOB_TIMEOUT_MS = 120_000;
 const IDLE_MS = 5 * 60_000;
+const CLOVA_TIMEOUT_MS = 30_000;
 
 function httpError(message, status = 400) {
   return Object.assign(new Error(message), { status });
+}
+
+/** 콘솔의 APIGW Invoke URL. 도메인 주소까지만 넣었으면 일반(General) 경로를 붙입니다. 비밀키가 오가므로 https 만 씁니다. */
+function clovaEndpoint() {
+  const url = String(process.env.CLOVA_OCR_URL || '').trim().replace(/^http:\/\//i, 'https://').replace(/\/+$/, '');
+  if (!url || !process.env.CLOVA_OCR_SECRET) return null;
+  return /\/(general|infer)$/.test(url) ? url : `${url}/general`;
+}
+
+/** CLOVA 가 받는 그림 형식(파일 앞 바이트로 판별). WEBP 등은 null → tesseract 로 읽습니다. */
+function clovaImageFormat(image) {
+  if (image[0] === 0x89 && image[1] === 0x50 && image[2] === 0x4e && image[3] === 0x47) return 'png';
+  if (image[0] === 0xff && image[1] === 0xd8) return 'jpg';
+  return null;
+}
+
+/** CLOVA 는 낱말마다 줄바꿈 여부(lineBreak)를 주므로 그대로 줄로 엮습니다. 정확도는 0~1 평균을 0~100 으로 바꿉니다. */
+export async function recognizeWithClova(image, format, endpoint = clovaEndpoint()) {
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-OCR-SECRET': process.env.CLOVA_OCR_SECRET },
+    body: JSON.stringify({
+      version: 'V2',
+      requestId: randomUUID(),
+      timestamp: Date.now(),
+      lang: 'ko',
+      images: [{ format, name: 'page', data: Buffer.from(image).toString('base64') }],
+    }),
+    signal: AbortSignal.timeout(CLOVA_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`CLOVA OCR HTTP ${res.status}`);
+  const result = (await res.json())?.images?.[0];
+  if (result?.inferResult !== 'SUCCESS') throw new Error(`CLOVA OCR ${result?.inferResult || '응답 없음'} ${result?.message || ''}`);
+  const fields = result.fields || [];
+  let text = '';
+  for (const field of fields) text += `${field.inferText}${field.lineBreak ? '\n' : ' '}`;
+  const confidence = fields.length
+    ? Math.round((fields.reduce((sum, f) => sum + (Number(f.inferConfidence) || 0), 0) / fields.length) * 100)
+    : 0;
+  return { text: text.replace(/ +\n/g, '\n').trim(), confidence };
 }
 
 let workerPromise = null;
@@ -130,6 +174,8 @@ export async function readPersonnelDocument(docId) {
   const file = await getDocumentFile(row.id);
 
   const modes = FORM_DOCUMENT_TYPES.includes(row.doc_type) ? [PSM_SINGLE_BLOCK, PSM_SINGLE_COLUMN] : [PSM_SINGLE_BLOCK];
+  const endpoint = clovaEndpoint();
+  let clovaFailed = false;
   const { source, pages } = await enqueue(async () => {
     const source = await sourcePages(row.extension, file.content);
     const out = [];
@@ -137,6 +183,16 @@ export async function readPersonnelDocument(docId) {
       if (page.text) {
         out.push({ text: page.text, confidence: null });
         continue;
+      }
+      const format = endpoint && !clovaFailed && clovaImageFormat(page.image);
+      if (format) {
+        try {
+          out.push({ ...(await recognizeWithClova(page.image, format, endpoint)), engine: 'clova' });
+          continue;
+        } catch (error) {
+          console.error(`[ocr] CLOVA OCR 실패, 내장 OCR로 읽습니다: ${error.message}`);
+          clovaFailed = true;
+        }
       }
       const worker = await getWorker();
       const texts = [];
@@ -147,7 +203,7 @@ export async function readPersonnelDocument(docId) {
         texts.push((data.text || '').trim());
         confidence = Math.max(confidence, Number(data.confidence) || 0);
       }
-      out.push({ text: texts.join(`\n\n${SECOND_PASS_DIVIDER}\n`), confidence });
+      out.push({ text: texts.join(`\n\n${SECOND_PASS_DIVIDER}\n`), confidence, engine: 'tesseract' });
     }
     return { source, pages: out };
   });
@@ -165,5 +221,8 @@ export async function readPersonnelDocument(docId) {
     warnings.push(`읽을 내용이 없거나 글자 정보가 깨진 ${readPages - pages.length}쪽은 건너뛰었습니다.`);
   }
   if (source.totalPages > MAX_PAGES) warnings.push(`전체 ${source.totalPages}쪽 중 앞쪽 ${MAX_PAGES}쪽까지만 읽었습니다.`);
-  return { docType: row.doc_type, method, pages: pages.length, confidence, ...parsed, warnings };
+  if (clovaFailed) warnings.push('CLOVA OCR에 연결하지 못해 내장 OCR로 읽었습니다. 정확도가 낮을 수 있습니다.');
+  const engines = [...new Set(ocrPages.map((p) => p.engine))];
+  const engine = engines.length === 1 ? engines[0] : engines.length ? 'mixed' : null;
+  return { docType: row.doc_type, method, engine, pages: pages.length, confidence, ...parsed, warnings };
 }

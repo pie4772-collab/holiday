@@ -158,6 +158,15 @@ export function AdminEmployeeRoster() {
     setRoleTarget(emp);
   }
 
+  const rowEditable = (emp) => canManage && emp.isActive;
+
+  /** 재직자 행·카드를 누르면 수정 창을 엽니다. 안의 버튼을 누르거나 글자를 드래그해 고를 때는 열지 않습니다. */
+  function handleRowClick(e, emp) {
+    if (!rowEditable(emp)) return;
+    if (e.target.closest('button, a, input, select') || window.getSelection()?.toString()) return;
+    setModal({ mode: 'edit', employee: emp });
+  }
+
   const isSubmitting =
     createEmployee.isPending ||
     updateEmployee.isPending ||
@@ -232,7 +241,11 @@ export function AdminEmployeeRoster() {
             <p className="py-12 text-center text-sm text-stripe-muted">검색 결과가 없습니다.</p>
           ) : (
             sorted.map((emp) => (
-              <div key={emp.id} className={`mobile-card-item ${!emp.isActive ? 'opacity-60' : ''}`}>
+              <div
+                key={emp.id}
+                onClick={(e) => handleRowClick(e, emp)}
+                className={`mobile-card-item ${!emp.isActive ? 'opacity-60' : ''} ${rowEditable(emp) ? 'cursor-pointer' : ''}`}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-stripe-text">{emp.name}</p>
@@ -370,7 +383,12 @@ export function AdminEmployeeRoster() {
                 </tr>
               ) : (
                 sorted.map((emp) => (
-                  <tr key={emp.id} className={!emp.isActive ? 'opacity-60' : ''}>
+                  <tr
+                    key={emp.id}
+                    onClick={(e) => handleRowClick(e, emp)}
+                    title={rowEditable(emp) ? '눌러서 수정' : undefined}
+                    className={`${!emp.isActive ? 'opacity-60' : ''} ${rowEditable(emp) ? 'cursor-pointer' : ''}`}
+                  >
                     <td className="font-medium whitespace-nowrap">{emp.name}</td>
                     <td className="font-mono text-[13px] muted whitespace-nowrap">{emp.empNo || '-'}</td>
                     <td className="muted whitespace-nowrap">{emp.workplace || '-'}</td>

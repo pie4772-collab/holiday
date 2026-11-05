@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { ErrorMessage } from '../../components/ErrorMessage';
@@ -67,6 +67,13 @@ export function AdminPersonnelList() {
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [showGuide, setShowGuide] = useState(false);
+  const navigate = useNavigate();
+
+  /** 행을 누르면 인사카드를 엽니다. 안의 링크를 누르거나 글자를 드래그해 고를 때는 그대로 둡니다. */
+  function handleRowClick(e, emp) {
+    if (e.target.closest('button, a, input, select') || window.getSelection()?.toString()) return;
+    navigate(`/admin/personnel/${emp.id}`);
+  }
 
   const workplaces = useMemo(
     () => [...new Set((roster || []).map((e) => e.workplace).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko')),
@@ -178,7 +185,12 @@ export function AdminPersonnelList() {
               </thead>
               <tbody>
                 {filtered.map((emp) => (
-                  <tr key={emp.id} className={!emp.isActive ? 'opacity-60' : ''}>
+                  <tr
+                    key={emp.id}
+                    onClick={(e) => handleRowClick(e, emp)}
+                    title="눌러서 인사카드 열기"
+                    className={`cursor-pointer ${!emp.isActive ? 'opacity-60' : ''}`}
+                  >
                     <td className="font-medium whitespace-nowrap">{emp.name}</td>
                     <td className="font-mono text-[13px] muted whitespace-nowrap">{emp.empNo || '-'}</td>
                     <td className="muted whitespace-nowrap">{emp.workplace || '-'}</td>

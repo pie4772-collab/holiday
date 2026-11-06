@@ -1059,7 +1059,7 @@ await check('특별휴가: 여러 날 한 번에 반려·취소, 가족돌봄 �
   assert(left.length === 0, `취소 후 ${left.length}건 남음`);
 });
 
-await check('조직도: 사업장·부서·팀장·팀원, 겸직 팀장, 사업장관리자 범위', async () => {
+await check('조직도: 사업장·부서·팀장·팀원, 겸직 팀장, 사업장관리자 범위, 공장 소속 이사는 공장장', async () => {
   const { getOrgChart } = await import('../server/services/orgService.js');
   const chart = await getOrgChart();
   const depts = chart.workplaces.flatMap((w) => w.departments);
@@ -1076,6 +1076,23 @@ await check('조직도: 사업장·부서·팀장·팀원, 겸직 팀장, 사업
   }
   const scoped = await getOrgChart(new Set([String(member.id), String(leader.id)]));
   assert(scoped.total === 2 && scoped.workplaces.flatMap((w) => w.departments).length >= 1, '범위 제한');
+
+  const factory = active.find((e) => e.workplace_code && String(e.workplace_code) !== '1');
+  const inserted = await db
+    .prepare(
+      `INSERT INTO employees (name, hire_date, workplace, workplace_code, department, department_code, position)
+       VALUES ('공장임원시험', '2026-11-01', ?, ?, ?, ?, '이사')`
+    )
+    .run(factory.workplace, factory.workplace_code, factory.department, factory.department_code);
+  try {
+    const withOfficer = await getOrgChart();
+    const site = withOfficer.workplaces.find((w) => w.code === String(factory.workplace_code));
+    assert(site?.heads[0]?.name === '공장임원시험' && site.heads[0].position === '이사', `공장 소속 이사는 공장장 자리 ${JSON.stringify(site?.heads)}`);
+    assert(!withOfficer.officers.some((o) => o.holder?.name === '공장임원시험'), '임원 줄에는 없음');
+    assert(!site.departments.some((d) => d.members.some((m) => m.name === '공장임원시험')), '부서원에도 없음');
+  } finally {
+    await db.prepare('DELETE FROM employees WHERE id = ?').run(inserted.lastInsertRowid);
+  }
 });
 
 await check('법정의무교육: 배정·수강·이수 기록이 있어도 배정·과정 삭제, 기록도 함께 삭제', async () => {

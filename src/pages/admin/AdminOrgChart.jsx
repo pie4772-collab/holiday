@@ -197,6 +197,7 @@ export function AdminOrgChart() {
                           <span key={h.id} className="font-medium">
                             {i > 0 && ', '}
                             <PersonName person={h} q={q} canOpen={canOpen} />
+                            {h.position !== '공장장' && <span className="ml-1 font-normal text-white/80">{h.position}</span>}
                           </span>
                         ))}
                       </div>
@@ -217,7 +218,7 @@ export function AdminOrgChart() {
         </div>
       </div>
       <p className="mt-3 text-[12px] text-stripe-muted">
-        팀장은 직급이 팀장인 직원(겸직 팀장 포함), 공장장은 그 사업장의 공장장입니다. 임원·담당 자리와 소관 부서는 환경설정 → 결재 라인에서 정합니다.
+        팀장은 직급이 팀장인 직원(겸직 팀장 포함), 공장장은 그 사업장의 공장장과 서울 외 사업장 소속 이사·상무·전무입니다. 임원·담당 자리와 소관 부서는 환경설정 → 결재 라인에서 정합니다.
       </p>
     </div>
   );

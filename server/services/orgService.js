@@ -1,8 +1,14 @@
 import { getDb } from '../db.js';
-import { LEAD_POSITIONS, isOfficerPosition } from '../../src/constants/hr.js';
+import { LEAD_POSITIONS, SEOUL_WORKPLACE_CODE, isOfficerPosition } from '../../src/constants/hr.js';
 
 function code(value) {
   return value == null ? '' : String(value).trim();
+}
+
+/** 공장(서울 외 사업장)의 이사·상무·전무는 결재에서 공장장 단계를 맡으므로 그 사업장의 공장장 자리에 둡니다. */
+function isSeoul(row) {
+  const wc = code(row.workplace_code);
+  return wc === SEOUL_WORKPLACE_CODE || row.workplace === '서울' || (!wc && !code(row.workplace));
 }
 
 function byCode(a, b) {
@@ -76,8 +82,11 @@ export async function getOrgChart(employeeIds = null) {
           .map((scope) => scope.department_name || scope.department_code),
       };
     });
+  const factoryOfficers = [];
   for (const row of rows) {
-    if (isOfficerPosition(row.position) && !seatHolderIds.has(Number(row.id))) {
+    if (!isOfficerPosition(row.position)) continue;
+    if (!isSeoul(row)) factoryOfficers.push(row);
+    else if (!seatHolderIds.has(Number(row.id))) {
       officers.push({ key: `emp-${row.id}`, title: row.position, role: '임원', holder: person(row), departments: [] });
     }
   }
@@ -141,6 +150,8 @@ export async function getOrgChart(employeeIds = null) {
       officerTitles: deptCode ? seatTitlesByDept.get(deptCode) || [] : [],
     });
   }
+
+  for (const row of factoryOfficers) workplaceOf(code(row.workplace_code), row).heads.unshift(person(row));
 
   const workplaceList = [...workplaces.values()].sort(byCode);
   for (const workplace of workplaceList) workplace.departments.sort(byCode);

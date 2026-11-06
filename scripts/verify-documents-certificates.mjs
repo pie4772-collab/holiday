@@ -739,6 +739,12 @@ await check('내부 결재 반대 → 신청 접수 대기로 복귀, 다시 품
   assert(req.status === 'issued' && req.certificateId === employmentCert.id && req.certNo === employmentCert.certNo, `신청 ${req.status}`);
   const mine = await certificates.listMine(member.id);
   assert(mine.certificates.some((cert) => cert.id === employmentCert.id), '내 발급 내역');
+  const myReq = mine.requests.find((r) => r.id === employmentRequest.id);
+  assert(
+    myReq?.status === 'issued' && myReq.certificateId === employmentCert.id && myReq.certificateStatus === 'issued',
+    `신청 내역에서 인쇄할 증명서 ${JSON.stringify(myReq && { s: myReq.status, c: myReq.certificateId, cs: myReq.certificateStatus })}`
+  );
+  assert(employmentCert.content?.name && employmentCert.employeeId === String(member.id), '신청자 본인 인쇄용 내용');
 });
 
 let careerCert = null;

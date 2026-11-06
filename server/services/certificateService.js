@@ -296,7 +296,7 @@ function requestStateMessage(status) {
   return '처리할 수 없는 신청입니다.';
 }
 
-const REQUEST_SQL = `SELECT r.*, c.cert_no, d.status AS document_status, d.document_no,
+const REQUEST_SQL = `SELECT r.*, c.cert_no, c.status AS certificate_status, d.status AS document_status, d.document_no,
     p.birth_date AS profile_birth_date, p.address AS profile_address, e.is_active AS employee_active
   FROM certificate_requests r
   JOIN employees e ON e.id = r.employee_id
@@ -321,6 +321,7 @@ function mapRequest(row) {
     documentNo: row.document_no || '',
     certificateId: row.certificate_id ? Number(row.certificate_id) : null,
     certNo: row.cert_no || '',
+    certificateStatus: row.certificate_status || null,
     handlerName: row.handler_name || '',
     rejectReason: row.reject_reason || '',
     requestedAt: row.requested_at,

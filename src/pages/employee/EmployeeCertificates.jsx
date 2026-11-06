@@ -58,7 +58,7 @@ function RequestModal({ profile, onClose }) {
   );
 }
 
-function RequestList({ requests }) {
+function RequestList({ requests, onPrint }) {
   const cancel = useCancelCertificateRequest();
   const [error, setError] = useState('');
 
@@ -74,7 +74,10 @@ function RequestList({ requests }) {
 
   return (
     <Panel className="mb-6">
-      <PanelHeader title="신청 내역" description="인사담당이 접수해 내부 결재를 마치면 발급 내역에 나타납니다." />
+      <PanelHeader
+        title="신청 내역"
+        description="인사담당이 접수해 내부 결재가 승인되면 바로 인쇄하거나 PDF로 저장할 수 있습니다."
+      />
       {error && <p className="mx-5 mt-3 rounded-md bg-[#fee2e2] px-3 py-2 text-sm text-[#df1b41]">{error}</p>}
       <div className="stripe-table-fit-wrap">
         <table className="stripe-table stripe-table-fit w-full">
@@ -113,6 +116,14 @@ function RequestList({ requests }) {
                     <Button size="sm" variant="secondary" disabled={cancel.isPending} onClick={() => cancelRequest(req)}>
                       <X className="h-3.5 w-3.5" /> 신청 취소
                     </Button>
+                  )}
+                  {req.status === 'issued' && req.certificateId && req.certificateStatus === 'issued' && (
+                    <Button size="sm" onClick={() => onPrint(req.certificateId)}>
+                      <Printer className="h-3.5 w-3.5" /> 인쇄
+                    </Button>
+                  )}
+                  {req.status === 'issued' && req.certificateStatus === 'revoked' && (
+                    <span className="text-[12px] text-[#df1b41]">발급 취소됨</span>
                   )}
                 </td>
               </tr>
@@ -163,9 +174,9 @@ export function EmployeeCertificates() {
         }
       />
 
-      {data.requests.length > 0 && <RequestList requests={data.requests} />}
-
       {printError && <p className="mb-4 rounded-md bg-[#fee2e2] px-3 py-2 text-sm text-[#df1b41]">{printError}</p>}
+
+      {data.requests.length > 0 && <RequestList requests={data.requests} onPrint={print} />}
       <Panel>
         <PanelHeader title="발급 내역" />
         {!data.certificates.length ? (

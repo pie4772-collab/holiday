@@ -13,6 +13,7 @@ import { encryptStoredMailPassword } from './services/mailService.js';
 import { startReminderSchedule } from './services/evaluationService.js';
 import { startReminderSchedule as startTrainingReminders } from './services/trainingService.js';
 import { repairOrgCodes } from './services/employeeService.js';
+import { startSchedule as startPersonnelOrderSchedule } from './services/personnelOrderService.js';
 import { convertStoredTimestampsToKst } from './timestampFix.js';
 import { getLocalIp, getShareUrl } from './utils/network.js';
 
@@ -110,6 +111,7 @@ const server = app.listen(PORT, HOST, () => {
   console.log('종료: Ctrl+C');
   startReminderSchedule();
   startTrainingReminders();
+  startPersonnelOrderSchedule();
 });
 
 server.on('error', (err) => {

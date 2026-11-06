@@ -500,7 +500,7 @@ await check('이전 방식 인사 수신 문서: 인사담당 본인 문서는 �
 await check('인사명령: 인사담당만 기안, 대상자·발령일 검사, 제목 자동, 결재 후 발령번호 인사 연도 - 번호호, 인사명령 대장', async () => {
   const body = {
     orderType: '입사',
-    effectiveDate: '2026-11-01',
+    effectiveDate: '2099-11-01',
     entries: [
       { name: '김민석', jobType: '사무직', workplace: '천안', department: '관리팀', position: '사원' },
       { employeeId: outsider.id, name: outsider.name, jobType: '', workplace: '', department: '관리팀', position: '사원' },
@@ -536,7 +536,7 @@ await check('인사명령: 인사담당만 기안, 대상자·발령일 검사, 
   assert(register.findIndex((i) => i.documentId === second.id) < register.findIndex((i) => i.documentId === id), '최근 번호가 위');
   const row = mine.find((item) => item.documentId === id && item.entryIndex === 1);
   assert(
-    row.orderNo === orderNoText(doc.documentNo) && row.employeeId === String(outsider.id) && row.orderType === '입사' && row.effectiveDate === '2026-11-01',
+    row.orderNo === orderNoText(doc.documentNo) && row.employeeId === String(outsider.id) && row.orderType === '입사' && row.effectiveDate === '2099-11-01' && row.apply?.status === 'pending',
     JSON.stringify(row)
   );
   const transfers = await documents.listPersonnelOrders({ year, orderType: '전보', q: '김민석' });
@@ -544,6 +544,136 @@ await check('인사명령: 인사담당만 기안, 대상자·발령일 검사, 
   const csv = await documents.exportPersonnelOrders({ year });
   assert(csv.headers[0] === '발령번호' && csv.rows.length === register.length, 'CSV');
   await documents.withdrawDocument(adminAAcc, pendingOrder.id);
+});
+
+await check('인사 발령: 발령일에 전보·승진 반영, 퇴사는 다음 날, 입사 등록, 그 밖은 이력만, 예정·취소·다시 반영, 이전 명령은 이력만', async () => {
+  const orders = await import('../server/services/personnelOrderService.js');
+  const employees = await import('../server/services/employeeService.js');
+  const kst = (d) => d.toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 10);
+  const today = kst(new Date());
+  const yesterday = kst(new Date(Date.now() - 86_400_000));
+  const tomorrow = kst(new Date(Date.now() + 86_400_000));
+  const created = [];
+  const temp = async (name, extra = {}) => {
+    const e = await employees.createEmployee({
+      name,
+      hireDate: '2020-01-01',
+      workplace: member.workplace,
+      department: member.department,
+      jobType: '사무직',
+      jobRank: '대리',
+      payStep: 2,
+      ...extra,
+    });
+    created.push(Number(e.id));
+    return db.prepare('SELECT * FROM employees WHERE id = ?').get(e.id);
+  };
+  const entryOf = (e, patch = {}) => ({
+    employeeId: e.id,
+    name: e.name,
+    jobType: e.job_type,
+    workplace: e.workplace,
+    department: e.department,
+    position: e.job_rank || e.position,
+    ...patch,
+  });
+  const order = async (orderType, effectiveDate, entries) => {
+    const { id } = await documents.createDocument(
+      adminA.id,
+      { formKey: 'personnel_order', body: { orderType, effectiveDate, entries }, line: line(leader) },
+      { access: adminAAcc }
+    );
+    const doc = await documents.approveDocument(leaderAcc, id);
+    assert(doc.status === 'approved', `${orderType} 결재 ${doc.status}`);
+    return id;
+  };
+  const actionsOf = async (docId) =>
+    db.prepare('SELECT * FROM personnel_order_actions WHERE document_id = ? ORDER BY entry_index').all(docId);
+  const history = async (empId, title) =>
+    db
+      .prepare(`SELECT * FROM employee_records WHERE employee_id = ? AND category = 'appointment' AND title = ?`)
+      .all(empId, title);
+  const fetch = (id) => db.prepare('SELECT * FROM employees WHERE id = ?').get(id);
+
+  try {
+    const daeri = (await import('../src/constants/hr.js')).PAY_GRADES.find((g) => g.rank === '대리');
+    const t1 = await temp('발령시험일', { payGrade: daeri.key });
+    const t2 = await temp('발령시험이', { payGrade: daeri.key });
+    const otherDept = active.find((e) => e.department && e.department !== member.department && e.workplace === member.workplace) ||
+      active.find((e) => e.department && e.department !== member.department);
+
+    // 전보: 지난 날짜 → 결재 끝나자마자 반영, 부서만 바뀌고 이력 1줄
+    const transferId = await order('전보', yesterday, [entryOf(t1, { department: otherDept.department, workplace: otherDept.workplace })]);
+    let [a] = await actionsOf(transferId);
+    let e1 = await fetch(t1.id);
+    assert(a.status === 'applied' && e1.department === otherDept.department && e1.workplace === otherDept.workplace, `전보 ${a.status} ${a.message} ${e1.department}`);
+    assert(String(e1.department_code) === String(otherDept.department_code), `부서코드 ${e1.department_code} / ${otherDept.department_code}`);
+    assert(e1.job_rank === '대리' && e1.emp_no === t1.emp_no, '다른 칸은 그대로');
+    assert((await history(t1.id, '전보')).length === 1, '전보 발령 이력');
+
+    // 승진: 내일 날짜 → 예정, 내일이 되면 반영, 급호는 비움, 두 번 반영 안 됨
+    const promoteId = await order('승진', tomorrow, [entryOf(t2, { position: '과장' })]);
+    [a] = await actionsOf(promoteId);
+    assert(a.status === 'pending' && (await fetch(t2.id)).job_rank === '대리', '발령일 전에는 예정');
+    await orders.applyDue({ today: tomorrow });
+    [a] = await actionsOf(promoteId);
+    const e2 = await fetch(t2.id);
+    assert(a.status === 'applied' && e2.job_rank === '과장' && !e2.pay_grade && e2.pay_step == null, `승진 ${a.status} ${e2.job_rank} ${e2.pay_grade}`);
+    assert(/급호/.test(a.message || ''), a.message);
+    await orders.applyDue({ today: tomorrow });
+    assert((await history(t2.id, '승진')).length === 1, '승진 이력 한 줄');
+
+    // 퇴사: 발령일 당일은 재직, 다음 날 재직 해제
+    const resignId = await order('퇴사', today, [entryOf(t1)]);
+    [a] = await actionsOf(resignId);
+    assert(a.status === 'pending' && Number((await fetch(t1.id)).is_active) === 1, '퇴사일 당일은 재직');
+    await orders.applyDue({ today: tomorrow });
+    [a] = await actionsOf(resignId);
+    e1 = await fetch(t1.id);
+    assert(a.status === 'applied' && Number(e1.is_active) === 0 && e1.terminated_date === today, `퇴사 ${a.status} ${e1.terminated_date}`);
+
+    // 입사: 사원 명부에 없는 대상자 등록, 이미 있으면 이력만
+    const hireId = await order('입사', today, [
+      { name: '발령신입삼', jobType: '생산직', workplace: member.workplace, department: member.department, position: '사원' },
+      entryOf(t2),
+    ]);
+    const hires = await actionsOf(hireId);
+    const newbie = await fetch(hires[0].employee_id);
+    created.push(Number(hires[0].employee_id));
+    assert(hires[0].status === 'applied' && newbie?.name === '발령신입삼' && newbie.hire_date === today && newbie.job_type === '생산직' && newbie.job_rank === '사원', `입사 ${hires[0].status} ${hires[0].message}`);
+    assert(hires[1].status === 'recorded', `이미 있는 직원 ${hires[1].status}`);
+    const register = await documents.listPersonnelOrders({});
+    assert(register.find((i) => i.documentId === hireId && i.entryIndex === 0)?.employeeId === String(newbie.id), '대장에 등록된 직원 연결');
+
+    // 그 밖의 구분: 이력만, 직접 입력 대상자는 건너뜀 → 반영 안 함 → 다시 반영
+    const otherId = await order('휴직', today, [entryOf(t2), { name: '연결안됨', jobType: '', workplace: '', department: '', position: '' }]);
+    const others = await actionsOf(otherId);
+    assert(others[0].status === 'recorded' && (await fetch(t2.id)).job_rank === '과장', '휴직은 이력만');
+    assert(others[1].status === 'skipped', `직접 입력 ${others[1].status}`);
+    await orders.cancelAction(others[1].id);
+    assert((await actionsOf(otherId))[1].status === 'cancelled', '반영 안 함');
+    await expectError(() => orders.cancelAction(others[0].id), /이미 반영/, 409);
+    const retried = await orders.retryAction(others[1].id);
+    assert(retried.status === 'skipped', `다시 반영 ${retried.status}`);
+
+    // 결재가 끝났지만 반영 줄이 없는 이전 인사명령: 사원 정보 그대로, 이력만
+    const oldId = await order('전보', yesterday, [entryOf(t2, { department: otherDept.department })]);
+    await db.prepare('DELETE FROM personnel_order_actions WHERE document_id = ?').run(oldId);
+    await db.prepare(`UPDATE employees SET department = ?, department_code = ? WHERE id = ?`).run(member.department, member.department_code, t2.id);
+    const back = await orders.backfillHistory();
+    const [old] = await actionsOf(oldId);
+    assert(back.documents >= 1 && old.status === 'recorded' && old.action === 'record', `이전 명령 ${old?.status}`);
+    assert((await fetch(t2.id)).department === member.department, '이전 명령은 사원 정보 그대로');
+    assert((await orders.backfillHistory()).documents === 0, '한 번만');
+  } finally {
+    for (const id of created) {
+      await db.prepare('DELETE FROM personnel_order_actions WHERE employee_id = ?').run(id);
+      await db.prepare('DELETE FROM employee_records WHERE employee_id = ?').run(id);
+      await db.prepare('DELETE FROM users WHERE employee_id = ?').run(id);
+      await db.prepare('DELETE FROM leave_balance_snapshots WHERE employee_id = ?').run(id);
+      await db.prepare('DELETE FROM employees WHERE id = ?').run(id);
+    }
+  }
 });
 
 await check('문서함(관리): 양식·상태 필터, CSV', async () => {

@@ -557,6 +557,14 @@ export const leaveApi = {
     return apiClient(`/admin/personnel-orders?${new URLSearchParams(filters)}`);
   },
 
+  async cancelPersonnelOrderAction(id) {
+    return apiClient(`/admin/personnel-orders/actions/${id}/cancel`, { method: 'POST' });
+  },
+
+  async retryPersonnelOrderAction(id) {
+    return apiClient(`/admin/personnel-orders/actions/${id}/retry`, { method: 'POST' });
+  },
+
   async getMyCertificates() {
     return apiClient('/certificates/mine');
   },

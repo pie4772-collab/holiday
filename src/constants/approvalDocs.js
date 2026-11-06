@@ -35,6 +35,27 @@ export const TITLE_MAX = 200;
 
 export const ORDER_TYPES = ['입사', '퇴사', '승진', '전보', '직위 변경', '겸직', '휴직', '복직', '기타'];
 export const ORDER_ENTRIES_MAX = 30;
+
+/**
+ * 결재가 끝나면 발령일에 사원 정보까지 바꾸는 발령 구분. 나머지 구분은 인사기록카드 발령 이력에만 남깁니다.
+ * transfer: 대상자 줄의 사업장·부서·직종·직위로 바꿈, resign: 발령일을 퇴사일로 재직 해제(발령일 다음 날),
+ * hire: 사원 명부에 없는 대상자를 발령일을 입사일로 등록
+ */
+export const ORDER_APPLY_ACTIONS = { 전보: 'transfer', 승진: 'transfer', '직위 변경': 'transfer', 퇴사: 'resign', 입사: 'hire' };
+
+export function orderAction(orderType) {
+  return ORDER_APPLY_ACTIONS[orderType] || 'record';
+}
+
+export const ORDER_ACTION_STATUS = {
+  pending: { label: '발령 예정', variant: 'warning' },
+  applying: { label: '반영 중', variant: 'info' },
+  applied: { label: '반영됨', variant: 'success' },
+  recorded: { label: '이력만', variant: 'default' },
+  skipped: { label: '건너뜀', variant: 'orange' },
+  failed: { label: '실패', variant: 'danger' },
+  cancelled: { label: '반영 취소', variant: 'default' },
+};
 /** 인사명령 종이 양식 맨 위의 회사명 */
 export const ORDER_COMPANY_TITLE = '동양철관주식회사';
 /** 대상자 줄의 칸: [키, 이름, 최대 글자 수] */

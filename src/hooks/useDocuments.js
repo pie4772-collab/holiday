@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { leaveApi } from '../api/leaveApi';
 import { leaveKeys } from './useLeaveData';
+import { personnelKeys } from './usePersonnel';
 
 export const documentKeys = {
   all: ['documents'],
@@ -50,6 +51,13 @@ export function usePersonnelOrders(filters) {
   });
 }
 
+/** 인사명령이 반영되면 사원 명부·조직도·인사기록카드가 바뀝니다. */
+function invalidateEmployeeData(queryClient) {
+  queryClient.invalidateQueries({ queryKey: leaveKeys.employees });
+  queryClient.invalidateQueries({ queryKey: ['admin', 'roster'] });
+  queryClient.invalidateQueries({ queryKey: personnelKeys.all });
+}
+
 /** 결재·기안 뒤에는 결재함·Home 할 일 수·증명서 목록을 새로 받습니다. */
 function useDocumentMutation(mutationFn) {
   const queryClient = useQueryClient();
@@ -60,6 +68,19 @@ function useDocumentMutation(mutationFn) {
       queryClient.invalidateQueries({ queryKey: documentKeys.all });
       queryClient.invalidateQueries({ queryKey: leaveKeys.currentEmployee });
       queryClient.invalidateQueries({ queryKey: ['certificates'] });
+      if (data?.formKey === 'personnel_order' && data.status === 'approved') invalidateEmployeeData(queryClient);
+    },
+  });
+}
+
+/** 인사명령 대장에서 발령 반영을 취소하거나 다시 반영합니다. */
+export function usePersonnelOrderAction() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, op }) => (op === 'cancel' ? leaveApi.cancelPersonnelOrderAction(id) : leaveApi.retryPersonnelOrderAction(id)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['documents', 'personnel-orders'] });
+      invalidateEmployeeData(queryClient);
     },
   });
 }

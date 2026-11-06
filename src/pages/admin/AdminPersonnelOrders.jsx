@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Download, FilePlus } from 'lucide-react';
+import { Download, FilePlus, RotateCcw, X } from 'lucide-react';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Panel, PanelBody } from '../../components/ui/Panel';
 import { Button } from '../../components/ui/Button';
-import { DOC_FORM_MAP, ORDER_TYPES } from '../../constants/approvalDocs';
-import { usePersonnelOrders } from '../../hooks/useDocuments';
+import { Badge } from '../../components/ui/Badge';
+import { DOC_FORM_MAP, ORDER_ACTION_STATUS, ORDER_TYPES } from '../../constants/approvalDocs';
+import { usePersonnelOrderAction, usePersonnelOrders } from '../../hooks/useDocuments';
 import { leaveApi } from '../../api/leaveApi';
 
 const DRAFT_PATH = '/employee/documents/new?form=personnel_order';
@@ -42,7 +43,59 @@ function paperNumberNote(year) {
   return years.length ? `${years.join(', ')}는 종이 결재로 발령해 이 대장에 없습니다.` : '';
 }
 
-/** 인사명령 대장: 결재가 끝난 인사명령(전자결재)을 대상자별로 모아 봅니다. */
+const CHANGE_LABELS = [
+  ['workplace', '사업장'],
+  ['department', '부서'],
+  ['jobType', '직종'],
+  ['jobRank', '직위'],
+  ['position', '직급'],
+];
+
+/** 반영 전·후 사원 정보에서 바뀐 칸만: "부서 관리팀 → 구매팀" */
+function changeSummary(apply) {
+  if (!apply?.before || !apply?.after) return [];
+  const changes = CHANGE_LABELS.filter(([key]) => (apply.before[key] || '') !== (apply.after[key] || '')).map(
+    ([key, label]) => `${label} ${apply.before[key] || '-'} → ${apply.after[key] || '-'}`
+  );
+  if (apply.before.isActive && !apply.after.isActive) changes.push(`퇴사 처리 (퇴사일 ${apply.after.terminatedDate})`);
+  return changes;
+}
+
+function ApplyCell({ apply, onAction, busy }) {
+  if (!apply) return <span className="text-[12px] text-stripe-muted">-</span>;
+  const status = ORDER_ACTION_STATUS[apply.status] || { label: apply.status, variant: 'default' };
+  const changes = changeSummary(apply);
+  return (
+    <div className="min-w-[10rem] space-y-1 text-[12px]">
+      <Badge variant={status.variant}>{status.label}</Badge>
+      {changes.map((line) => (
+        <div key={line} className="text-stripe-text">
+          {line}
+        </div>
+      ))}
+      {apply.message && <div className="text-stripe-muted">{apply.message}</div>}
+      {['pending', 'failed', 'skipped'].includes(apply.status) && (
+        <div className="flex gap-1.5 pt-0.5">
+          {apply.status !== 'pending' && (
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => onAction(apply, 'retry')}>
+              <RotateCcw className="h-3.5 w-3.5" /> 다시 반영
+            </Button>
+          )}
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => onAction(apply, 'cancel')}>
+            <X className="h-3.5 w-3.5" /> 반영 안 함
+          </Button>
+        </div>
+      )}
+      {apply.status === 'cancelled' && (
+        <Button size="sm" variant="secondary" disabled={busy} onClick={() => onAction(apply, 'retry')}>
+          <RotateCcw className="h-3.5 w-3.5" /> 다시 반영
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/** 인사명령 대장: 결재가 끝난 인사명령(전자결재)을 대상자별로 모아 보고, 발령일에 사원 정보에 반영된 결과를 확인합니다. */
 export function AdminPersonnelOrders() {
   const navigate = useNavigate();
   const thisYear = new Date().getFullYear();
@@ -55,8 +108,24 @@ export function AdminPersonnelOrders() {
   );
   const { data = [], isLoading, isError, error, refetch } = usePersonnelOrders(filters);
   const [csvError, setCsvError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const orderAction = usePersonnelOrderAction();
   const groups = useMemo(() => groupByDocument(data), [data]);
   const note = paperNumberNote(year);
+
+  async function handleAction(apply, op) {
+    const question =
+      op === 'cancel'
+        ? '이 발령을 사원 정보에 반영하지 않을까요? 나중에 [다시 반영]으로 되돌릴 수 있습니다.'
+        : '이 발령을 다시 반영할까요? 발령일이 지났으면 바로 사원 정보가 바뀝니다.';
+    if (!window.confirm(question)) return;
+    setActionError('');
+    try {
+      await orderAction.mutateAsync({ id: apply.id, op });
+    } catch (err) {
+      setActionError(err.message || '처리하지 못했습니다.');
+    }
+  }
 
   async function handleCsv() {
     setCsvError('');
@@ -74,7 +143,7 @@ export function AdminPersonnelOrders() {
     <div>
       <PageHeader
         title="인사명령 대장"
-        description="전자결재로 결재가 끝난 인사명령이 발령번호 순으로 자동 기록됩니다. 한 명령에 대상자가 여럿이면 한 사람씩 줄을 나눕니다."
+        description="전자결재로 결재가 끝난 인사명령이 발령번호 순으로 자동 기록됩니다. 전보·승진·직위 변경·입사·퇴사는 발령일에 사원 명부에 자동 반영되고(퇴사는 발령일 다음 날), 모든 발령은 인사기록카드 발령 이력에 남습니다."
         actions={
           <>
             <Button variant="secondary" onClick={handleCsv}>
@@ -112,6 +181,7 @@ export function AdminPersonnelOrders() {
         />
       </div>
       {csvError && <p className="mb-3 text-sm text-[#df1b41]">{csvError}</p>}
+      {actionError && <p className="mb-3 rounded-md bg-[#fee2e2] px-3 py-2 text-sm text-[#df1b41]">{actionError}</p>}
 
       <Panel>
         {isLoading ? (
@@ -141,6 +211,7 @@ export function AdminPersonnelOrders() {
                     <th>직종</th>
                     <th>소속</th>
                     <th>직위</th>
+                    <th>사원 정보 반영</th>
                     <th>비고</th>
                   </tr>
                 </thead>
@@ -184,6 +255,9 @@ export function AdminPersonnelOrders() {
                             {[item.workplace, item.department].filter(Boolean).join(' ') || '-'}
                           </td>
                           <td className="whitespace-nowrap">{item.position || '-'}</td>
+                          <td>
+                            <ApplyCell apply={item.apply} onAction={handleAction} busy={orderAction.isPending} />
+                          </td>
                           {first && (
                             <td rowSpan={span} className="align-top text-[13px] text-stripe-muted">
                               {item.note || ''}

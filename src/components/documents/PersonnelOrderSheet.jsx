@@ -5,8 +5,10 @@ import {
   ORDER_ENTRIES_MAX,
   ORDER_ENTRY_FIELDS,
   ORDER_TYPES,
+  orderAction,
   orderDateText,
 } from '../../constants/approvalDocs';
+import { JOB_RANKS, JOB_TYPES, POSITIONS } from '../../constants/hr';
 import { sheetInput } from './documentFormat';
 import { SignBlock } from './SignBlock';
 
@@ -18,6 +20,42 @@ const emptyEntry = () => Object.fromEntries([['employeeId', null], ...ORDER_ENTR
 function orderSigners(signers) {
   const [first, ...rest] = signers.approval;
   return { approval: first ? [{ ...first, position: '담당' }, ...rest] : [], agreement: signers.agreement };
+}
+
+const APPLY_NOTES = {
+  transfer: '결재가 끝나면 발령일에 각 대상자의 사업장·부서·직종·직위를 위 표에 적은 값으로 사원 명부에서 바꿉니다. 바뀔 칸만 고치세요.',
+  resign: '결재가 끝나면 발령일을 퇴사일로 하여 그다음 날 사원 명부에서 재직 해제합니다.',
+  hire: '결재가 끝나면 발령일을 입사일로 하여 사원 명부에 없는 대상자("직접 입력")를 새로 등록합니다. 사번은 등록 후 사원 명부에서 넣으세요.',
+  record: '이 발령 구분은 사원 명부를 바꾸지 않고, 발령일에 인사기록카드 발령 이력에만 남깁니다.',
+};
+
+/** 사원 명부에 있는 사업장·부서 이름 목록 (같은 이름이어야 같은 부서코드로 묶입니다) */
+function OrgDatalists({ people }) {
+  const unique = (key) => [...new Set(people.map((p) => p[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+  return (
+    <>
+      <datalist id="order-workplaces">
+        {unique('workplace').map((v) => (
+          <option key={v} value={v} />
+        ))}
+      </datalist>
+      <datalist id="order-departments">
+        {unique('department').map((v) => (
+          <option key={v} value={v} />
+        ))}
+      </datalist>
+      <datalist id="order-job-types">
+        {JOB_TYPES.map((v) => (
+          <option key={v} value={v} />
+        ))}
+      </datalist>
+      <datalist id="order-ranks">
+        {[...new Set([...JOB_RANKS, ...POSITIONS])].map((v) => (
+          <option key={v} value={v} />
+        ))}
+      </datalist>
+    </>
+  );
 }
 
 /** 대상자를 직원 목록에서 찾아 현재 소속으로 채운 줄을 더합니다. */
@@ -144,13 +182,13 @@ export function PersonnelOrderSheet({ signers, orderNo, body = {}, onChange, peo
                   <input className={cellInput} value={entry.name} maxLength={50} placeholder="성명" onChange={(e) => setEntry(index, { name: e.target.value })} />
                 </td>
                 <td className="w-[16%] border border-black p-1.5">
-                  <input className={cellInput} value={entry.jobType} maxLength={30} placeholder="직종" onChange={(e) => setEntry(index, { jobType: e.target.value })} />
+                  <input className={cellInput} value={entry.jobType} maxLength={30} placeholder="직종" list="order-job-types" onChange={(e) => setEntry(index, { jobType: e.target.value })} />
                 </td>
                 <td className="border border-black p-1.5">
                   <div className="flex gap-1.5">
-                    <input className={cellInput} value={entry.workplace} maxLength={50} placeholder="사업장" onChange={(e) => setEntry(index, { workplace: e.target.value })} />
-                    <input className={cellInput} value={entry.department} maxLength={50} placeholder="부서" onChange={(e) => setEntry(index, { department: e.target.value })} />
-                    <input className={cellInput} value={entry.position} maxLength={50} placeholder="직위" onChange={(e) => setEntry(index, { position: e.target.value })} />
+                    <input className={cellInput} value={entry.workplace} maxLength={50} placeholder="사업장" list="order-workplaces" onChange={(e) => setEntry(index, { workplace: e.target.value })} />
+                    <input className={cellInput} value={entry.department} maxLength={50} placeholder="부서" list="order-departments" onChange={(e) => setEntry(index, { department: e.target.value })} />
+                    <input className={cellInput} value={entry.position} maxLength={50} placeholder="직위" list="order-ranks" onChange={(e) => setEntry(index, { position: e.target.value })} />
                   </div>
                 </td>
                 <td className="w-8 border border-black text-center">
@@ -180,12 +218,18 @@ export function PersonnelOrderSheet({ signers, orderNo, body = {}, onChange, peo
         </tbody>
       </table>
       {editing && (
-        <div className="mt-2">
+        <div className="mt-2 space-y-2">
+          <OrgDatalists people={people} />
           <EntryAdder
             people={people}
             disabled={entries.length >= ORDER_ENTRIES_MAX}
             onAdd={(entry) => set({ entries: [...entries, entry] })}
           />
+          {body.orderType && (
+            <p className="rounded-md bg-[#f6f9fc] px-3 py-2 font-sans text-[12px] text-stripe-muted">
+              {APPLY_NOTES[orderAction(body.orderType)]}
+            </p>
+          )}
         </div>
       )}
 

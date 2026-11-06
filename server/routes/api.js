@@ -17,6 +17,7 @@ import * as documentService from '../services/documentService.js';
 import * as certificateService from '../services/certificateService.js';
 import * as storageService from '../services/storageService.js';
 import * as orgService from '../services/orgService.js';
+import * as personnelOrderService from '../services/personnelOrderService.js';
 import { sendFile } from '../utils/fileUpload.js';
 import { getClientIp, describeClientIp } from '../utils/clientIp.js';
 import { DOCUMENT_MAX_BYTES } from '../../src/constants/personnel.js';
@@ -1209,6 +1210,22 @@ router.get('/admin/personnel-orders/export', requirePermission('employees.manage
   try {
     const { filename, headers, rows } = await documentService.exportPersonnelOrders(req.query);
     csvResponse(res, filename, headers, rows);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/personnel-orders/actions/:id/cancel', requirePermission('employees.manage'), async (req, res, next) => {
+  try {
+    res.json(await personnelOrderService.cancelAction(req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/personnel-orders/actions/:id/retry', requirePermission('employees.manage'), async (req, res, next) => {
+  try {
+    res.json(await personnelOrderService.retryAction(req.params.id));
   } catch (e) {
     next(e);
   }

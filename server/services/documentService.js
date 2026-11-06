@@ -1,6 +1,7 @@
 import { getDb, LOCK_APPROVAL_DOCUMENT, LOCK_DOCUMENT_NUMBER } from '../db.js';
 import * as mailService from './mailService.js';
 import * as certificateService from './certificateService.js';
+import * as personnelOrderService from './personnelOrderService.js';
 import {
   describeDocumentStep,
   getApprovalChain,
@@ -16,6 +17,7 @@ import {
   HR_STEP,
   MAX_LINE,
   MAX_REFS,
+  ORDER_ACTION_STATUS,
   ORDER_ENTRY_FIELDS,
   RECEIVE_STEP,
   STEP_KINDS,
@@ -552,6 +554,19 @@ export async function listPersonnelOrders(filters = {}) {
        ORDER BY d.doc_year DESC, d.doc_seq DESC, d.id DESC`
     )
     .all(...params);
+  const actions = new Map();
+  if (rows.length) {
+    const actionRows = await getDb()
+      .prepare(
+        `SELECT a.document_id, a.entry_index, a.id AS action_id, a.action, a.status AS action_status, a.message AS action_message,
+                a.before_json AS action_before, a.after_json AS action_after, a.applied_at AS action_applied_at,
+                a.employee_id AS action_employee_id
+         FROM personnel_order_actions a JOIN approval_documents d ON d.id = a.document_id
+         WHERE ${where.join(' AND ')}`
+      )
+      .all(...params);
+    for (const row of actionRows) actions.set(`${row.document_id}-${row.entry_index}`, personnelOrderService.mapAction(row));
+  }
   const orderType = text(filters.orderType);
   const q = text(filters.q).toLowerCase();
   const items = [];
@@ -560,8 +575,10 @@ export async function listPersonnelOrders(filters = {}) {
     if (orderType && body.orderType !== orderType) continue;
     const entries = Array.isArray(body.entries) ? body.entries : [];
     entries.forEach((entry, index) => {
+      const apply = actions.get(`${row.id}-${index}`) || null;
       items.push({
         key: `${row.id}-${index}`,
+        apply,
         documentId: Number(row.id),
         documentNo: row.document_no || '',
         orderNo: orderNoText(row.document_no),
@@ -569,7 +586,7 @@ export async function listPersonnelOrders(filters = {}) {
         seq: Number(row.doc_seq) || null,
         orderType: body.orderType || '',
         effectiveDate: body.effectiveDate || '',
-        employeeId: entry.employeeId ? String(entry.employeeId) : null,
+        employeeId: entry.employeeId ? String(entry.employeeId) : apply?.employeeId || null,
         name: entry.name || '',
         jobType: entry.jobType || '',
         workplace: entry.workplace || '',
@@ -595,7 +612,7 @@ export async function exportPersonnelOrders(filters = {}) {
   const items = await listPersonnelOrders(filters);
   return {
     filename: `personnel-orders-${Number(filters.year) || 'all'}.csv`,
-    headers: ['발령번호', '발령일', '발령 구분', '성명', '직종', '사업장', '부서', '직위', '비고', '기안자', '결재 완료', '문서번호'],
+    headers: ['발령번호', '발령일', '발령 구분', '성명', '직종', '사업장', '부서', '직위', '비고', '기안자', '결재 완료', '문서번호', '반영', '반영 안내'],
     rows: items.map((item) => [
       item.orderNo,
       item.effectiveDate,
@@ -609,6 +626,8 @@ export async function exportPersonnelOrders(filters = {}) {
       item.drafterName,
       item.completedAt || '',
       item.documentNo,
+      ORDER_ACTION_STATUS[item.apply?.status]?.label || '',
+      item.apply?.message || '',
     ]),
   };
 }
@@ -647,11 +666,16 @@ async function assignNumber(db, doc, form, completedAt) {
   return documentNo;
 }
 
-/** 완료 처리: 문서번호를 매기고, 증명서 발급 품의(이전 증명서 신청 포함)면 증명서를 발급합니다. */
+/**
+ * 완료 처리: 문서번호를 매기고, 증명서 발급 품의(이전 증명서 신청 포함)면 증명서를 발급합니다.
+ * 인사명령이면 대상자마다 발령 반영 줄을 만듭니다(반영은 트랜잭션이 끝난 뒤 applyDueOrders).
+ */
 async function completeDocument(db, doc, actor, completedAt) {
   const form = DOC_FORM_MAP[doc.form_key];
   await assignNumber(db, doc, form, completedAt);
-  if (doc.form_key === 'certificate_issue') {
+  if (doc.form_key === 'personnel_order') {
+    await personnelOrderService.createActions(db, doc, completedAt);
+  } else if (doc.form_key === 'certificate_issue') {
     await certificateService.issueFromDocument(db, doc, await employeeRow(doc.employee_id), completedAt);
   } else if (doc.form_key === 'certificate') {
     await certificateService.issueCertificate({
@@ -661,6 +685,15 @@ async function completeDocument(db, doc, actor, completedAt) {
       actor,
       documentId: doc.id,
     });
+  }
+}
+
+/** 발령일이 된 인사명령을 바로 반영합니다. 반영에 실패해도 결재 결과는 그대로 두고 대장에 실패로 남깁니다. */
+async function applyDueOrders() {
+  try {
+    await personnelOrderService.applyDue();
+  } catch (error) {
+    console.error('[documents] personnel order apply failed:', error.message);
   }
 }
 
@@ -761,6 +794,7 @@ export async function createDocument(employeeId, data = {}, { access = null } = 
     if (body.requestId) await certificateService.claimRequest(db, body.requestId, id, drafter, now);
     if (selfApproved) await completeDocument(db, await documentRow(id), drafter, now);
   });
+  if (selfApproved) await applyDueOrders();
 
   notifyAfterChange(id).catch((error) => console.error('[documents] notify failed:', error.message));
   return { id, autoApproved: selfApproved };
@@ -877,6 +911,7 @@ async function decide(access, id, decision, note, addLine = null) {
     }
     await completeDocument(db, doc, actor, now);
   });
+  await applyDueOrders();
   notifyAfterChange(toId(id), { rejectNote: decision === 'reject' ? comment : '' }).catch((error) =>
     console.error('[documents] notify failed:', error.message)
   );

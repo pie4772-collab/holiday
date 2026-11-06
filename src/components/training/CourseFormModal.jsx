@@ -91,7 +91,11 @@ export function CourseFormModal({ course, onClose, onSaved }) {
   }
 
   async function handleDelete() {
-    if (!window.confirm(`"${course.title}" 과정을 삭제할까요?`)) return;
+    const used = Number(course.sessionCount) || 0;
+    const message = used
+      ? `"${course.title}" 과정을 삭제할까요?\n\n이 과정으로 배정한 교육 ${used}건과 대상자·수강·이수 기록이 모두 함께 삭제되며 되돌릴 수 없습니다. 수료 명단이 필요하면 먼저 CSV로 받아 두세요.`
+      : `"${course.title}" 과정을 삭제할까요?`;
+    if (!window.confirm(message)) return;
     try {
       await remove.mutateAsync(course.id);
       onClose();
@@ -251,7 +255,7 @@ export function CourseFormModal({ course, onClose, onSaved }) {
         {error && <p className="text-sm text-[#df1b41]">{error}</p>}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
           <div>
-            {course && !course.sessionCount && (
+            {course && (
               <Button type="button" variant="ghost" className="text-[#df1b41]" onClick={handleDelete} disabled={remove.isPending}>
                 <Trash2 className="h-4 w-4" /> 과정 삭제
               </Button>

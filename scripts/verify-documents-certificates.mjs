@@ -689,7 +689,7 @@ await check('발급 품의: 인사담당만 기안, 신청 대상·종류 고정
     /인사담당만/,
     403
   );
-  await expectError(() => issueDraft(body, []), /결재자를 1명 이상/);
+  await expectError(() => issueDraft(body, [{ employeeId: adminA.id, kind: 'approval' }]), /본인은 결재선에/);
   const { id } = await issueDraft(body, line([adminB, 'agreement'], officer));
   issueDocId = id;
   const doc = await documents.getDocument(adminAAcc, id);
@@ -817,7 +817,7 @@ await check('진위 확인: 번호+코드 일치 시 가린 성명, 틀리면 40
 
 await db.prepare(`UPDATE employees SET is_active = 0, terminated_date = ? WHERE id = ?`).run(`${year}-10-30`, retiree.id);
 
-await check('인사담당 임의 발급 품의: 퇴직자 퇴직증명서·재직자 재직증명서, 퇴직자 재직증명서는 불가', async () => {
+await check('인사담당 임의 발급 품의: 퇴직자 퇴직증명서·재직자 재직증명서, 퇴직자 재직증명서는 불가, 결재자 없이 본인 결재', async () => {
   await expectError(() => issueDraft({ items: [], purpose: 'x' }, line(officer)), /발급할 직원을 선택/);
   await expectError(
     () => issueDraft({ employeeId: retiree.id, certType: 'employment', items: [], purpose: 'x' }, line(officer)),
@@ -843,6 +843,22 @@ await check('인사담당 임의 발급 품의: 퇴직자 퇴직증명서·재�
   const doc = await documents.approveDocument(officerAcc, employment.id);
   const cert2 = await certificates.getCertificate(adminAAcc, doc.certificate.id);
   assert(cert2.channel === 'admin' && cert2.employeeName === outsider.name, '재직자 임의 발급');
+
+  const self = await issueDraft({ employeeId: outsider.id, certType: 'employment', items: [], purpose: '본인 결재 발급' }, []);
+  assert(self.autoApproved, '결재선 없이 올리면 본인 결재로 완료');
+  const selfDoc = await documents.getDocument(adminAAcc, self.id);
+  assert(selfDoc.status === 'approved' && /^발급-\d{4}-\d{4}$/.test(selfDoc.documentNo) && selfDoc.certificate?.status === 'issued', `${selfDoc.status} ${selfDoc.documentNo}`);
+  assert(
+    selfDoc.steps.length === 1 && selfDoc.steps[0].status === 'approved' && selfDoc.steps[0].actorName === adminA.name && selfDoc.steps[0].comment === '본인 결재',
+    JSON.stringify(selfDoc.steps)
+  );
+  const selfReq = await certificates.createRequest(member.id, { certType: 'employment', items: [], purpose: '본인 결재 신청 처리' });
+  const fromRequest = await issueDraft({ requestId: selfReq.id, items: [], purpose: '본인 결재 신청 처리' }, []);
+  assert(fromRequest.autoApproved && (await certificates.getRequest(selfReq.id)).status === 'issued', '신청도 본인 결재로 바로 발급');
+  await expectError(
+    () => documents.createDocument(adminA.id, { formKey: 'general', title: 'x', body: { content: 'x' }, line: [] }, { access: adminAAcc }),
+    /결재자를 1명 이상/
+  );
   const targets = await certificates.listIssueTargets();
   const target = targets.find((t) => t.id === String(retiree.id));
   assert(target && !target.isActive && target.terminatedDate === `${year}-10-30` && !target.beyondLegalPeriod, '대상 목록');
@@ -859,14 +875,14 @@ await check('증명서 취소: 사유 필수, 취소 후 인쇄 내용 없음, �
 
 await check('발급대장: 필터·검색·CSV, 일련번호 연속', async () => {
   const all = await certificates.listRegister({ year });
-  assert(all.length === 4, `발급 ${all.length}`);
+  assert(all.length === 6, `발급 ${all.length}`);
   const seqs = all.map((c) => c.certNo).sort();
-  assert(seqs.join() === [1, 2, 3, 4].map((n) => `${year}-${String(n).padStart(4, '0')}`).join(), seqs.join());
+  assert(seqs.join() === [1, 2, 3, 4, 5, 6].map((n) => `${year}-${String(n).padStart(4, '0')}`).join(), seqs.join());
   assert((await certificates.listRegister({ status: 'revoked' })).length === 1, '취소 필터');
   assert((await certificates.listRegister({ type: 'retirement' })).length === 1, '종류 필터');
   assert((await certificates.listRegister({ q: retiree.name })).length >= 1, '검색');
   const csv = await certificates.exportRegister({ year });
-  assert(csv.rows.length === 4 && csv.rows.some((r) => r[6].includes('퇴직사유')), 'CSV 기재 항목');
+  assert(csv.rows.length === 6 && csv.rows.some((r) => r[6].includes('퇴직사유')), 'CSV 기재 항목');
   assert(csv.rows.some((r) => r[7] === '직원 신청') && csv.rows.some((r) => r[7] === '인사 품의'), 'CSV 발급 경로');
 });
 
@@ -1041,6 +1057,42 @@ await check('특별휴가: 여러 날 한 번에 반려·취소, 가족돌봄 �
   assert(cancelled.count === 5, JSON.stringify(cancelled));
   const left = (await leave.getSpecialLeaves(member.id)).filter((u) => u.requestGroup === over.requestGroup);
   assert(left.length === 0, `취소 후 ${left.length}건 남음`);
+});
+
+await check('법정의무교육: 배정·수강·이수 기록이 있어도 배정·과정 삭제, 기록도 함께 삭제', async () => {
+  const training = await import('../server/services/trainingService.js');
+  const today = new Date().toISOString().slice(0, 10);
+  const course = await training.saveCourse(null, {
+    title: '삭제 검증 과정',
+    videos: [{ title: '외부 교육', kind: 'link', videoRef: 'https://example.com/edu' }],
+  });
+  const videoId = course.videos[0].id;
+  const target = { type: 'employees', employeeIds: [member.id, outsider.id] };
+  const assign = async () => {
+    const session = await training.createSession({ courseId: course.id, startDate: today, dueDate: `${year}-12-31`, target }, adminA);
+    const row = await db.prepare('SELECT id FROM training_assignees WHERE session_id = ? AND employee_id = ?').get(session.id, member.id);
+    await training.openLink(member.id, row.id, videoId);
+    await training.completeLink(member.id, row.id, videoId);
+    return session;
+  };
+  const count = async (sql, ...params) => Number((await db.prepare(sql).get(...params))?.n) || 0;
+  const progressOf = (sessionId) =>
+    count('SELECT COUNT(*) AS n FROM training_progress WHERE assignee_id IN (SELECT id FROM training_assignees WHERE session_id = ?)', sessionId);
+
+  const first = await assign();
+  assert((await training.getSession(first.id)).completedCount === 1 && (await progressOf(first.id)) === 1, '수강·이수 기록');
+  await training.deleteSession(first.id);
+  assert((await count('SELECT COUNT(*) AS n FROM training_assignees WHERE session_id = ?', first.id)) === 0 && (await progressOf(first.id)) === 0, '배정 삭제');
+
+  const second = await assign();
+  const third = await assign();
+  const result = await training.deleteCourse(course.id);
+  assert(result.removed.sessions === 2 && result.removed.assignees === 4, JSON.stringify(result));
+  assert((await count('SELECT COUNT(*) AS n FROM training_sessions WHERE course_id = ?', course.id)) === 0, '배정 남음');
+  assert((await progressOf(second.id)) + (await progressOf(third.id)) === 0, '수강 기록 남음');
+  assert((await count('SELECT COUNT(*) AS n FROM training_videos WHERE course_id = ?', course.id)) === 0, '영상 남음');
+  const mine = await training.listMine(member.id);
+  assert(!JSON.stringify(mine).includes('삭제 검증 과정'), '직원 화면에 남음');
 });
 
 const failed = results.filter((r) => !r.ok);

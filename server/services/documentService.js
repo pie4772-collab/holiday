@@ -173,6 +173,9 @@ async function cleanLine(drafter, line, { selfLabel = '본인은', lastApproval 
  * staged 양식은 결재자를 먼저, 합의자를 그 뒤에 둡니다.
  */
 async function buildSteps(drafter, form, line) {
+  if (form.selfApproval && !(Array.isArray(line) && line.length)) {
+    return [{ role: STEP_KINDS.approval, kind: 'approval', assignee: drafter, self: true }];
+  }
   if (form.line === 'staged') return approvalsFirst(await cleanLine(drafter, line, { lastApproval: false }));
   const steps = form.line === 'select' ? await cleanLine(drafter, line) : [];
   if (form.hr) steps.push({ role: HR_STEP, kind: 'approval', assignee: null });
@@ -699,6 +702,7 @@ export async function createDocument(employeeId, data = {}, { access = null } = 
   }
 
   const steps = await buildSteps(drafter, form, data.line);
+  const selfApproved = steps.every((step) => step.self);
   const now = kstStamp();
   let id = 0;
   await db.transaction(async () => {
@@ -730,30 +734,36 @@ export async function createDocument(employeeId, data = {}, { access = null } = 
       await db
         .prepare(
           `INSERT INTO approval_document_steps (
-             document_id, step_order, role, kind, status, assignee_id, assignee_name, assignee_department, assignee_position
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             document_id, step_order, role, kind, status, assignee_id, assignee_name, assignee_department, assignee_position,
+             actor_id, actor_name, actor_position, comment, acted_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
           index + 1,
           step.role,
           step.kind,
-          index === 0 ? 'pending' : 'waiting',
+          step.self ? 'approved' : index === 0 ? 'pending' : 'waiting',
           step.assignee?.id ?? null,
           step.assignee?.name ?? null,
           step.assignee?.department || null,
-          step.assignee?.position || null
+          step.assignee?.position || null,
+          step.self ? drafter.id : null,
+          step.self ? drafter.name : null,
+          step.self ? drafter.position || null : null,
+          step.self ? '본인 결재' : null,
+          step.self ? now : null
         );
     }
     for (const refId of refIds) {
       await db.prepare('INSERT INTO approval_document_refs (document_id, employee_id) VALUES (?, ?)').run(id, refId);
     }
     if (body.requestId) await certificateService.claimRequest(db, body.requestId, id, drafter, now);
-    if (!steps.length) await completeDocument(db, await documentRow(id), drafter, now);
+    if (selfApproved) await completeDocument(db, await documentRow(id), drafter, now);
   });
 
   notifyAfterChange(id).catch((error) => console.error('[documents] notify failed:', error.message));
-  return { id, autoApproved: !steps.length };
+  return { id, autoApproved: selfApproved };
 }
 
 /* ───────────── 결재 ───────────── */

@@ -82,6 +82,7 @@ export function EmployeeDocumentNew() {
   const people = useDocumentPeople(Boolean(form));
   const staged = form?.line === 'staged';
   const picksLine = form?.line === 'select' || staged;
+  const selfOnly = Boolean(form?.selfApproval) && selfApprove;
   const suggestion = useDocumentLineSuggestion(picksLine && !sourceId);
   const certRequest = useCertificateRequest(requestId);
   const certTargets = useCertificateTargets(issueForm && !requestId);
@@ -91,6 +92,7 @@ export function EmployeeDocumentNew() {
   const [body, setBody] = useState({});
   const [line, setLine] = useState([]);
   const [linePrefilled, setLinePrefilled] = useState(false);
+  const [selfApprove, setSelfApprove] = useState(false);
   const [refIds, setRefIds] = useState([]);
   const [error, setError] = useState('');
   const [loadedSource, setLoadedSource] = useState(null);
@@ -126,7 +128,9 @@ export function EmployeeDocumentNew() {
     setBody(nextBody);
     setRefIds(doc.refs.map((ref) => ref.id));
     const previous = doc.steps.filter((step) => step.assigneeId).map((step) => ({ employeeId: step.assigneeId, kind: step.kind }));
-    setLine(DOC_FORM_MAP[doc.formKey]?.line === 'staged' ? approvalsFirst(previous) : previous);
+    const others = previous.filter((item) => item.employeeId !== String(doc.drafter.id));
+    setLine(DOC_FORM_MAP[doc.formKey]?.line === 'staged' ? approvalsFirst(others) : others);
+    setSelfApprove(Boolean(DOC_FORM_MAP[doc.formKey]?.selfApproval) && !others.length);
     setLinePrefilled(true);
   }, [source.data, loadedSource]);
 
@@ -139,12 +143,13 @@ export function EmployeeDocumentNew() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
+    if (selfOnly && !window.confirm('결재자 없이 본인 결재로 바로 완료하고 증명서를 발급할까요?')) return;
     try {
       const result = await create.mutateAsync({
         formKey,
         title,
         body,
-        line: picksLine ? line : [],
+        line: picksLine && !selfOnly ? line : [],
         refIds,
         sourceId: sourceId || undefined,
       });
@@ -216,7 +221,7 @@ export function EmployeeDocumentNew() {
   const request = certRequest.data || null;
   const requestClosed = Boolean(request && request.status !== 'requested');
   const issueTargetName = request?.employeeName || certTargets.data?.find((t) => t.id === String(body.employeeId || ''))?.name;
-  const signers = signersFromDraft({ me, line: picksLine ? line : [], peopleById, hr: form.hr });
+  const signers = signersFromDraft({ me, line: picksLine && !selfOnly ? line : [], peopleById, hr: form.hr });
   const writer = me ? [me.name, [me.department, me.position].filter(Boolean).join(' ')].filter(Boolean).join(' · ') : '';
 
   return (
@@ -277,7 +282,7 @@ export function EmployeeDocumentNew() {
                     )}
                     <CertificateIssueFields value={body} onChange={setBody} request={request} />
                     <p className="mt-3 rounded-md bg-[#f6f9fc] px-3 py-2 text-[13px] text-stripe-muted">
-                      결재선의 마지막 결재자가 승인하면 증명서가 발급되어 발급대장에 남고
+                      {selfOnly ? '본인 결재로 바로' : '결재선의 마지막 결재자가 승인하면'} 증명서가 발급되어 발급대장에 남고
                       {request ? ', 신청한 직원에게 메일로 알립니다.' : ' 인쇄할 수 있습니다.'} 반려·회수하면 신청은 다시 접수 대기로 돌아갑니다.
                     </p>
                   </div>
@@ -310,20 +315,40 @@ export function EmployeeDocumentNew() {
                   }
                 />
                 <PanelBody>
-                  {issueForm && (
-                    <p className="mb-3 text-[12px] text-stripe-muted">
-                      관리팀 내부 결재입니다. 팀장·임원 등 발급을 승인할 사람을 지정하세요.
-                    </p>
+                  {form.selfApproval && (
+                    <label className="mb-3 flex cursor-pointer items-start gap-2 rounded-md border border-stripe-border px-3 py-2.5 text-sm">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={selfApprove}
+                        onChange={(e) => setSelfApprove(e.target.checked)}
+                      />
+                      <span>
+                        <span className="font-medium text-stripe-text">결재자 없이 본인 결재로 바로 발급</span>
+                        <span className="mt-0.5 block text-[12px] text-stripe-muted">
+                          기안하면 본인 결재로 바로 완료되고 증명서가 발급됩니다. 결재란에는 본인이 결재한 것으로 남습니다.
+                        </span>
+                      </span>
+                    </label>
                   )}
-                  <ApprovalLineEditor
-                    people={people.data || []}
-                    value={line}
-                    onChange={setLine}
-                    max={MAX_LINE}
-                    excludeId={me?.id}
-                    hrStep={form.hr}
-                    approvalFirst={staged}
-                  />
+                  {!selfOnly && (
+                    <>
+                      {issueForm && (
+                        <p className="mb-3 text-[12px] text-stripe-muted">
+                          관리팀 내부 결재입니다. 팀장·임원 등 발급을 승인할 사람을 지정하세요.
+                        </p>
+                      )}
+                      <ApprovalLineEditor
+                        people={people.data || []}
+                        value={line}
+                        onChange={setLine}
+                        max={MAX_LINE}
+                        excludeId={me?.id}
+                        hrStep={form.hr}
+                        approvalFirst={staged}
+                      />
+                    </>
+                  )}
                 </PanelBody>
               </Panel>
             )}
@@ -341,7 +366,7 @@ export function EmployeeDocumentNew() {
                 취소
               </Button>
               <Button type="submit" disabled={create.isPending || requestClosed}>
-                <Send className="h-4 w-4" /> {create.isPending ? '올리는 중…' : '기안하기'}
+                <Send className="h-4 w-4" /> {create.isPending ? '올리는 중…' : selfOnly ? '본인 결재로 발급' : '기안하기'}
               </Button>
             </div>
           </div>

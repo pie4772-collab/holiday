@@ -258,16 +258,29 @@ export async function saveCourse(courseId, data) {
   return getCourse(id);
 }
 
+/** 과정을 지우면 그 과정으로 배정한 교육과 대상자·수강·이수 기록도 함께 지웁니다. */
 export async function deleteCourse(courseId) {
   const row = await courseRow(courseId);
   const db = getDb();
-  const used = await db.prepare('SELECT COUNT(*) AS n FROM training_sessions WHERE course_id = ?').get(row.id);
-  if (Number(used?.n)) throw httpError('이 과정으로 배정한 교육이 있어 삭제할 수 없습니다. "사용 안 함"으로 바꾸세요.');
+  const sessions = 'SELECT id FROM training_sessions WHERE course_id = ?';
+  const assignees = `SELECT id FROM training_assignees WHERE session_id IN (${sessions})`;
+  let removed = { sessions: 0, assignees: 0 };
   await db.transaction(async () => {
+    const counts = await db
+      .prepare(
+        `SELECT (SELECT COUNT(*) FROM training_sessions WHERE course_id = ?) AS sessions,
+                (SELECT COUNT(*) FROM training_assignees WHERE session_id IN (${sessions})) AS assignees`
+      )
+      .get(row.id, row.id);
+    removed = { sessions: Number(counts?.sessions) || 0, assignees: Number(counts?.assignees) || 0 };
+    await db.prepare(`DELETE FROM training_progress WHERE assignee_id IN (${assignees})`).run(row.id);
+    await db.prepare(`DELETE FROM training_assignees WHERE session_id IN (${sessions})`).run(row.id);
+    await db.prepare('DELETE FROM training_sessions WHERE course_id = ?').run(row.id);
+    await db.prepare('DELETE FROM training_progress WHERE video_id IN (SELECT id FROM training_videos WHERE course_id = ?)').run(row.id);
     await db.prepare('DELETE FROM training_videos WHERE course_id = ?').run(row.id);
     await db.prepare('DELETE FROM training_courses WHERE id = ?').run(row.id);
   });
-  return { success: true };
+  return { success: true, removed };
 }
 
 /* ───────────── 수강 진도 요약 ───────────── */

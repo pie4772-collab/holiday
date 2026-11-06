@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { AlertTriangle, ExternalLink, Plus, Settings2 } from 'lucide-react';
+import { AlertTriangle, ExternalLink, Plus, Settings2, Trash2 } from 'lucide-react';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
@@ -10,7 +10,7 @@ import { Badge } from '../../components/ui/Badge';
 import { ProgressBar, TrainingDueBadge } from '../../components/training/TrainingBadges';
 import { SessionFormModal } from '../../components/training/SessionFormModal';
 import { CourseFormModal } from '../../components/training/CourseFormModal';
-import { useTrainingCourses, useTrainingSessions } from '../../hooks/useTraining';
+import { useDeleteTrainingSession, useTrainingCourses, useTrainingSessions } from '../../hooks/useTraining';
 import { formatSeconds, videoUrl } from '../../constants/training';
 
 /** 법정의무교육: 연도별 배정·수료 현황과 교육 과정 설정 */
@@ -21,7 +21,22 @@ export function AdminTraining() {
   const courses = useTrainingCourses();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(null);
+  const deleteSession = useDeleteTrainingSession();
+  const [deleteError, setDeleteError] = useState('');
   const shownYear = sessions.data?.year || year || new Date().getFullYear();
+
+  async function handleDeleteSession(s) {
+    const records = s.assigneeCount
+      ? `\n\n대상자 ${s.assigneeCount}명(수료 ${s.completedCount}명)의 수강·이수 기록이 모두 함께 삭제되며 되돌릴 수 없습니다. 수료 명단이 필요하면 먼저 CSV로 받아 두세요.`
+      : '';
+    if (!window.confirm(`"${s.title}" (${s.startDate} ~ ${s.dueDate}) 배정을 삭제할까요?${records}`)) return;
+    setDeleteError('');
+    try {
+      await deleteSession.mutateAsync(s.id);
+    } catch (err) {
+      setDeleteError(err.message || '삭제하지 못했습니다.');
+    }
+  }
 
   return (
     <div>
@@ -46,6 +61,7 @@ export function AdminTraining() {
 
       <Panel className="mb-6">
         <PanelHeader title={`${shownYear}년 교육 배정`} />
+        {deleteError && <p className="px-5 pt-3 text-sm text-[#df1b41]">{deleteError}</p>}
         {sessions.isLoading ? (
           <div className="flex justify-center py-12">
             <LoadingSpinner />
@@ -67,6 +83,7 @@ export function AdminTraining() {
                   <th>기간</th>
                   <th>수료 현황</th>
                   <th>상태</th>
+                  <th className="w-12" aria-label="삭제" />
                 </tr>
               </thead>
               <tbody>
@@ -98,6 +115,18 @@ export function AdminTraining() {
                             <TrainingDueBadge daysLeft={s.daysLeft} done={s.completedCount === s.assigneeCount} />
                           </div>
                         )}
+                      </td>
+                      <td className="text-right">
+                        <button
+                          type="button"
+                          className="rounded p-1.5 text-stripe-muted hover:bg-[#fee2e2] hover:text-[#df1b41] disabled:opacity-50"
+                          onClick={() => handleDeleteSession(s)}
+                          disabled={deleteSession.isPending}
+                          title="배정 삭제"
+                          aria-label={`${s.title} 배정 삭제`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </td>
                     </tr>
                   );

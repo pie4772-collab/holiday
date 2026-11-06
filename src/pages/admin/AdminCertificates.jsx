@@ -361,7 +361,7 @@ export function AdminCertificates() {
     <div>
       <PageHeader
         title="증명서 발급"
-        description={`직원이 신청한 재직·경력증명서를 접수해 관리팀 내부 결재(증명서 발급 품의)로 발급합니다. 퇴직자 등 신청 없이 발급할 때도 "발급 품의 작성"으로 내부 결재를 거칩니다. 제출처는 ${window.location.origin}${VERIFY_PATH} 에서 진위를 확인할 수 있습니다.`}
+        description={`직원이 신청한 재직·경력증명서를 접수해 관리팀 내부 결재(증명서 발급 품의)로 발급합니다. 퇴직자 등 신청 없이 발급할 때도 "발급 품의 작성"으로 올리고, 결재자 없이 본인 결재로 바로 발급할 수도 있습니다. 제출처는 ${window.location.origin}${VERIFY_PATH} 에서 진위를 확인할 수 있습니다.`}
         actions={
           <>
             <Button variant="secondary" onClick={() => setModal('settings')}>

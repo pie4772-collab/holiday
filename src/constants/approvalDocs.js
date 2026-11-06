@@ -71,6 +71,7 @@ export function orderDateText(dateKey) {
  *       none 결재선 없음
  * hr: 지정한 결재선 뒤에 인사 확인 단계를 붙입니다.
  * permission: 이 권한이 있는 사람만 기안 (내부 결재 양식)
+ * selfApproval: 결재선을 비우면 기안자 본인 결재로 바로 완료합니다.
  * retired: 새로 기안할 수 없고 이전 문서 보기에만 씁니다.
  * sheetTitle: 문서 양식 맨 위 제목 (없으면 "양식 이름 + 서")
  * fields.type: text, textarea, date, amount(원), select, richtext(서식 있는 본문, 서버에서 허용 태그만 남김),
@@ -161,8 +162,9 @@ export const DOC_FORMS = [
     line: 'staged',
     hr: false,
     permission: 'certificates.manage',
+    selfApproval: true,
     sheetTitle: '증명서 발급 품의',
-    description: '인사담당이 증명서 발급을 관리팀 내부 결재로 올립니다 (최종 승인되면 자동 발급)',
+    description: '인사담당이 증명서 발급을 관리팀 내부 결재로 올립니다 (최종 승인되면 자동 발급, 결재자 없이 본인 결재도 가능)',
     fields: [],
   },
   {

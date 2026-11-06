@@ -40,7 +40,7 @@ function mainWorkplace(rows) {
 }
 
 /**
- * 조직도: 대표이사 → 임원·담당(결재 라인 자리) → 사업장(공장장) → 부서(팀장·팀원).
+ * 조직도: 대표이사 → 임원(결재 라인 자리) → 사업장(공장장) → 부서(팀장·팀원).
  * 따로 저장한 조직 정보 없이 재직 직원의 사업장·부서·직급과 결재 라인 설정으로 그립니다.
  * employeeIds 가 있으면 그 직원만 보여 줍니다(사업장관리자 범위).
  */
@@ -49,7 +49,10 @@ export async function getOrgChart(employeeIds = null) {
   const all = await db.prepare('SELECT * FROM employees WHERE is_active = 1 ORDER BY name, id').all();
   const rows = employeeIds ? all.filter((row) => employeeIds.has(String(row.id))) : all;
 
-  const seats = await db.prepare('SELECT * FROM approval_seats ORDER BY sort_order, id').all();
+  /** 담당 자리는 결재 라인에서만 쓰는 자리라 조직도에는 넣지 않습니다. */
+  const seats = (await db.prepare('SELECT * FROM approval_seats ORDER BY sort_order, id').all()).filter(
+    (s) => s.step_role !== '담당'
+  );
   const scopes = await db.prepare('SELECT * FROM approval_seat_scopes ORDER BY id').all();
   const holderOf = (seat) => all.find((row) => Number(row.id) === Number(seat.employee_id)) || null;
   const seatTitlesByDept = new Map();
@@ -125,25 +128,13 @@ export async function getOrgChart(employeeIds = null) {
             !leads.some((lead) => Number(lead.id) === Number(row.id))
         )
       : [];
-    const managerIds = new Set(
-      deptCode
-        ? seats
-            .filter((s) => s.step_role === '담당' && s.employee_id)
-            .filter((s) => scopes.some((sc) => Number(sc.seat_id) === Number(s.id) && code(sc.department_code) === deptCode))
-            .map((s) => Number(s.employee_id))
-        : []
-    );
-    const managers = members.filter((row) => managerIds.has(Number(row.id)) && !LEAD_POSITIONS.includes(row.position));
-    const others = members.filter(
-      (row) => row.position !== '공장장' && !LEAD_POSITIONS.includes(row.position) && !managerIds.has(Number(row.id))
-    );
+    const others = members.filter((row) => row.position !== '공장장' && !LEAD_POSITIONS.includes(row.position));
     workplace.departments.push({
       code: deptCode,
       name: sample.department || '부서 미지정',
       leads: [
         ...leads.map((row) => person(row, { label: '팀장' })),
         ...concurrentLeads.map((row) => person(row, { label: '팀장(겸직)', concurrent: true })),
-        ...managers.map((row) => person(row, { label: '담당' })),
       ],
       members: others.map((row) => person(row)),
       headcount: members.length - heads.length,

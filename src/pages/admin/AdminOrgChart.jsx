@@ -66,7 +66,7 @@ function DepartmentCard({ dept, q, showMembers, canOpen }) {
         {dept.leads.length ? (
           dept.leads.map((lead) => (
             <div key={`${lead.id}-${lead.label}`} className="flex items-center gap-1.5">
-              <Badge variant={lead.label === '담당' ? 'purple' : 'info'}>{lead.label}</Badge>
+              <Badge variant="info">{lead.label}</Badge>
               <PersonName person={lead} q={q} canOpen={canOpen} className="font-medium" />
               {lead.jobRank && <span className="text-[12px] text-stripe-muted">{lead.jobRank}</span>}
               {lead.concurrent && <span className="text-[11px] text-stripe-muted">({lead.department})</span>}
@@ -93,7 +93,7 @@ function DepartmentCard({ dept, q, showMembers, canOpen }) {
   );
 }
 
-/** 조직도: 대표이사 → 임원·담당 → 사업장(공장장) → 부서(팀장·팀원). 직원 정보와 결재 라인 설정으로 자동으로 그립니다. */
+/** 조직도: 대표이사 → 임원 → 사업장(공장장) → 부서(팀장·팀원). 직원 정보와 결재 라인 설정으로 자동으로 그립니다. */
 export function AdminOrgChart() {
   const { data, isLoading, isError, error, refetch } = useOrgChart();
   const { data: me } = useCurrentEmployee();
@@ -126,7 +126,7 @@ export function AdminOrgChart() {
     <div>
       <PageHeader
         title="조직도"
-        description="재직 직원의 사업장·부서·직급과 결재 라인 설정(임원·담당 자리)으로 자동으로 그립니다. 사원 명부나 결재 라인을 고치면 바로 반영됩니다."
+        description="재직 직원의 사업장·부서·직급과 결재 라인 설정(임원 자리)으로 자동으로 그립니다. 사원 명부나 결재 라인을 고치면 바로 반영됩니다."
       />
 
       <div className="mb-5 flex flex-wrap items-center gap-3">
@@ -218,7 +218,7 @@ export function AdminOrgChart() {
         </div>
       </div>
       <p className="mt-3 text-[12px] text-stripe-muted">
-        팀장은 직급이 팀장인 직원(겸직 팀장 포함), 공장장은 그 사업장의 공장장과 서울 외 사업장 소속 이사·상무·전무입니다. 임원·담당 자리와 소관 부서는 환경설정 → 결재 라인에서 정합니다.
+        팀장은 직급이 팀장인 직원(겸직 팀장 포함), 공장장은 그 사업장의 공장장과 서울 외 사업장 소속 이사·상무·전무입니다. 임원 자리와 소관 부서는 환경설정 → 결재 라인에서 정합니다(결재 라인의 담당 자리는 조직도에 나오지 않습니다).
       </p>
     </div>
   );

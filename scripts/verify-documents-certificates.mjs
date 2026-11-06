@@ -1065,7 +1065,7 @@ await check('특별휴가: 여러 날 한 번에 반려·취소, 가족돌봄 �
   assert(left.length === 0, `취소 후 ${left.length}건 남음`);
 });
 
-await check('조직도: 사업장·부서·팀장·팀원, 겸직 팀장, 사업장관리자 범위, 공장 소속 이사는 공장장', async () => {
+await check('조직도: 사업장·부서·팀장·팀원, 겸직 팀장, 사업장관리자 범위, 공장 소속 이사는 공장장, 담당 자리 제외', async () => {
   const { getOrgChart } = await import('../server/services/orgService.js');
   const chart = await getOrgChart();
   const depts = chart.workplaces.flatMap((w) => w.departments);
@@ -1073,6 +1073,7 @@ await check('조직도: 사업장·부서·팀장·팀원, 겸직 팀장, 사업
   const activeCount = Number((await db.prepare('SELECT COUNT(*) AS n FROM employees WHERE is_active = 1').get()).n);
   assert(chart.total === activeCount, `재직 ${chart.total} / ${activeCount}`);
   assert(new Set(people.map((p) => p.id)).size === chart.total, `중복·누락 ${new Set(people.map((p) => p.id)).size} / ${chart.total}`);
+  assert(!chart.officers.some((o) => o.role === '담당') && !depts.some((d) => d.leads.some((l) => l.label === '담당')), '결재 라인 담당 자리는 조직도에 없음');
   const myDept = depts.find((d) => d.members.some((m) => m.id === String(member.id)));
   assert(myDept && myDept.leads.some((l) => l.id === String(leader.id)), `팀원 ${member.name}의 부서에 팀장 ${leader.name}`);
   const concurrent = active.find((e) => e.concurrent_position === '팀장' && e.concurrent_dept_code);

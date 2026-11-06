@@ -375,6 +375,10 @@ export async function getDocument(access, id) {
   const certificate = await db
     .prepare('SELECT id, cert_no, status FROM certificates WHERE document_id = ? ORDER BY id DESC LIMIT 1')
     .get(doc.id);
+  const orderCancel =
+    doc.form_key === 'personnel_order'
+      ? await db.prepare('SELECT * FROM personnel_order_cancels WHERE document_id = ?').get(doc.id)
+      : null;
   const mine = Number(doc.employee_id) === me;
   const receiving = step?.role === RECEIVE_STEP;
   const approve = (lineMatch || canProxy) && !receiving;
@@ -403,6 +407,9 @@ export async function getDocument(access, id) {
     })),
     certificate: certificate
       ? { id: Number(certificate.id), certNo: certificate.cert_no, status: certificate.status }
+      : null,
+    orderCancel: orderCancel
+      ? { reason: orderCancel.reason, byName: orderCancel.cancelled_by_name || '', at: orderCancel.cancelled_at }
       : null,
     permissions: {
       approve,
@@ -567,6 +574,18 @@ export async function listPersonnelOrders(filters = {}) {
       .all(...params);
     for (const row of actionRows) actions.set(`${row.document_id}-${row.entry_index}`, personnelOrderService.mapAction(row));
   }
+  const cancels = new Map();
+  if (rows.length) {
+    const cancelRows = await getDb()
+      .prepare(
+        `SELECT c.* FROM personnel_order_cancels c JOIN approval_documents d ON d.id = c.document_id
+         WHERE ${where.join(' AND ')}`
+      )
+      .all(...params);
+    for (const row of cancelRows) {
+      cancels.set(Number(row.document_id), { reason: row.reason, byName: row.cancelled_by_name || '', at: row.cancelled_at });
+    }
+  }
   const orderType = text(filters.orderType);
   const q = text(filters.q).toLowerCase();
   const items = [];
@@ -579,6 +598,7 @@ export async function listPersonnelOrders(filters = {}) {
       items.push({
         key: `${row.id}-${index}`,
         apply,
+        cancel: cancels.get(Number(row.id)) || null,
         documentId: Number(row.id),
         documentNo: row.document_no || '',
         orderNo: orderNoText(row.document_no),
@@ -626,7 +646,7 @@ export async function exportPersonnelOrders(filters = {}) {
       item.drafterName,
       item.completedAt || '',
       item.documentNo,
-      ORDER_ACTION_STATUS[item.apply?.status]?.label || '',
+      item.cancel ? `발령 취소 (${item.cancel.reason})` : ORDER_ACTION_STATUS[item.apply?.status]?.label || '',
       item.apply?.message || '',
     ]),
   };

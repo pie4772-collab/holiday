@@ -1,14 +1,21 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Download, FilePlus, RotateCcw, X } from 'lucide-react';
+import { Ban, Download, FilePlus, RotateCcw, Trash2, X } from 'lucide-react';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Panel, PanelBody } from '../../components/ui/Panel';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
+import { TrainingModal } from '../../components/training/TrainingModal';
 import { DOC_FORM_MAP, ORDER_ACTION_STATUS, ORDER_TYPES } from '../../constants/approvalDocs';
-import { usePersonnelOrderAction, usePersonnelOrders } from '../../hooks/useDocuments';
+import {
+  useCancelPersonnelOrder,
+  useDeletePersonnelOrder,
+  usePersonnelOrderAction,
+  usePersonnelOrders,
+} from '../../hooks/useDocuments';
+import { useCurrentEmployee } from '../../hooks/useLeaveData';
 import { leaveApi } from '../../api/leaveApi';
 
 const DRAFT_PATH = '/employee/documents/new?form=personnel_order';
@@ -61,7 +68,68 @@ function changeSummary(apply) {
   return changes;
 }
 
-function ApplyCell({ apply, onAction, busy }) {
+/** 발령 취소: 사유를 받아 결재 없이 바로 취소합니다. */
+function CancelOrderModal({ group, onClose }) {
+  const cancel = useCancelPersonnelOrder();
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+  const first = group.items[0];
+  const applied = group.items.filter((item) => ['applied', 'recorded'].includes(item.apply?.status)).length;
+
+  async function submit(e) {
+    e.preventDefault();
+    setError('');
+    try {
+      await cancel.mutateAsync({ documentId: group.documentId, reason });
+      onClose();
+    } catch (err) {
+      setError(err.message || '발령 취소하지 못했습니다.');
+    }
+  }
+
+  return (
+    <TrainingModal title={`발령 취소 — ${first.orderNo || first.documentNo}`} onClose={onClose}>
+      <form onSubmit={submit}>
+        <div className="space-y-3 p-5 text-sm">
+          <p className="rounded-md bg-[#fff7ed] px-3 py-2 text-[13px] text-[#9a3412]">
+            {first.orderType} · {group.items.map((item) => item.name).join(', ')} ({first.effectiveDate})
+          </p>
+          <ul className="list-disc space-y-1 pl-5 text-[13px] text-stripe-muted">
+            <li>아직 반영 전인 발령은 반영하지 않습니다.</li>
+            <li>
+              이미 반영된 발령{applied ? ` ${applied}건` : ''}은 사원 정보를 발령 전 값으로 되돌리고, 이 명령으로 남긴 발령 이력을 지웁니다.
+              그 뒤 다른 발령·수정으로 바뀐 칸은 그대로 둡니다.
+            </li>
+            <li>퇴사는 재직으로 되돌리고, 이 명령으로 새로 등록한 직원은 재직 해제합니다.</li>
+            <li>발령번호는 대장에 "발령 취소"로 남습니다. 바른 내용은 인사명령을 새로 올리세요.</li>
+          </ul>
+          <label className="block">
+            <span className="mb-1 block text-[13px] font-medium text-stripe-text">취소 사유</span>
+            <textarea
+              className="stripe-input min-h-[72px]"
+              maxLength={500}
+              value={reason}
+              placeholder="예: 부서를 잘못 적음"
+              onChange={(e) => setReason(e.target.value)}
+              required
+            />
+          </label>
+          {error && <p className="rounded-md bg-[#fee2e2] px-3 py-2 text-sm text-[#df1b41]">{error}</p>}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-stripe-border px-5 py-3">
+          <Button type="button" variant="secondary" onClick={onClose}>
+            닫기
+          </Button>
+          <Button type="submit" variant="danger" disabled={cancel.isPending || !reason.trim()}>
+            <Ban className="h-4 w-4" /> {cancel.isPending ? '취소 중…' : '발령 취소'}
+          </Button>
+        </div>
+      </form>
+    </TrainingModal>
+  );
+}
+
+function ApplyCell({ apply, onAction, busy, locked }) {
   if (!apply) return <span className="text-[12px] text-stripe-muted">-</span>;
   const status = ORDER_ACTION_STATUS[apply.status] || { label: apply.status, variant: 'default' };
   const changes = changeSummary(apply);
@@ -74,7 +142,7 @@ function ApplyCell({ apply, onAction, busy }) {
         </div>
       ))}
       {apply.message && <div className="text-stripe-muted">{apply.message}</div>}
-      {['pending', 'failed', 'skipped'].includes(apply.status) && (
+      {!locked && ['pending', 'failed', 'skipped'].includes(apply.status) && (
         <div className="flex gap-1.5 pt-0.5">
           {apply.status !== 'pending' && (
             <Button size="sm" variant="secondary" disabled={busy} onClick={() => onAction(apply, 'retry')}>
@@ -86,7 +154,7 @@ function ApplyCell({ apply, onAction, busy }) {
           </Button>
         </div>
       )}
-      {apply.status === 'cancelled' && (
+      {!locked && apply.status === 'cancelled' && (
         <Button size="sm" variant="secondary" disabled={busy} onClick={() => onAction(apply, 'retry')}>
           <RotateCcw className="h-3.5 w-3.5" /> 다시 반영
         </Button>
@@ -109,6 +177,31 @@ export function AdminPersonnelOrders() {
   const { data = [], isLoading, isError, error, refetch } = usePersonnelOrders(filters);
   const [csvError, setCsvError] = useState('');
   const [actionError, setActionError] = useState('');
+  const [cancelling, setCancelling] = useState(null);
+  const { data: me } = useCurrentEmployee();
+  const isSystemAdmin = Boolean(me?.roles?.includes('system_admin'));
+  const deleteOrder = useDeletePersonnelOrder();
+
+  async function handleDelete(group) {
+    const first = group.items[0];
+    const label = first.orderNo || first.documentNo;
+    const reverting = !first.cancel && group.items.some((item) => ['applied', 'recorded'].includes(item.apply?.status));
+    const question = [
+      `${label} (${first.orderType} · ${group.items.map((item) => item.name).join(', ')}) 인사명령을 삭제할까요?`,
+      '결재 문서와 대장 기록이 모두 지워지고 되살릴 수 없습니다.',
+      reverting ? '이미 반영된 사원 정보·발령 이력은 발령 취소처럼 먼저 되돌립니다.' : '',
+      '가장 마지막 발령번호를 지우면 그 번호는 다음 인사명령이 다시 씁니다.',
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+    if (!window.confirm(question)) return;
+    setActionError('');
+    try {
+      await deleteOrder.mutateAsync(group.documentId);
+    } catch (err) {
+      setActionError(err.message || '삭제하지 못했습니다.');
+    }
+  }
   const orderAction = usePersonnelOrderAction();
   const groups = useMemo(() => groupByDocument(data), [data]);
   const note = paperNumberNote(year);
@@ -220,18 +313,50 @@ export function AdminPersonnelOrders() {
                     group.items.map((item, index) => {
                       const first = index === 0;
                       const span = group.items.length;
+                      const cancelled = Boolean(item.cancel);
                       return (
-                        <tr key={item.key}>
+                        <tr key={item.key} className={cancelled ? 'bg-[#fafafa] text-stripe-muted' : ''}>
                           {first && (
                             <>
                               <td rowSpan={span} className="whitespace-nowrap align-top">
                                 <Link
                                   to={`/admin/documents/${item.documentId}`}
                                   state={BACK_STATE}
-                                  className="font-medium text-stripe-text hover:text-primary-600"
+                                  className={`font-medium hover:text-primary-600 ${cancelled ? 'text-stripe-muted line-through' : 'text-stripe-text'}`}
                                 >
                                   {item.orderNo || item.documentNo}
                                 </Link>
+                                {cancelled ? (
+                                  <div className="mt-1 max-w-[12rem] whitespace-normal text-[12px]">
+                                    <Badge variant="danger">발령 취소</Badge>
+                                    <div className="mt-0.5 text-[#df1b41]">{item.cancel.reason}</div>
+                                    <div className="text-stripe-muted">
+                                      {item.cancel.byName} · {String(item.cancel.at || '').slice(0, 10)}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="mt-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => setCancelling(group)}
+                                      className="inline-flex items-center gap-1 text-[12px] text-stripe-muted hover:text-[#df1b41]"
+                                    >
+                                      <Ban className="h-3 w-3" /> 발령 취소
+                                    </button>
+                                  </div>
+                                )}
+                                {isSystemAdmin && (
+                                  <div className="mt-1">
+                                    <button
+                                      type="button"
+                                      disabled={deleteOrder.isPending}
+                                      onClick={() => handleDelete(group)}
+                                      className="inline-flex items-center gap-1 text-[12px] text-stripe-muted hover:text-[#df1b41] disabled:opacity-40"
+                                    >
+                                      <Trash2 className="h-3 w-3" /> 삭제
+                                    </button>
+                                  </div>
+                                )}
                               </td>
                               <td rowSpan={span} className="whitespace-nowrap align-top font-mono text-[13px]">
                                 {item.effectiveDate || '-'}
@@ -256,7 +381,7 @@ export function AdminPersonnelOrders() {
                           </td>
                           <td className="whitespace-nowrap">{item.position || '-'}</td>
                           <td>
-                            <ApplyCell apply={item.apply} onAction={handleAction} busy={orderAction.isPending} />
+                            <ApplyCell apply={item.apply} onAction={handleAction} busy={orderAction.isPending} locked={cancelled} />
                           </td>
                           {first && (
                             <td rowSpan={span} className="align-top text-[13px] text-stripe-muted">
@@ -273,6 +398,7 @@ export function AdminPersonnelOrders() {
           </>
         )}
       </Panel>
+      {cancelling && <CancelOrderModal group={cancelling} onClose={() => setCancelling(null)} />}
     </div>
   );
 }

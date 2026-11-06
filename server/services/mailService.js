@@ -948,3 +948,46 @@ export async function notifyCertificateRequestRejected(employee, request, handle
     console.error('[mail] notifyCertificateRequestRejected failed:', error.message);
   }
 }
+
+/** 인사담당이 보낸 입사 서류 작성 요청을 입사자에게 알립니다. */
+export async function notifyOnboardingRequested(employee, labels) {
+  try {
+    const settings = rowToPublic(await getRow(), true);
+    if (!settings.enabled) return;
+    const to = uniqueEmails([employee]);
+    if (!to.length) return;
+    const body = `
+      <p>${escapeHtml(employee.name)}님, 입사를 환영합니다.</p>
+      <p>아래 입사 서류를 확인하고 동의·서명해 주세요. 작성한 서류는 인사기록카드에 보관되며 본인도 내려받을 수 있습니다.</p>
+      <ul>${labels.map((label) => `<li>${escapeHtml(label)}</li>`).join('')}</ul>
+    `;
+    await sendMail(
+      to.map((r) => r.email),
+      `입사 서류 작성 요청 (${labels.length}건)`,
+      htmlLayout('입사 서류 작성 요청', body, '서류 작성하기', pageUrl(settings, '/employee/onboarding'))
+    );
+  } catch (error) {
+    console.error('[mail] notifyOnboardingRequested failed:', error.message);
+  }
+}
+
+/** 입사자가 서류를 작성했음을 요청한 인사담당에게 알립니다. */
+export async function notifyOnboardingSigned(requester, employee, label) {
+  try {
+    const settings = rowToPublic(await getRow(), true);
+    if (!settings.enabled) return;
+    const to = uniqueEmails([requester]);
+    if (!to.length) return;
+    const body = `
+      <p>${escapeHtml(employee.name)}님이 <strong>${escapeHtml(label)}</strong>에 동의·서명했습니다.</p>
+      <p>완성본 PDF가 인사기록카드 증명서류에 저장되었습니다.</p>
+    `;
+    await sendMail(
+      to.map((r) => r.email),
+      `입사 서류 작성 완료: ${label} (${employee.name})`,
+      htmlLayout('입사 서류 작성 완료', body, '인사기록카드 보기', pageUrl(settings, `/admin/personnel/${employee.id}`))
+    );
+  } catch (error) {
+    console.error('[mail] notifyOnboardingSigned failed:', error.message);
+  }
+}

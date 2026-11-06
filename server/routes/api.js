@@ -18,6 +18,7 @@ import * as certificateService from '../services/certificateService.js';
 import * as storageService from '../services/storageService.js';
 import * as orgService from '../services/orgService.js';
 import * as personnelOrderService from '../services/personnelOrderService.js';
+import * as onboardingService from '../services/onboardingService.js';
 import { sendFile } from '../utils/fileUpload.js';
 import { getClientIp, describeClientIp } from '../utils/clientIp.js';
 import { DOCUMENT_MAX_BYTES } from '../../src/constants/personnel.js';
@@ -151,6 +152,7 @@ router.get('/employees/me', requireAuth, async (req, res, next) => {
     const emp = await leaveService.getCurrentEmployee(req.user.employeeId);
     if (!emp) return res.status(404).json({ message: '직원을 찾을 수 없습니다.' });
     const access = accessService.describeAccess(await accessService.getAccess(req.user.employeeId));
+    const onboarding = await onboardingService.summary(req.user.employeeId);
     res.json({
       ...emp,
       ...access,
@@ -158,6 +160,8 @@ router.get('/employees/me', requireAuth, async (req, res, next) => {
       evaluationTasks: await evaluationService.countTasks(req.user.employeeId),
       trainingTasks: await trainingService.countTasks(req.user.employeeId),
       documentTasks: await documentService.countTodo(req.user.employeeId),
+      onboardingTasks: onboarding.tasks,
+      hasOnboarding: onboarding.total > 0,
       certificateRequestTasks: access.permissions.includes('certificates.manage')
         ? await certificateService.countOpenRequests(req.user.employeeId)
         : 0,
@@ -734,16 +738,80 @@ router.post(
   }
 );
 
+function sendPersonnelFile(res, file) {
+  res.setHeader('Content-Type', file.contentType);
+  res.setHeader('Content-Length', String(file.content.length));
+  res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.end(file.content);
+}
+
+// ----- 입사 서류 전자 작성 -----
+
+router.get('/admin/employees/:id/onboarding', requirePermission('records.view'), async (req, res, next) => {
+  try {
+    if (!(await requireCoveredEmployee(req, res, 'records.view', req.params.id))) return;
+    res.json(await onboardingService.listForEmployee(req.params.id));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/employees/:id/onboarding', requirePermission('records.edit'), async (req, res, next) => {
+  try {
+    if (!(await requireCoveredEmployee(req, res, 'records.edit', req.params.id))) return;
+    res.status(201).json(await onboardingService.createRequests(req.params.id, req.body, req.access.employee));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/onboarding/:formId/cancel', requirePermission('records.edit'), async (req, res, next) => {
+  try {
+    if (!(await requireCoveredRecord(req, res, 'records.edit', 'onboarding_forms', req.params.formId))) return;
+    res.json(await onboardingService.cancelRequest(req.params.formId));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/employee/onboarding', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await onboardingService.listMine(req.user.employeeId));
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** 본문은 서명이 들어간 완성본 PDF(application/octet-stream), 동의·주소·연락처는 쿼리로 받습니다. */
+router.post('/employee/onboarding/:formId/submit', requireAuth, readDocumentBody, async (req, res, next) => {
+  try {
+    res.json(
+      await onboardingService.submit(req.user.employeeId, req.params.formId, {
+        agreed: req.query.agreed,
+        address: req.query.address,
+        phone: req.query.phone,
+        content: Buffer.isBuffer(req.body) ? req.body : null,
+      })
+    );
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/employee/onboarding/:formId/file', requireAuth, async (req, res, next) => {
+  try {
+    sendPersonnelFile(res, await onboardingService.getMyFile(req.user.employeeId, req.params.formId));
+  } catch (e) {
+    next(e);
+  }
+});
+
 router.get('/admin/personnel/documents/:docId/file', requirePermission('records.view'), async (req, res, next) => {
   try {
     if (!(await requireCoveredRecord(req, res, 'records.view', 'employee_documents', req.params.docId))) return;
-    const file = await personnelService.getDocumentFile(req.params.docId);
-    res.setHeader('Content-Type', file.contentType);
-    res.setHeader('Content-Length', String(file.content.length));
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
-    res.setHeader('Cache-Control', 'no-store');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.end(file.content);
+    sendPersonnelFile(res, await personnelService.getDocumentFile(req.params.docId));
   } catch (e) {
     next(e);
   }
@@ -1210,6 +1278,22 @@ router.get('/admin/personnel-orders/export', requirePermission('employees.manage
   try {
     const { filename, headers, rows } = await documentService.exportPersonnelOrders(req.query);
     csvResponse(res, filename, headers, rows);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.delete('/admin/personnel-orders/:documentId', requirePermission('employees.manage'), async (req, res, next) => {
+  try {
+    res.json(await personnelOrderService.deleteOrder(req.params.documentId, req.access));
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post('/admin/personnel-orders/:documentId/cancel', requirePermission('employees.manage'), async (req, res, next) => {
+  try {
+    res.json(await personnelOrderService.cancelOrder(req.params.documentId, req.body?.reason, req.access.employee));
   } catch (e) {
     next(e);
   }

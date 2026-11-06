@@ -557,6 +557,14 @@ export const leaveApi = {
     return apiClient(`/admin/personnel-orders?${new URLSearchParams(filters)}`);
   },
 
+  async deletePersonnelOrder(documentId) {
+    return apiClient(`/admin/personnel-orders/${documentId}`, { method: 'DELETE' });
+  },
+
+  async cancelPersonnelOrder(documentId, reason) {
+    return apiClient(`/admin/personnel-orders/${documentId}/cancel`, { method: 'POST', body: { reason } });
+  },
+
   async cancelPersonnelOrderAction(id) {
     return apiClient(`/admin/personnel-orders/actions/${id}/cancel`, { method: 'POST' });
   },
@@ -724,6 +732,52 @@ export const leaveApi = {
     const API_BASE = import.meta.env.VITE_API_BASE || '/api';
     const token = getAuthToken();
     const response = await fetch(`${API_BASE}/admin/personnel/documents/${docId}/file`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: '내려받기 실패' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.blob();
+  },
+
+  async getOnboardingForms(employeeId) {
+    return apiClient(`/admin/employees/${employeeId}/onboarding`);
+  },
+
+  async requestOnboardingForms(employeeId, forms) {
+    return apiClient(`/admin/employees/${employeeId}/onboarding`, { method: 'POST', body: { forms } });
+  },
+
+  async cancelOnboardingForm(formId) {
+    return apiClient(`/admin/onboarding/${formId}/cancel`, { method: 'POST' });
+  },
+
+  async getMyOnboarding() {
+    return apiClient('/employee/onboarding');
+  },
+
+  async submitOnboardingForm(formId, { pdf, address, phone }) {
+    const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+    const token = getAuthToken();
+    const q = new URLSearchParams({ agreed: '1', ...(address ? { address } : {}), ...(phone ? { phone } : {}) });
+    const response = await fetch(`${API_BASE}/employee/onboarding/${formId}/submit?${q}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: pdf,
+    });
+    const data = await response.json().catch(() => ({ message: '제출 실패' }));
+    if (!response.ok) throw new Error(data.message || `HTTP ${response.status}`);
+    return data;
+  },
+
+  async downloadMyOnboardingForm(formId) {
+    const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+    const token = getAuthToken();
+    const response = await fetch(`${API_BASE}/employee/onboarding/${formId}/file`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!response.ok) {

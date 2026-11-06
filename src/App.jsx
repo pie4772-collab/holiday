@@ -46,6 +46,7 @@ import { EmployeeDocuments } from './pages/employee/EmployeeDocuments';
 import { EmployeeDocumentNew } from './pages/employee/EmployeeDocumentNew';
 import { EmployeeDocumentDetail } from './pages/employee/EmployeeDocumentDetail';
 import { EmployeeCertificates } from './pages/employee/EmployeeCertificates';
+import { EmployeeOnboarding } from './pages/employee/EmployeeOnboarding';
 import { AdminDocuments } from './pages/admin/AdminDocuments';
 import { AdminPersonnelOrders } from './pages/admin/AdminPersonnelOrders';
 import { AdminOrgChart } from './pages/admin/AdminOrgChart';
@@ -159,6 +160,7 @@ function AppRoutes() {
           <Route path="documents/new" element={<EmployeeDocumentNew />} />
           <Route path="documents/:id" element={<EmployeeDocumentDetail />} />
           <Route path="certificates" element={<EmployeeCertificates />} />
+          <Route path="onboarding" element={<EmployeeOnboarding />} />
           <Route
             path="team"
             element={

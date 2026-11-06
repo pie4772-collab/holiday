@@ -215,7 +215,8 @@ export function EmployeeFormModal({
             </div>
             {form.hireType && (
               <p className="-mt-2 text-[12px] text-stripe-muted">
-                {HIRE_TYPES.find((t) => t.key === form.hireType)?.hint}. 평가 일정은 수습·정기 평가 화면에서 관리합니다.
+                {HIRE_TYPES.find((t) => t.key === form.hireType)?.hint}.
+                {form.hireType !== 'contract' && ' 평가 일정은 수습·정기 평가 화면에서 관리합니다.'}
               </p>
             )}
             <div className="grid grid-cols-2 gap-3">

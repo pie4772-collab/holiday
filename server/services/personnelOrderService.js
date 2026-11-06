@@ -1,7 +1,7 @@
 import { getDb } from '../db.js';
 import { JOB_RANKS, JOB_TYPES, PAY_GRADES, POSITIONS, hasPayGrade } from '../../src/constants/hr.js';
 import { orderAction, orderNoText } from '../../src/constants/approvalDocs.js';
-import { createEmployee, terminateEmployee, updateEmployee } from './employeeService.js';
+import { createEmployee, reactivateEmployee, terminateEmployee, updateEmployee } from './employeeService.js';
 import { createRecord } from './personnelService.js';
 
 function httpError(message, status = 400) {
@@ -338,6 +338,8 @@ export async function cancelAction(id) {
 /** 실패·건너뜀·취소한 발령을 다시 반영합니다. 발령일 전이면 발령 예정으로 돌려 둡니다. */
 export async function retryAction(id, { today = kstToday() } = {}) {
   const row = await actionRow(id);
+  const cancelled = await getDb().prepare('SELECT 1 AS x FROM personnel_order_cancels WHERE document_id = ?').get(row.document_id);
+  if (cancelled) throw httpError('발령 취소된 인사명령입니다. 바른 내용으로 인사명령을 새로 올려 주세요.', 409);
   if (!['failed', 'skipped', 'cancelled'].includes(row.status)) throw httpError('다시 반영할 수 있는 상태가 아닙니다.', 409);
   await getDb()
     .prepare(`UPDATE personnel_order_actions SET status = 'pending', message = NULL, updated_at = ? WHERE id = ? AND status = ?`)
@@ -345,6 +347,166 @@ export async function retryAction(id, { today = kstToday() } = {}) {
   await applyDue({ today, ids: [Number(row.id)] });
   const updated = await actionRow(row.id);
   return { id: Number(updated.id), status: updated.status, message: updated.message || '' };
+}
+
+/* ───────────── 발령 취소 ───────────── */
+
+const REVERT_FIELDS = [
+  ['workplace', 'workplace', '사업장'],
+  ['department', 'department', '부서'],
+  ['jobType', 'job_type', '직종'],
+  ['position', 'position', '직급'],
+  ['jobRank', 'job_rank', '직위'],
+];
+
+/** 발령으로 바뀐 칸 중 지금도 발령 후 값 그대로인 칸만 되돌립니다. 그 뒤 다른 발령·수정으로 바뀐 칸은 두고 알려 줍니다. */
+async function revertTransfer(row, before, after) {
+  if (!row.is_active) return '퇴사한 직원이라 사원 정보는 되돌리지 않았습니다.';
+  const data = {};
+  const reverted = [];
+  const kept = [];
+  for (const [key, column, label] of REVERT_FIELDS) {
+    if ((before[key] || '') === (after[key] || '')) continue;
+    if ((row[column] || '') === (after[key] || '')) {
+      data[key] = before[key] || '';
+      reverted.push(`${label} ${after[key] || '-'} → ${before[key] || '-'}`);
+    } else {
+      kept.push(label);
+    }
+  }
+  const payChanged = (before.payGrade || '') !== (after.payGrade || '') || before.payStep !== after.payStep;
+  const paySame = (row.pay_grade || '') === (after.payGrade || '') && (row.pay_step == null ? null : Number(row.pay_step)) === after.payStep;
+  if (payChanged && 'jobRank' in data && paySame) {
+    data.payGrade = before.payGrade || '';
+    data.payStep = before.payStep == null ? '' : before.payStep;
+    reverted.push('급호');
+  }
+  if (Object.keys(data).length) await updateEmployee(row.id, { empNo: row.emp_no || '', ...data });
+  return [
+    reverted.length ? `되돌림: ${reverted.join(', ')}` : '',
+    kept.length ? `이후 바뀐 ${kept.join('·')}은(는) 그대로 두었습니다.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+/** 이 인사명령으로 만든 발령 이력만 지웁니다 (직접 적어 둔 같은 날짜 이력은 남김). */
+async function removeHistory(action, orderNo) {
+  if (!action.record_id) return false;
+  const db = getDb();
+  const record = await db.prepare('SELECT * FROM employee_records WHERE id = ?').get(Number(action.record_id));
+  if (!record || record.notes !== '인사명령' || (orderNo && !String(record.detail || '').startsWith(orderNo))) return false;
+  const shared = await db
+    .prepare(`SELECT 1 AS x FROM personnel_order_actions WHERE record_id = ? AND id <> ? AND status IN ('applied', 'recorded')`)
+    .get(record.id, action.id);
+  if (shared) return false;
+  await db.prepare('DELETE FROM employee_records WHERE id = ?').run(record.id);
+  return true;
+}
+
+async function revertAction(action, orderNo) {
+  const notes = [];
+  const before = parseJson(action.before_json, null);
+  const after = parseJson(action.after_json, null);
+  const row = await employeeRow(action.employee_id);
+  if (action.status === 'applied' && row) {
+    if (action.action === 'transfer' && before && after) {
+      notes.push(await revertTransfer(row, before, after));
+    } else if (action.action === 'resign') {
+      if (!row.is_active && row.terminated_date === action.effective_date) {
+        await reactivateEmployee(row.id);
+        notes.push('재직으로 되돌렸습니다.');
+      } else {
+        notes.push('퇴사 정보가 그 뒤 바뀌어 재직으로 되돌리지 않았습니다.');
+      }
+    } else if (action.action === 'hire') {
+      if (row.is_active) {
+        await terminateEmployee(row.id, action.effective_date);
+        notes.push('이 명령으로 등록한 직원을 재직 해제했습니다. 사원 명부(퇴사자)에서 확인하세요.');
+      }
+    }
+  }
+  if (await removeHistory(action, orderNo)) notes.push('발령 이력을 지웠습니다.');
+  return notes.filter(Boolean).join(' ');
+}
+
+/**
+ * 잘못 결재된 인사명령을 인사담당이 사유를 적어 취소합니다(결재 없음).
+ * 반영 전 발령은 반영하지 않고, 반영된 사원 정보·발령 이력은 되돌립니다. 발령번호는 그대로 남깁니다.
+ */
+export async function cancelOrder(documentId, reason, actor) {
+  const db = getDb();
+  const id = Number(documentId);
+  const why = text(reason);
+  if (!why) throw httpError('발령 취소 사유를 입력하세요.');
+  if (why.length > 500) throw httpError('발령 취소 사유는 500자까지 입력할 수 있습니다.');
+  const doc = await db.prepare('SELECT id, form_key, status, document_no FROM approval_documents WHERE id = ?').get(id);
+  if (!doc || doc.form_key !== 'personnel_order') throw httpError('인사명령을 찾을 수 없습니다.', 404);
+  if (doc.status !== 'approved') throw httpError('결재가 끝난 인사명령만 발령 취소할 수 있습니다. 진행 중이면 회수하거나 반려하세요.', 409);
+
+  const now = stamp();
+  const targets = await db.transaction(async () => {
+    if (await db.prepare('SELECT 1 AS x FROM personnel_order_cancels WHERE document_id = ?').get(id)) {
+      throw httpError('이미 발령 취소된 인사명령입니다.', 409);
+    }
+    const actions = await db.prepare('SELECT * FROM personnel_order_actions WHERE document_id = ? ORDER BY entry_index').all(id);
+    if (actions.some((a) => a.status === 'applying')) throw httpError('지금 반영 중인 발령이 있습니다. 잠시 뒤 다시 시도하세요.', 409);
+    await db
+      .prepare(
+        'INSERT INTO personnel_order_cancels (document_id, reason, cancelled_by, cancelled_by_name, cancelled_at) VALUES (?, ?, ?, ?, ?)'
+      )
+      .run(id, why, actor?.id ? Number(actor.id) : null, actor?.name || null, now);
+    await db
+      .prepare(
+        `UPDATE personnel_order_actions SET status = 'cancelled', message = '발령 취소로 반영하지 않았습니다.', updated_at = ?
+         WHERE document_id = ? AND status IN ('pending', 'failed', 'skipped', 'cancelled')`
+      )
+      .run(now, id);
+    return actions.filter((a) => ['applied', 'recorded'].includes(a.status));
+  });
+
+  const orderNo = orderNoText(doc.document_no);
+  const results = [];
+  for (const action of targets) {
+    let message;
+    try {
+      message = (await revertAction(action, orderNo)) || '되돌릴 사원 정보가 없습니다.';
+    } catch (error) {
+      message = `되돌리지 못했습니다: ${error.message} 사원 명부에서 직접 고쳐 주세요.`;
+    }
+    await db
+      .prepare(`UPDATE personnel_order_actions SET status = 'cancelled', message = ?, updated_at = ? WHERE id = ?`)
+      .run(`발령 취소. ${message}`, stamp(), action.id);
+    results.push({ entryIndex: Number(action.entry_index), message });
+  }
+  return { documentId: id, reverted: results };
+}
+
+/**
+ * 시스템관리자가 결재가 끝난 인사명령을 대장에서 지웁니다. 아직 발령 취소하지 않았으면 먼저 발령 취소처럼
+ * 반영된 사원 정보·발령 이력을 되돌린 뒤 결재 문서와 반영 기록을 함께 지웁니다.
+ * 문서번호는 같은 해 가장 큰 번호 다음으로 매기므로, 마지막 번호를 지우면 그 번호를 다음 명령이 다시 씁니다.
+ */
+export async function deleteOrder(documentId, access) {
+  if (!access?.roles?.includes('system_admin')) throw httpError('발령 내역 삭제는 시스템관리자만 할 수 있습니다.', 403);
+  const db = getDb();
+  const id = Number(documentId);
+  const doc = await db.prepare('SELECT id, form_key, status, document_no FROM approval_documents WHERE id = ?').get(id);
+  if (!doc || doc.form_key !== 'personnel_order') throw httpError('인사명령을 찾을 수 없습니다.', 404);
+  if (doc.status !== 'approved') throw httpError('결재가 끝난 인사명령만 삭제할 수 있습니다. 진행 중이면 회수하거나 반려하세요.', 409);
+
+  const cancelled = await db.prepare('SELECT 1 AS x FROM personnel_order_cancels WHERE document_id = ?').get(id);
+  const reverted = cancelled ? [] : (await cancelOrder(id, '발령 내역 삭제', access.employee)).reverted;
+  await db.transaction(async () => {
+    await db.prepare('DELETE FROM personnel_order_actions WHERE document_id = ?').run(id);
+    await db.prepare('DELETE FROM personnel_order_cancels WHERE document_id = ?').run(id);
+    await db.prepare('DELETE FROM approval_document_refs WHERE document_id = ?').run(id);
+    await db.prepare('DELETE FROM approval_document_steps WHERE document_id = ?').run(id);
+    await db.prepare('UPDATE approval_documents SET source_id = NULL WHERE source_id = ?').run(id);
+    await db.prepare('DELETE FROM approval_documents WHERE id = ?').run(id);
+  });
+  console.log(`[personnel-order] ${access.employee?.name || ''}이(가) 인사명령 ${doc.document_no}를 삭제했습니다.`);
+  return { documentId: id, documentNo: doc.document_no, reverted };
 }
 
 let timer = null;

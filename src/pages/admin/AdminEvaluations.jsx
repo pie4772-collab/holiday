@@ -10,7 +10,7 @@ import { DueBadge, EvaluationStatusBadge, OutcomeBadge } from '../../components/
 import { EvaluationModal } from '../../components/evaluations/EvaluationModal';
 import { AssignEvaluatorModal } from '../../components/evaluations/AssignEvaluatorModal';
 import { useEvaluationAction, useEvaluations, useSetHireType } from '../../hooks/useEvaluations';
-import { EVALUATION_KINDS, HIRE_TYPES, OPEN_STATUSES, REMINDER_DAYS } from '../../constants/evaluation';
+import { EVALUATION_KINDS, HIRE_TYPES, OPEN_STATUSES, PLAN_KINDS, REMINDER_DAYS } from '../../constants/evaluation';
 import { formatDate } from '../../utils/leaveCalculations';
 
 function Stat({ label, value, tone = '' }) {
@@ -31,7 +31,12 @@ function UntypedPanel({ employees, onMessage }) {
     try {
       await setHireType.mutateAsync({ employeeId: employee.id, hireType });
       const label = HIRE_TYPES.find((t) => t.key === hireType)?.label;
-      onMessage({ type: 'ok', text: `${employee.name}님을 ${label}(으)로 지정하고 평가 일정을 만들었습니다.` });
+      onMessage({
+        type: 'ok',
+        text: PLAN_KINDS[hireType]?.length
+          ? `${employee.name}님을 ${label}(으)로 지정하고 평가 일정을 만들었습니다.`
+          : `${employee.name}님을 ${label}(으)로 지정했습니다. 평가 일정은 만들지 않습니다.`,
+      });
     } catch (err) {
       onMessage({ type: 'error', text: err.message });
     } finally {
@@ -43,7 +48,7 @@ function UntypedPanel({ employees, onMessage }) {
     <Panel className="mb-5">
       <PanelHeader
         title={`입사 구분 미지정 ${employees.length}명`}
-        description="입사 1년이 안 된 직원입니다. 신입·경력을 정하면 평가 일정이 만들어집니다. 기한이 지난 평가는 필요 없으면 취소하세요."
+        description="입사 1년이 안 된 직원입니다. 신입·경력을 정하면 평가 일정이 만들어지고, 계약직은 평가 일정 없이 구분만 기록합니다. 기한이 지난 평가는 필요 없으면 취소하세요."
       />
       <div className="stripe-table-fit-wrap">
         <table className="stripe-table stripe-table-fit w-full">

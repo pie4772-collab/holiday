@@ -3,6 +3,7 @@
 export const HIRE_TYPES = [
   { key: 'new', label: '신입', hint: '수습 3개월 → 수습평가, 입사 1년 평가' },
   { key: 'experienced', label: '경력', hint: '처음부터 정규직 → 3개월 평가' },
+  { key: 'contract', label: '계약직', hint: '수습·정기 평가 일정을 만들지 않음' },
 ];
 
 export const HIRE_TYPE_LABELS = Object.fromEntries(HIRE_TYPES.map((t) => [t.key, t.label]));

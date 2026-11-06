@@ -32,6 +32,7 @@ import {
   ChevronDown,
   Stamp,
   Network,
+  FileSignature,
 } from 'lucide-react';
 import { ASSIGNABLE_ROLES, ROLE_LABELS, canAccessAdmin, hasPermission } from '../utils/access';
 import { useAppStore } from '../store/useAppStore';
@@ -216,6 +217,9 @@ export function Layout() {
       : []),
     ...(currentEmployee?.evaluationTasks || location.pathname === '/employee/evaluations'
       ? [{ to: '/employee/evaluations', icon: PenLine, label: '평가 작성' }]
+      : []),
+    ...(currentEmployee?.onboardingTasks || currentEmployee?.hasOnboarding || location.pathname === '/employee/onboarding'
+      ? [{ to: '/employee/onboarding', icon: FileSignature, label: '입사 서류', badge: currentEmployee?.onboardingTasks || 0 }]
       : []),
   ];
   const adminItems = allowedNav(adminNav, currentEmployee)

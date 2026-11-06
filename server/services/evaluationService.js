@@ -245,7 +245,7 @@ async function refreshEmployeeStatus(emp) {
 export function cleanHireType(value) {
   const hireType = text(value);
   if (!hireType) return null;
-  if (!HIRE_TYPES.some((t) => t.key === hireType)) throw httpError('입사 구분은 신입 또는 경력으로 선택하세요.');
+  if (!HIRE_TYPES.some((t) => t.key === hireType)) throw httpError(`입사 구분은 ${HIRE_TYPES.map((t) => t.label).join('·')} 중에서 선택하세요.`);
   return hireType;
 }
 

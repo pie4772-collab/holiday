@@ -8,6 +8,7 @@ import { Button } from '../../components/ui/Button';
 import { PersonnelCard } from '../../components/personnel/PersonnelCard';
 import { PersonnelDocuments } from '../../components/personnel/PersonnelDocuments';
 import { DocumentViewer } from '../../components/personnel/DocumentViewer';
+import { OnboardingPanel } from '../../components/onboarding/OnboardingPanel';
 import { useCurrentEmployee } from '../../hooks/useLeaveData';
 import {
   useDeletePersonnelRecord,
@@ -79,14 +80,17 @@ export function AdminPersonnelCard() {
               isSaving: saveProfile.isPending || saveRecord.isPending || deleteRecord.isPending,
             }}
             documents={
-              <PersonnelDocuments
-                employeeId={id}
-                editable={editable}
-                onPreview={(doc) => {
-                  setViewerDocId(doc.id);
-                  toggleViewer(true);
-                }}
-              />
+              <div className="space-y-5">
+                <OnboardingPanel employee={card.employee} editable={editable} />
+                <PersonnelDocuments
+                  employeeId={id}
+                  editable={editable}
+                  onPreview={(doc) => {
+                    setViewerDocId(doc.id);
+                    toggleViewer(true);
+                  }}
+                />
+              </div>
             }
           />
         </div>

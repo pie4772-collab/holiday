@@ -73,6 +73,30 @@ function useDocumentMutation(mutationFn) {
   });
 }
 
+/** 잘못 결재된 인사명령을 발령 취소합니다(반영된 사원 정보·발령 이력도 되돌림). */
+export function useCancelPersonnelOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ documentId, reason }) => leaveApi.cancelPersonnelOrder(documentId, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: documentKeys.all });
+      invalidateEmployeeData(queryClient);
+    },
+  });
+}
+
+/** 시스템관리자: 인사명령을 대장에서 지웁니다(취소 전이면 반영된 내용을 먼저 되돌림). */
+export function useDeletePersonnelOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (documentId) => leaveApi.deletePersonnelOrder(documentId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: documentKeys.all });
+      invalidateEmployeeData(queryClient);
+    },
+  });
+}
+
 /** 인사명령 대장에서 발령 반영을 취소하거나 다시 반영합니다. */
 export function usePersonnelOrderAction() {
   const queryClient = useQueryClient();

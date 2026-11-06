@@ -676,6 +676,289 @@ await check('인사 발령: 발령일에 전보·승진 반영, 퇴사는 다음
   }
 });
 
+await check('발령 취소: 사유 필수, 반영 전은 반영 안 함, 반영된 전보·승진·퇴사·입사 되돌림, 이력 삭제, 이후 바뀐 칸은 그대로, 다시 반영·두 번 취소 불가', async () => {
+  const orders = await import('../server/services/personnelOrderService.js');
+  const employees = await import('../server/services/employeeService.js');
+  const daeri = (await import('../src/constants/hr.js')).PAY_GRADES.find((g) => g.rank === '대리');
+  const kst = (d) => d.toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 10);
+  const yesterday = kst(new Date(Date.now() - 86_400_000));
+  const tomorrow = kst(new Date(Date.now() + 86_400_000));
+  const later = kst(new Date(Date.now() + 3 * 86_400_000));
+  const created = [];
+  const fetch = (id) => db.prepare('SELECT * FROM employees WHERE id = ?').get(id);
+  const temp = async (name) => {
+    const e = await employees.createEmployee({
+      name,
+      hireDate: '2020-01-01',
+      workplace: member.workplace,
+      department: member.department,
+      jobType: '사무직',
+      jobRank: '대리',
+      payGrade: daeri.key,
+      payStep: 2,
+    });
+    created.push(Number(e.id));
+    return fetch(e.id);
+  };
+  const entryOf = (e, patch = {}) => ({
+    employeeId: e.id,
+    name: e.name,
+    jobType: e.job_type,
+    workplace: e.workplace,
+    department: e.department,
+    position: e.job_rank,
+    ...patch,
+  });
+  const order = async (orderType, effectiveDate, entries) => {
+    const { id } = await documents.createDocument(
+      adminA.id,
+      { formKey: 'personnel_order', body: { orderType, effectiveDate, entries }, line: line(leader) },
+      { access: adminAAcc }
+    );
+    await documents.approveDocument(leaderAcc, id);
+    return id;
+  };
+  const actionsOf = (docId) => db.prepare('SELECT * FROM personnel_order_actions WHERE document_id = ? ORDER BY entry_index').all(docId);
+  const historyCount = async (empId, title) =>
+    Number(
+      (await db.prepare(`SELECT COUNT(*) AS n FROM employee_records WHERE employee_id = ? AND category = 'appointment' AND title = ?`).get(empId, title)).n
+    );
+  const otherDept = active.find((e) => e.department && e.department !== member.department);
+
+  try {
+    const [c1, c2, c3, c4] = [await temp('취소시험일'), await temp('취소시험이'), await temp('취소시험삼'), await temp('취소시험사')];
+
+    const transferId = await order('전보', yesterday, [entryOf(c1, { department: otherDept.department }), entryOf(c2, { department: otherDept.department })]);
+    assert((await fetch(c1.id)).department === otherDept.department && (await historyCount(c1.id, '전보')) === 1, '전보 반영');
+    await employees.updateEmployee(c2.id, { empNo: '', department: member.department });
+    const promoteId = await order('승진', yesterday, [entryOf(c3, { position: '과장' })]);
+    assert((await fetch(c3.id)).job_rank === '과장' && !(await fetch(c3.id)).pay_grade, '승진 반영');
+    const resignId = await order('퇴사', kst(new Date(Date.now() - 2 * 86_400_000)), [entryOf(c4)]);
+    assert(Number((await fetch(c4.id)).is_active) === 0, '퇴사 반영');
+    const hireId = await order('입사', yesterday, [{ name: '취소신입오', jobType: '사무직', workplace: member.workplace, department: member.department, position: '사원' }]);
+    const [hire] = await actionsOf(hireId);
+    created.push(Number(hire.employee_id));
+    const futureId = await order('전보', later, [entryOf(c1, { department: '미래부서검증' })]);
+
+    await expectError(() => orders.cancelOrder(transferId, ' ', adminA), /사유/);
+    const draftOnly = await documents.createDocument(
+      adminA.id,
+      { formKey: 'personnel_order', body: { orderType: '전보', effectiveDate: later, entries: [entryOf(c1)] }, line: line(leader) },
+      { access: adminAAcc }
+    );
+    await expectError(() => orders.cancelOrder(draftOnly.id, '잘못', adminA), /결재가 끝난/, 409);
+    await documents.withdrawDocument(adminAAcc, draftOnly.id);
+
+    const t = await orders.cancelOrder(transferId, '부서를 잘못 적음', adminA);
+    const e1 = await fetch(c1.id);
+    assert(e1.department === member.department && String(e1.department_code) === String(member.department_code), `전보 되돌림 ${e1.department}`);
+    assert((await historyCount(c1.id, '전보')) === 0, '전보 이력 삭제');
+    assert(/그대로/.test(t.reverted.find((r) => r.entryIndex === 1)?.message || ''), JSON.stringify(t.reverted));
+    assert((await actionsOf(transferId)).every((a) => a.status === 'cancelled'), '반영 줄 취소');
+
+    await orders.cancelOrder(promoteId, '승진 대상 착오', adminA);
+    const e3 = await fetch(c3.id);
+    assert(e3.job_rank === '대리' && e3.pay_grade === daeri.key && Number(e3.pay_step) === 2, `승진 되돌림 ${e3.job_rank} ${e3.pay_grade} ${e3.pay_step}`);
+    await orders.cancelOrder(resignId, '퇴사 철회', adminA);
+    assert(Number((await fetch(c4.id)).is_active) === 1, '재직으로 되돌림');
+    await orders.cancelOrder(hireId, '입사 취소', adminA);
+    assert(Number((await fetch(hire.employee_id)).is_active) === 0, '새로 등록한 직원 재직 해제');
+
+    await orders.cancelOrder(futureId, '발령일 전 취소', adminA);
+    const [future] = await actionsOf(futureId);
+    assert(future.status === 'cancelled', `예정 취소 ${future.status}`);
+    await orders.applyDue({ today: later });
+    assert((await fetch(c1.id)).department === member.department, '취소한 발령은 발령일에도 반영 안 됨');
+    await expectError(() => orders.retryAction(future.id), /발령 취소된/, 409);
+    await expectError(() => orders.cancelOrder(transferId, '또', adminA), /이미 발령 취소/, 409);
+
+    const register = await documents.listPersonnelOrders({});
+    assert(register.filter((i) => i.documentId === transferId).every((i) => i.cancel?.reason === '부서를 잘못 적음'), '대장에 발령 취소');
+    const doc = await documents.getDocument(adminAAcc, transferId);
+    assert(doc.orderCancel?.reason === '부서를 잘못 적음' && doc.orderCancel.byName === adminA.name, '문서에 발령 취소 표시');
+  } finally {
+    for (const id of created) {
+      await db.prepare('DELETE FROM personnel_order_actions WHERE employee_id = ?').run(id);
+      await db.prepare('DELETE FROM employee_records WHERE employee_id = ?').run(id);
+      await db.prepare('DELETE FROM users WHERE employee_id = ?').run(id);
+      await db.prepare('DELETE FROM leave_balance_snapshots WHERE employee_id = ?').run(id);
+      await db.prepare('DELETE FROM employees WHERE id = ?').run(id);
+    }
+  }
+});
+
+await check('발령 내역 삭제: 시스템관리자만, 결재 끝난 명령만, 취소 전이면 되돌린 뒤 문서·반영 기록까지 삭제', async () => {
+  const orders = await import('../server/services/personnelOrderService.js');
+  const employees = await import('../server/services/employeeService.js');
+  const kst = (d) => d.toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 10);
+  const yesterday = kst(new Date(Date.now() - 86_400_000));
+  const sysAcc = { ...adminAAcc, roles: [...new Set([...adminAAcc.roles, 'system_admin'])] };
+  const hrAcc = { ...adminAAcc, roles: adminAAcc.roles.filter((r) => r !== 'system_admin') };
+  const otherDept = active.find((e) => e.department && e.department !== member.department);
+  const e = await employees.createEmployee({
+    name: '삭제시험일',
+    hireDate: '2020-01-01',
+    workplace: member.workplace,
+    department: member.department,
+    jobType: '사무직',
+    jobRank: '대리',
+  });
+  const fetch = () => db.prepare('SELECT * FROM employees WHERE id = ?').get(e.id);
+  const count = async (sql, ...args) => Number((await db.prepare(sql).get(...args)).n);
+  const entry = (patch = {}) => ({ employeeId: e.id, name: e.name, jobType: '사무직', workplace: member.workplace, department: member.department, position: '대리', ...patch });
+  const order = async (orderType, entries) => {
+    const { id } = await documents.createDocument(
+      adminA.id,
+      { formKey: 'personnel_order', body: { orderType, effectiveDate: yesterday, entries }, line: line(leader) },
+      { access: adminAAcc }
+    );
+    await documents.approveDocument(leaderAcc, id);
+    return id;
+  };
+  try {
+    const id = await order('전보', [entry({ department: otherDept.department })]);
+    assert((await fetch()).department === otherDept.department, '전보 반영');
+    await expectError(() => orders.deleteOrder(id, hrAcc), /시스템관리자만/, 403);
+    const result = await orders.deleteOrder(id, sysAcc);
+    assert((await fetch()).department === member.department, `삭제 전 되돌림 ${(await fetch()).department}`);
+    assert(result.reverted.length === 1, JSON.stringify(result));
+    assert((await count('SELECT COUNT(*) AS n FROM approval_documents WHERE id = ?', id)) === 0, '문서 삭제');
+    assert((await count('SELECT COUNT(*) AS n FROM approval_document_steps WHERE document_id = ?', id)) === 0, '결재 단계 삭제');
+    assert((await count('SELECT COUNT(*) AS n FROM personnel_order_actions WHERE document_id = ?', id)) === 0, '반영 기록 삭제');
+    assert((await count(`SELECT COUNT(*) AS n FROM employee_records WHERE employee_id = ? AND category = 'appointment'`, e.id)) === 0, '발령 이력 삭제');
+    assert(!(await documents.listPersonnelOrders({})).some((i) => i.documentId === id), '대장에서 사라짐');
+
+    const cancelledId = await order('휴직', [entry()]);
+    await orders.cancelOrder(cancelledId, '잘못 올림', adminA);
+    const second = await orders.deleteOrder(cancelledId, sysAcc);
+    assert(second.reverted.length === 0 && (await count('SELECT COUNT(*) AS n FROM personnel_order_cancels WHERE document_id = ?', cancelledId)) === 0, '취소된 명령 삭제');
+
+    const draft = await documents.createDocument(
+      adminA.id,
+      { formKey: 'personnel_order', body: { orderType: '전보', effectiveDate: yesterday, entries: [entry()] }, line: line(leader) },
+      { access: adminAAcc }
+    );
+    await expectError(() => orders.deleteOrder(draft.id, sysAcc), /결재가 끝난/, 409);
+    await documents.withdrawDocument(adminAAcc, draft.id);
+  } finally {
+    await db.prepare('DELETE FROM personnel_order_actions WHERE employee_id = ?').run(e.id);
+    await db.prepare('DELETE FROM employee_records WHERE employee_id = ?').run(e.id);
+    await db.prepare('DELETE FROM leave_balance_snapshots WHERE employee_id = ?').run(e.id);
+    await db.prepare('DELETE FROM employees WHERE id = ?').run(e.id);
+  }
+});
+
+await check('입사 구분 계약직: 평가 일정 없음, 신입에서 바꾸면 작성 전 평가 정리, 목록 밖 값은 거절', async () => {
+  const employees = await import('../server/services/employeeService.js');
+  const evaluation = await import('../server/services/evaluationService.js');
+  const hireDate = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 10);
+  const evals = async (id) => Number((await db.prepare('SELECT COUNT(*) AS n FROM employee_evaluations WHERE employee_id = ?').get(id)).n);
+  const e = await employees.createEmployee({ name: '계약직시험', hireDate, workplace: member.workplace, department: member.department, hireType: 'contract' });
+  try {
+    let row = await db.prepare('SELECT * FROM employees WHERE id = ?').get(e.id);
+    assert(e.hireType === 'contract' && (await evals(e.id)) === 0 && !row.probation_end && !row.regular_date, '계약직 등록');
+    await evaluation.setHireType(e.id, 'new');
+    assert((await evals(e.id)) === 2, `신입 평가 ${await evals(e.id)}`);
+    await evaluation.setHireType(e.id, 'contract');
+    row = await db.prepare('SELECT * FROM employees WHERE id = ?').get(e.id);
+    assert((await evals(e.id)) === 0 && row.hire_type === 'contract' && !row.probation_end, '계약직으로 바꾸면 평가 정리');
+    await expectError(() => evaluation.setHireType(e.id, 'intern'), /신입·경력·계약직/);
+  } finally {
+    await db.prepare('DELETE FROM employee_evaluations WHERE employee_id = ?').run(e.id);
+    await db.prepare('DELETE FROM leave_balance_snapshots WHERE employee_id = ?').run(e.id);
+    await db.prepare('DELETE FROM employees WHERE id = ?').run(e.id);
+  }
+});
+
+await check('입사 서류: 요청 검사·다시 요청은 갱신, 동의·주소·PDF 필수, 서명하면 증명서류 저장·주소 채움, 본인만 사본, 취소·중복 제출 불가', async () => {
+  const employees = await import('../server/services/employeeService.js');
+  const onboarding = await import('../server/services/onboardingService.js');
+  const { defaultMonthlyBonus, wageTotals } = await import('../src/constants/onboarding.js');
+  const hireDate = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(0, 10);
+  const e = await employees.createEmployee({ name: '입사서류시험', hireDate, workplace: member.workplace, department: member.department });
+  const actor = { id: adminA.id, name: adminA.name };
+  const contract = {
+    startDate: hireDate,
+    contractDate: hireDate,
+    workplace: '서울사무소',
+    duty: '사무직(사원/신입), 영업1팀 업무',
+    workStart: '08:30',
+    workEnd: '17:30',
+    breakStart: '12:00',
+    breakEnd: '13:00',
+    workDays: '매주 5일근무',
+    wageTerms: '상여금 : 기본급의 25%를 매월 지급',
+    insurance: { employment: true, accident: true, pension: true, health: true },
+  };
+  const wage = { period: "26' 3월 ~ 27' 2월(1년)", noticeDate: hireDate, basePay: 3206340, allowance: 0, monthlyBonus: 801580 };
+  const pdf = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n');
+  try {
+    assert(defaultMonthlyBonus(3206340) === 801580 && wageTotals(wage).annual === 48095040, '임금 계산');
+    await expectError(() => onboarding.createRequests(e.id, { forms: [] }, actor), /하나 이상/);
+    await expectError(() => onboarding.createRequests(e.id, { forms: [{ kind: 'resume' }] }, actor), /서류 종류/);
+    await expectError(() => onboarding.createRequests(e.id, { forms: [{ kind: 'contract', data: { ...contract, workplace: '' } }] }, actor), /근무장소/);
+    await expectError(() => onboarding.createRequests(e.id, { forms: [{ kind: 'wage', data: { ...wage, basePay: 0 } }] }, actor), /기본급/);
+    await expectError(
+      () => onboarding.createRequests(e.id, { forms: [{ kind: 'pledge' }, { kind: 'pledge' }] }, actor),
+      /두 번/
+    );
+    const forms = [
+      { kind: 'contract', data: contract },
+      { kind: 'wage', data: wage },
+      { kind: 'pledge' },
+      { kind: 'ethics', data: { department: '영업1팀', rank: '사원' } },
+    ];
+    let list = (await onboarding.createRequests(e.id, { forms }, actor)).forms;
+    assert(list.length === 4 && list.every((f) => f.status === 'requested' && f.requestedBy === adminA.name), '4건 요청');
+    list = (await onboarding.createRequests(e.id, { forms: [{ kind: 'contract', data: { ...contract, workplace: '천안공장' } }] }, actor)).forms;
+    const byKind = Object.fromEntries(list.map((f) => [f.kind, f]));
+    assert(list.length === 4 && byKind.contract.company.workplace === '천안공장', '다시 요청하면 대기 중 요청을 갱신');
+    assert(byKind.wage.company.hireDate === hireDate && byKind.wage.company.basePay === 3206340, '임금 스냅샷');
+    assert((await onboarding.summary(e.id)).tasks === 4, '작성할 서류 4');
+
+    const mine = await onboarding.listMine(e.id);
+    assert(mine.forms.length === 4 && mine.employee.name === '입사서류시험' && mine.company.companyName, '본인 목록');
+    const id = byKind.contract.id;
+    await expectError(() => onboarding.submit(e.id, id, { agreed: '', address: '서울', phone: '010', content: pdf }), /동의/);
+    await expectError(() => onboarding.submit(e.id, id, { agreed: '1', address: '', phone: '010', content: pdf }), /주소/);
+    await expectError(() => onboarding.submit(e.id, id, { agreed: '1', address: '서울', phone: '010', content: Buffer.from('hello') }), /PDF/);
+    await expectError(() => onboarding.submit(outsider.id, id, { agreed: '1', address: '서울', phone: '010', content: pdf }), null, 404);
+
+    const signed = await onboarding.submit(e.id, id, { agreed: '1', address: '서울 용산구 한강대로 1', phone: '010-1234-5678', content: pdf });
+    assert(signed.status === 'signed' && signed.documentId && signed.employeeInput.address === '서울 용산구 한강대로 1', '서명 완료');
+    const doc = await db.prepare('SELECT * FROM employee_documents WHERE id = ?').get(Number(signed.documentId));
+    assert(doc && Number(doc.employee_id) === Number(e.id) && doc.doc_type === '근로계약서' && doc.extension === 'pdf', '증명서류 저장');
+    const profile = await db.prepare('SELECT address, mobile_phone FROM employee_profiles WHERE employee_id = ?').get(e.id);
+    assert(profile?.address === '서울 용산구 한강대로 1' && profile?.mobile_phone === '010-1234-5678', '빈 주소·휴대전화 채움');
+    await expectError(() => onboarding.submit(e.id, id, { agreed: '1', address: '서울', phone: '010', content: pdf }), null, 409);
+    const file = await onboarding.getMyFile(e.id, id);
+    assert(file.content.equals(pdf) && file.contentType === 'application/pdf', '본인 사본');
+    await expectError(() => onboarding.getMyFile(outsider.id, id), null, 404);
+    await expectError(() => onboarding.getMyFile(e.id, byKind.pledge.id), null, 409);
+
+    const pledge = await onboarding.submit(e.id, byKind.pledge.id, { agreed: true, address: '서울', content: pdf });
+    assert(pledge.status === 'signed' && !('phone' in pledge.employeeInput), '서약서는 주소만');
+
+    await onboarding.cancelRequest(byKind.wage.id);
+    await expectError(() => onboarding.cancelRequest(id), null, 409);
+    await expectError(() => onboarding.submit(e.id, byKind.wage.id, { agreed: '1', content: pdf }), null, 409);
+    const after = await onboarding.listMine(e.id);
+    assert(after.forms.length === 3 && !after.forms.some((f) => f.kind === 'wage'), '취소한 요청은 본인 화면에서 뺌');
+    const sum = await onboarding.summary(e.id);
+    assert(sum.tasks === 1 && sum.total === 3, `요약 ${JSON.stringify(sum)}`);
+
+    await db.prepare('DELETE FROM employee_documents WHERE id = ?').run(Number(signed.documentId));
+    await expectError(() => onboarding.getMyFile(e.id, id), /보관된 서류/, 404);
+  } finally {
+    await db.prepare('DELETE FROM onboarding_forms WHERE employee_id = ?').run(e.id);
+    await db.prepare('DELETE FROM employee_documents WHERE employee_id = ?').run(e.id);
+    await db.prepare('DELETE FROM employee_profiles WHERE employee_id = ?').run(e.id);
+    await db.prepare('DELETE FROM employee_evaluations WHERE employee_id = ?').run(e.id);
+    await db.prepare('DELETE FROM leave_balance_snapshots WHERE employee_id = ?').run(e.id);
+    await db.prepare('DELETE FROM employees WHERE id = ?').run(e.id);
+  }
+});
+
 await check('문서함(관리): 양식·상태 필터, CSV', async () => {
   const all = await documents.listAll({ year });
   assert(all.length >= 6, `문서 ${all.length}`);

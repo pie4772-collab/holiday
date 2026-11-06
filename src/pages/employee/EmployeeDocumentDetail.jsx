@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Check, FileBadge, Inbox, Printer, RotateCcw, Undo2, X } from 'lucide-react';
+import { Ban, Check, FileBadge, Inbox, Printer, RotateCcw, Undo2, X } from 'lucide-react';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { ErrorMessage } from '../../components/ErrorMessage';
 import { PageHeader } from '../../components/ui/PageHeader';
@@ -282,6 +282,16 @@ export function EmployeeDocumentDetail() {
           >
             증명서 보기
           </Link>
+        </div>
+      )}
+
+      {doc.orderCancel && (
+        <div className="mb-6 flex items-start gap-2 rounded-md border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-sm text-[#991b1b]">
+          <Ban className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            발령 취소된 인사명령입니다 ({doc.orderCancel.byName} · {String(doc.orderCancel.at || '').slice(0, 10)}). 사유:{' '}
+            {doc.orderCancel.reason}
+          </span>
         </div>
       )}
 

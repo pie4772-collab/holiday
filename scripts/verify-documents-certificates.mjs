@@ -1059,6 +1059,25 @@ await check('특별휴가: 여러 날 한 번에 반려·취소, 가족돌봄 �
   assert(left.length === 0, `취소 후 ${left.length}건 남음`);
 });
 
+await check('조직도: 사업장·부서·팀장·팀원, 겸직 팀장, 사업장관리자 범위', async () => {
+  const { getOrgChart } = await import('../server/services/orgService.js');
+  const chart = await getOrgChart();
+  const depts = chart.workplaces.flatMap((w) => w.departments);
+  const people = [...chart.ceo, ...chart.officers.map((o) => o.holder).filter(Boolean), ...chart.workplaces.flatMap((w) => w.heads), ...depts.flatMap((d) => [...d.leads.filter((l) => !l.concurrent), ...d.members])];
+  const activeCount = Number((await db.prepare('SELECT COUNT(*) AS n FROM employees WHERE is_active = 1').get()).n);
+  assert(chart.total === activeCount, `재직 ${chart.total} / ${activeCount}`);
+  assert(new Set(people.map((p) => p.id)).size === chart.total, `중복·누락 ${new Set(people.map((p) => p.id)).size} / ${chart.total}`);
+  const myDept = depts.find((d) => d.members.some((m) => m.id === String(member.id)));
+  assert(myDept && myDept.leads.some((l) => l.id === String(leader.id)), `팀원 ${member.name}의 부서에 팀장 ${leader.name}`);
+  const concurrent = active.find((e) => e.concurrent_position === '팀장' && e.concurrent_dept_code);
+  if (concurrent) {
+    const dept = depts.find((d) => d.code === String(concurrent.concurrent_dept_code));
+    assert(dept?.leads.some((l) => l.id === String(concurrent.id) && l.concurrent), '겸직 팀장');
+  }
+  const scoped = await getOrgChart(new Set([String(member.id), String(leader.id)]));
+  assert(scoped.total === 2 && scoped.workplaces.flatMap((w) => w.departments).length >= 1, '범위 제한');
+});
+
 await check('법정의무교육: 배정·수강·이수 기록이 있어도 배정·과정 삭제, 기록도 함께 삭제', async () => {
   const training = await import('../server/services/trainingService.js');
   const today = new Date().toISOString().slice(0, 10);

@@ -4,6 +4,7 @@ import { leaveKeys } from './useLeaveData';
 
 export const rosterKeys = {
   roster: (includeInactive) => ['admin', 'roster', includeInactive],
+  orgChart: ['admin', 'roster', 'org-chart'],
 };
 
 function invalidateRoster(queryClient) {
@@ -18,6 +19,10 @@ export function useEmployeeRoster(includeInactive = true) {
     queryKey: rosterKeys.roster(includeInactive),
     queryFn: () => leaveApi.getEmployeeRoster(includeInactive),
   });
+}
+
+export function useOrgChart() {
+  return useQuery({ queryKey: rosterKeys.orgChart, queryFn: leaveApi.getOrgChart, staleTime: 0 });
 }
 
 export function useCreateEmployee() {

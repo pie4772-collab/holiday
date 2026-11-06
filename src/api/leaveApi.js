@@ -300,6 +300,10 @@ export const leaveApi = {
     return apiClient(`/admin/roster${q}`);
   },
 
+  async getOrgChart() {
+    return apiClient('/admin/org-chart');
+  },
+
   async createEmployee(data) {
     if (USE_MOCK) {
       await delay(400);

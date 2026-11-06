@@ -16,6 +16,7 @@ import * as trainingService from '../services/trainingService.js';
 import * as documentService from '../services/documentService.js';
 import * as certificateService from '../services/certificateService.js';
 import * as storageService from '../services/storageService.js';
+import * as orgService from '../services/orgService.js';
 import { sendFile } from '../utils/fileUpload.js';
 import { getClientIp, describeClientIp } from '../utils/clientIp.js';
 import { DOCUMENT_MAX_BYTES } from '../../src/constants/personnel.js';
@@ -420,6 +421,14 @@ router.get('/admin/roster', requirePermission('employees.view'), async (req, res
     const roster = await employeeService.getEmployeeRoster(includeInactive);
     const ids = await accessService.scopedEmployeeIds(req.access, 'employees.view');
     res.json(ids ? roster.filter((emp) => ids.has(String(emp.id))) : roster);
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.get('/admin/org-chart', requirePermission('employees.view'), async (req, res, next) => {
+  try {
+    res.json(await orgService.getOrgChart(await accessService.scopedEmployeeIds(req.access, 'employees.view')));
   } catch (e) {
     next(e);
   }

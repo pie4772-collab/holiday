@@ -48,6 +48,7 @@ import { EmployeeDocumentDetail } from './pages/employee/EmployeeDocumentDetail'
 import { EmployeeCertificates } from './pages/employee/EmployeeCertificates';
 import { AdminDocuments } from './pages/admin/AdminDocuments';
 import { AdminPersonnelOrders } from './pages/admin/AdminPersonnelOrders';
+import { AdminOrgChart } from './pages/admin/AdminOrgChart';
 import { AdminCertificates } from './pages/admin/AdminCertificates';
 import { VerifyCertificatePage } from './pages/VerifyCertificatePage';
 import { useAppStore } from './store/useAppStore';
@@ -173,6 +174,7 @@ function AppRoutes() {
           <Route path="approvals" element={<EmployeeApprovals />} />
           <Route path="approval-history" element={guard('approvalLogs.view', <AdminApprovalHistory />)} />
           <Route path="roster" element={guard('employees.view', <AdminEmployeeRoster />)} />
+          <Route path="org-chart" element={guard('employees.view', <AdminOrgChart />)} />
           <Route path="personnel" element={guard('records.view', <AdminPersonnelList />)} />
           <Route path="personnel/:id" element={guard('records.view', <AdminPersonnelCard />)} />
           <Route path="personnel-orders" element={guard('employees.manage', <AdminPersonnelOrders />)} />
